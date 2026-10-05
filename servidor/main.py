@@ -16,7 +16,7 @@ class PingRespuesta(BaseModel):
 
 
 @app.get("/ping", response_model=PingRespuesta)
-def ping():
+def ping() -> PingRespuesta:
     return PingRespuesta(
         estado="ok",
         mensaje="Servidor Cuentas Claras activo",
