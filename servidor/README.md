@@ -57,6 +57,14 @@ Todos los comandos se ejecutan desde la carpeta `servidor/`.
    pip install -r requirements.txt
 ```
 
+   Si además vas a ejecutar las pruebas y las herramientas de calidad,
+   instala en su lugar las dependencias de desarrollo (incluyen las
+   anteriores):
+
+```bash
+   pip install -r requirements-dev.txt
+```
+
 ## Ejecutar en modo desarrollo
 
 ```bash
@@ -106,12 +114,85 @@ FastAPI genera la documentación de la API automáticamente:
 - Swagger UI: `http://localhost:8000/docs`
 - OpenAPI (JSON): `http://localhost:8000/openapi.json`
 
+## Pruebas y calidad
+
+Todos los comandos se ejecutan desde la carpeta `servidor/`, con el
+entorno virtual activado y las dependencias de desarrollo instaladas
+(`pip install -r requirements-dev.txt`).
+
+Antes de abrir un pull request deben pasar sin errores las cinco
+comprobaciones siguientes.
+
+**1. Pruebas automatizadas**
+
+```bash
+pytest
+```
+
+**2. Linter** (revisa errores y malas prácticas en el código)
+
+```bash
+ruff check .
+```
+
+**3. Formato** (comprueba el estilo sin modificar archivos)
+
+```bash
+ruff format --check .
+```
+
+Si falla, aplica el formato automáticamente con:
+
+```bash
+ruff format .
+```
+
+**4. Tipos** (modo estricto)
+
+```bash
+mypy
+```
+
+**5. Vulnerabilidades en las dependencias** (necesita conexión a internet)
+
+```bash
+pip-audit -r requirements-dev.txt
+```
+
+### Qué verifican las pruebas
+
+Las pruebas están en `tests/test_main.py` y usan el `TestClient` de
+FastAPI, así que no hace falta levantar el servidor. Para `/ping`
+comprueban que:
+
+- responde `200 OK` y con contenido JSON;
+- contiene exactamente los campos `estado`, `mensaje`, `version` y
+  `timestamp`;
+- `estado`, `mensaje` y `version` tienen los valores esperados;
+- `timestamp` tiene el formato `AAAA-MM-DDThh:mm:ssZ` (UTC) y
+  corresponde a la hora actual;
+- `POST /ping` es rechazado con `405` (el endpoint es de solo lectura);
+- `/docs` y `/openapi.json` están disponibles y documentan `/ping`.
+
+### Configuración
+
+La configuración de `pytest`, `ruff` y `mypy` está en `pyproject.toml`.
+Las dependencias de desarrollo están separadas en
+`requirements-dev.txt` para que `requirements.txt` solo contenga lo que
+necesita el servidor en producción. Las decisiones detrás de estas
+herramientas están en
+[ADR-003](../docs/adr/ADR-003-herramientas-de-calidad-servidor.md).
+
 ## Estructura
 
 ```
 servidor/
-├── main.py            # Aplicación FastAPI y endpoint /ping
-├── requirements.txt   # Dependencias de Python
+├── main.py                # Aplicación FastAPI y endpoint /ping
+├── tests/
+│   └── test_main.py       # Pruebas automatizadas de /ping
+├── pyproject.toml         # Configuración de pytest, ruff y mypy
+├── requirements.txt       # Dependencias de Python
+├── requirements-dev.txt   # Dependencias de desarrollo y calidad
 └── README.md
 ```
 
@@ -122,3 +203,12 @@ servidor/
 - **El puerto 8000 está ocupado:** cierra el proceso que lo usa o inicia
   el servidor con otro puerto (`--port 8001`). Si cambias el puerto,
   avisa al equipo para actualizar la URL en la aplicación cliente.
+- **`pytest`, `ruff` o `mypy` no se reconocen como comando:** instalaste
+  solo `requirements.txt`. Ejecuta
+  `pip install -r requirements-dev.txt`.
+- **`ModuleNotFoundError: No module named 'main'` al correr las
+  pruebas:** ejecuta `pytest` desde la carpeta `servidor/`, donde está
+  el `pyproject.toml`.
+- **`The starlette.testclient module requires the httpx2 package`:**
+  falta `httpx2`. Instala las dependencias de desarrollo como se indica
+  arriba.
