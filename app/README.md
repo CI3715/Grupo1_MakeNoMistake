@@ -86,6 +86,8 @@ Con la opción `output: "export"` de `next.config.ts`, este comando no produce u
 ```
 app/
 ├── app/                  # Páginas de la interfaz (App Router de Next.js)
+|   | components/
+    | ├── PingScreen.tsx  # Componente de prueba para verificar estado y comunicación con Tauri
 │   ├── layout.tsx        # Estructura común de todas las páginas
 │   ├── page.tsx          # Página principal
 │   └── globals.css       # Estilos globales (Tailwind)
