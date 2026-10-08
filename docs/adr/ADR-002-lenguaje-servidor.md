@@ -10,7 +10,8 @@ de la Entrega 1 (endpoint GET /ping).
 - Puerto de desarrollo: 8000. Se evita el 3000 porque Next.js lo usa
   por defecto en desarrollo.
 - Ubicación: carpeta `servidor/` en la raíz del monorepo.
-- Dependencias fijadas en `servidor/requirements.txt`, con entorno
+- Dependencias gestionadas con `uv` (ver ADR-003): declaradas en
+  `servidor/pyproject.toml` y fijadas en `servidor/uv.lock`, con entorno
   virtual local (`.venv`, excluido de Git).
 - Contrato de /ping: JSON con `estado`, `mensaje`, `version` y
   `timestamp` (UTC, formato ISO 8601), respuesta 200.
