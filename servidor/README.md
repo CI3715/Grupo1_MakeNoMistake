@@ -6,13 +6,15 @@ con la aplicación cliente.
 
 ## Prerrequisitos
 
-- Python 3.10 o superior
+- [uv](https://docs.astral.sh/uv/) 0.12 o superior
 - Git
 
-Para comprobar la versión de Python:
+`uv` se encarga de instalar y gestionar la versión de Python que
+necesita el proyecto (3.13 o superior), así que no hace falta instalar
+Python por separado. Para comprobar la versión de `uv`:
 
 ```bash
-python --version
+uv --version
 ```
 
 ## Instalación
@@ -25,50 +27,29 @@ Todos los comandos se ejecutan desde la carpeta `servidor/`.
    cd servidor
 ```
 
-2. Crear el entorno virtual:
+2. Sincronizar el entorno y las dependencias:
 
 ```bash
-   python -m venv .venv
+   uv sync
 ```
 
-3. Activar el entorno virtual:
+   Este comando crea el entorno virtual en `.venv`, instala las
+   dependencias de producción y las de desarrollo (grupo `dev`, definido
+   en `pyproject.toml`), y deja todo listo a partir de `uv.lock`.
 
-   - Windows (PowerShell):
-
-```powershell
-     .venv\Scripts\activate
-```
-
-     Si PowerShell bloquea la ejecución de scripts, ejecuta una vez
-     `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` y vuelve a
-     intentarlo.
-
-   - macOS / Linux:
+   Si solo quieres las dependencias de producción:
 
 ```bash
-     source .venv/bin/activate
+   uv sync --no-dev
 ```
 
-   Al activarse, la terminal muestra `(.venv)` al inicio de la línea.
-
-4. Instalar las dependencias:
-
-```bash
-   pip install -r requirements.txt
-```
-
-   Si además vas a ejecutar las pruebas y las herramientas de calidad,
-   instala en su lugar las dependencias de desarrollo (incluyen las
-   anteriores):
-
-```bash
-   pip install -r requirements-dev.txt
-```
+   No es necesario activar el entorno virtual: los comandos de `uv`
+   (por ejemplo `uv run`) lo usan automáticamente.
 
 ## Ejecutar en modo desarrollo
 
 ```bash
-uvicorn main:app --reload --port 8000
+   uv run uvicorn main:app --reload --port 8000
 ```
 
 El servidor queda disponible en `http://localhost:8000`. La opción
@@ -116,9 +97,8 @@ FastAPI genera la documentación de la API automáticamente:
 
 ## Pruebas y calidad
 
-Todos los comandos se ejecutan desde la carpeta `servidor/`, con el
-entorno virtual activado y las dependencias de desarrollo instaladas
-(`pip install -r requirements-dev.txt`).
+Todos los comandos se ejecutan desde la carpeta `servidor/`, con las
+dependencias de desarrollo instaladas (`uv sync`).
 
 Antes de abrir un pull request deben pasar sin errores las cinco
 comprobaciones siguientes.
@@ -126,37 +106,37 @@ comprobaciones siguientes.
 **1. Pruebas automatizadas**
 
 ```bash
-pytest
+uv run pytest
 ```
 
 **2. Linter** (revisa errores y malas prácticas en el código)
 
 ```bash
-ruff check .
+uv run ruff check .
 ```
 
 **3. Formato** (comprueba el estilo sin modificar archivos)
 
 ```bash
-ruff format --check .
+uv run ruff format --check .
 ```
 
 Si falla, aplica el formato automáticamente con:
 
 ```bash
-ruff format .
+uv run ruff format .
 ```
 
 **4. Tipos** (modo estricto)
 
 ```bash
-mypy
+uv run mypy
 ```
 
 **5. Vulnerabilidades en las dependencias** (necesita conexión a internet)
 
 ```bash
-pip-audit -r requirements-dev.txt
+uv audit
 ```
 
 ### Qué verifican las pruebas
@@ -177,10 +157,10 @@ comprueban que:
 ### Configuración
 
 La configuración de `pytest`, `ruff` y `mypy` está en `pyproject.toml`.
-Las dependencias de desarrollo están separadas en
-`requirements-dev.txt` para que `requirements.txt` solo contenga lo que
-necesita el servidor en producción. Las decisiones detrás de estas
-herramientas están en
+Las dependencias de ejecución están en `[project.dependencies]` y las
+de desarrollo en el grupo `dev` de `[dependency-groups]`, también en
+`pyproject.toml`, con todas las versiones fijadas y resueltas en
+`uv.lock`. Las decisiones detrás de estas herramientas están en
 [ADR-003](../docs/adr/ADR-003-herramientas-de-calidad-servidor.md).
 
 ## Estructura
@@ -190,25 +170,25 @@ servidor/
 ├── main.py                # Aplicación FastAPI y endpoint /ping
 ├── tests/
 │   └── test_main.py       # Pruebas automatizadas de /ping
-├── pyproject.toml         # Configuración de pytest, ruff y mypy
-├── requirements.txt       # Dependencias de Python
-├── requirements-dev.txt   # Dependencias de desarrollo y calidad
+├── pyproject.toml         # Dependencias y configuración de pytest, ruff y mypy
+├── uv.lock                # Versiones fijadas de todas las dependencias
+├── .python-version        # Versión de Python que usa uv
 └── README.md
 ```
 
 ## Problemas comunes
 
-- **`uvicorn` no se reconoce como comando:** el entorno virtual no está
-  activado, o las dependencias no se instalaron. Repite los pasos 3 y 4.
+- **`uvicorn` no se reconoce como comando:** usa siempre
+  `uv run uvicorn ...`, o ejecuta `uv sync` para volver a sincronizar el
+  entorno.
+- **Faltan `pytest`, `ruff` o `mypy`:** no sincronizaste las
+  dependencias de desarrollo. Ejecuta `uv sync` (sin `--no-dev`).
 - **El puerto 8000 está ocupado:** cierra el proceso que lo usa o inicia
   el servidor con otro puerto (`--port 8001`). Si cambias el puerto,
   avisa al equipo para actualizar la URL en la aplicación cliente.
-- **`pytest`, `ruff` o `mypy` no se reconocen como comando:** instalaste
-  solo `requirements.txt`. Ejecuta
-  `pip install -r requirements-dev.txt`.
 - **`ModuleNotFoundError: No module named 'main'` al correr las
-  pruebas:** ejecuta `pytest` desde la carpeta `servidor/`, donde está
-  el `pyproject.toml`.
+  pruebas:** ejecuta `uv run pytest` desde la carpeta `servidor/`, donde
+  está el `pyproject.toml`.
 - **`The starlette.testclient module requires the httpx2 package`:**
-  falta `httpx2`. Instala las dependencias de desarrollo como se indica
-  arriba.
+  falta `httpx2`. Ejecuta `uv sync` para instalar las dependencias de
+  desarrollo.

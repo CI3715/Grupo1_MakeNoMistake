@@ -1,18 +1,54 @@
+[project]
+name = "servidor"
+version = "0.1.0"
+description = "Backend de Cuentas Claras, hecho con Python y FastAPI."
+readme = "README.md"
+authors = [
+    { email = "131113028+EPTalejandro@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "annotated-doc==0.0.5",
+    "annotated-types==0.8.0",
+    "anyio==4.15.1",
+    "click==8.5.0",
+    "fastapi==0.142.2",
+    "h11==0.16.0",
+    "idna==3.20",
+    "opentelemetry-api==1.45.0",
+    "pydantic==2.13.5",
+    "pydantic-core==2.46.5",
+    "starlette==1.7.0",
+    "typing-extensions==4.16.0",
+    "typing-inspection==0.4.4",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx2==2.13.1",
+    "ruff==0.16.10",
+    "mypy==2.4.0",
+]
+
+[tool.uv]
+package = false
+
 # Configuración de las herramientas de calidad del servidor.
 # Todos los comandos se ejecutan desde la carpeta servidor/.
- 
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
- 
+
 [tool.ruff]
 target-version = "py310"
 line-length = 88
- 
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "PTH"]
- 
+
 [tool.mypy]
 strict = true
 files = ["main.py", "tests"]
- 
