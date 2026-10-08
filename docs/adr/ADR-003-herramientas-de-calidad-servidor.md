@@ -19,12 +19,13 @@ dónde se configuran.
   equivalente de `cargo fmt` y `clippy`.
 - Verificación de tipos: `mypy` en modo estricto, sobre `main.py` y
   `tests/`.
-- Auditoría de dependencias: `pip-audit`, equivalente de `cargo-audit`,
-  ejecutado sobre `servidor/requirements-dev.txt`.
+- Auditoría de dependencias: `uv audit`, equivalente de `cargo-audit`,
+  ejecutado sobre `servidor/uv.lock`.
 - Configuración de `pytest`, `ruff` y `mypy` en `servidor/pyproject.toml`.
-- Dependencias de desarrollo en `servidor/requirements-dev.txt`, con
-  versiones fijadas, separadas de `servidor/requirements.txt`. El primero
-  incluye al segundo.
+- Gestión de paquetes con `uv`: las dependencias de ejecución están en
+  `[project.dependencies]` y las de desarrollo en el grupo `dev` de
+  `[dependency-groups]`, ambas en `servidor/pyproject.toml`, con
+  versiones fijadas y resueltas en `servidor/uv.lock`.
 
 ## Alternativas consideradas
 - **`unittest`:** forma parte de la biblioteca estándar, pero es más
@@ -42,12 +43,13 @@ dónde se configuran.
   desde `servidor/`; las dependencias de ejecución no incluyen
   herramientas de desarrollo; se cubren los equivalentes que exige la
   Guía Técnica.
-- Negativas: las versiones fijadas se actualizan manualmente; `httpx2`
-  es un paquete reciente (fork de `httpx`); `pip-audit` requiere
-  conexión a internet.
+- Negativas: `httpx2` es un paquete reciente (fork de `httpx`);
+  `uv audit` requiere conexión a internet.
 
 ## Estado
-Aceptado
+Aceptado. Enmienda del 2026-10-07: la gestión de dependencias migró de
+`pip` + `requirements*.txt` a `uv` + `uv.lock`, y la auditoría de
+vulnerabilidades de `pip-audit` a `uv audit`.
 
 ## Fecha
 2026-10-05
