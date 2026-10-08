@@ -4,9 +4,12 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface PingResponse {
+  exito: boolean; 
   mensaje: string;
-  version: string;
+  version: string | null;
+  timestamp: string | null;
   latencia_ms: number;
+  error: string | null;
 }
 
 export default function PingScreen() {
@@ -20,7 +23,11 @@ export default function PingScreen() {
 
     try {
       const response = await invoke<PingResponse>('ping_servidor');
-      setData(response);
+      if(response.exito) {
+        setData(response);
+      } else {
+        setError(response.mensaje);
+      }
     } catch (err: unknown) {
       if (typeof err === 'string') {
         setError(err);
