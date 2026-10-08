@@ -1,6 +1,6 @@
 # Aplicación — Cuentas Claras
 
-Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. En la Entrega 1 la aplicación abre su ventana principal mostrando la página de inicio de Next.js; la pantalla de verificación de conexión y el comando que llama al servidor (`ping_servidor`) se agregan en otras ramas del equipo.
+Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. En la Entrega 1 la aplicación abre su ventana principal con una pantalla de verificación de conexión: un botón invoca el comando de Rust `ping_servidor`, que hace la petición `GET /ping` al servidor y devuelve el estado, el mensaje, la versión y la latencia en milisegundos.
 
 Los comandos de este documento se ejecutan desde la carpeta `app/`, salvo que se indique otra cosa. El archivo `package.json` vive aquí y no en la raíz del repositorio, así que si npm se queja de que no lo encuentra, casi seguro estás en la carpeta equivocada.
 
@@ -101,7 +101,8 @@ app/
 │   ├── icons/            # Íconos de la aplicación
 │   └── src/
 │       ├── main.rs       # Punto de entrada
-│       └── lib.rs        # Aquí viven los comandos de Rust
+│       ├── lib.rs        # Registro de los comandos de Rust
+│       └── ping.rs       # Comando ping_servidor (petición GET /ping)
 ├── next.config.ts        # Configuración de Next.js (exportación estática)
 ├── package.json          # Dependencias y scripts de la interfaz
 └── package-lock.json     # Versiones exactas de la interfaz
