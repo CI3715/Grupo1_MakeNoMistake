@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface PingResponse {
-  exito: boolean; 
+  exito: boolean;
   mensaje: string;
   version: string | null;
   timestamp: string | null;
@@ -17,13 +17,16 @@ export default function PingScreen() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<PingResponse | null>(null);
 
+  const conectado = data !== null && !error && !loading;
+
   const handleVerificarConexion = async () => {
     setLoading(true);
     setError(null);
+    setData(null);
 
     try {
       const response = await invoke<PingResponse>('ping_servidor');
-      if(response.exito) {
+      if (response.exito) {
         setData(response);
       } else {
         setError(response.mensaje);
@@ -47,6 +50,23 @@ export default function PingScreen() {
         Estado del Servidor
       </h2>
 
+      <div className="flex items-center justify-between mb-4">
+        <span className="font-medium text-gray-700">Estado:</span>
+        {loading ? (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+            Verificando...
+          </span>
+        ) : conectado ? (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+            Conectado
+          </span>
+        ) : (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+            Desconectado
+          </span>
+        )}
+      </div>
+
       <button
         onClick={handleVerificarConexion}
         disabled={loading}
@@ -63,12 +83,6 @@ export default function PingScreen() {
       </button>
 
       <div className="mt-6 space-y-4">
-        {loading && (
-          <div className="p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-md text-sm">
-            Cargando datos de conexión...
-          </div>
-        )}
-
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm">
             <p className="font-semibold">Error de Conexión:</p>
@@ -76,16 +90,9 @@ export default function PingScreen() {
           </div>
         )}
 
-        {data && !loading && !error && (
-          <div className="p-4 bg-green-50 border border-green-200 text-gray-800 rounded-md space-y-2 text-sm">
-            <div className="flex items-center justify-between pb-2 border-b border-green-200">
-              <span className="font-medium">Estado:</span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                Conectado
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
+        {conectado && data && (
+          <div className="p-4 bg-green-50 border border-green-200 text-gray-800 rounded-md text-sm">
+            <div className="grid grid-cols-2 gap-2">
               <div>
                 <span className="text-gray-500 block text-xs">Mensaje:</span>
                 <span className="font-medium">{data.mensaje}</span>
