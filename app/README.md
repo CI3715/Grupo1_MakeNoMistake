@@ -73,6 +73,26 @@ Este comando hace dos cosas seguidas. Primero lanza `npm run dev`, que levanta N
 
 Si solo se quiere trabajar la interfaz en el navegador, sin Rust, basta con `npm run dev` y abrir `http://localhost:3000`. Hay que tener en cuenta que el servidor del proyecto usa el puerto 8000, justamente para no chocar con el 3000 de Next.js; las instrucciones para levantarlo están en `servidor/README.md`.
 
+## Configurar la dirección del servidor
+
+Por defecto, la aplicación busca el servidor en `http://localhost:8000`, que es
+el puerto del servidor de `servidor/README.md`. Para usar otra dirección, define
+la variable de entorno `CUENTAS_CLARAS_URL` al arrancar la aplicación.
+
+En Linux y Git Bash:
+
+    CUENTAS_CLARAS_URL=http://localhost:9999 npm run tauri dev
+
+En PowerShell (Windows):
+
+    $env:CUENTAS_CLARAS_URL="http://localhost:9999"
+    npm run tauri dev
+
+La variable solo vale para esa ejecución. Si el servidor está apagado o la
+dirección es incorrecta, la pantalla muestra un mensaje de error en vez de
+"Conectado". Usa `http` solo en desarrollo: en producción el servidor debe
+estar detrás de HTTPS (RNF-06).
+
 ## Construir la interfaz estática
 
 ```
@@ -144,3 +164,7 @@ Si `cargo fmt --check` muestra diferencias, `cargo fmt` las corrige solo. `cargo
 **Tauri se niega a empaquetar un instalador.** El identificador de la aplicación en `tauri.conf.json` debe ser propio del proyecto (aquí es `com.cuentasclaras.desktop`) y no el valor por defecto `com.tauri.dev`.
 
 **`npm install` avisa de vulnerabilidades de severidad alta.** Son dependencias de herramientas de desarrollo. No hay que ejecutar `npm audit fix --force`, porque aplica cambios que pueden romper el proyecto; las vulnerabilidades pendientes quedan para revisarse y, si no se resuelven, registrarse como deuda técnica.
+
+**La pantalla muestra "No se pudo conectar con el servidor".** El servidor no
+está encendido o la dirección es otra. Levántalo según `servidor/README.md` y
+comprueba que `http://localhost:8000/ping` responde en el navegador.
