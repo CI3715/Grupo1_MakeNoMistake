@@ -1,0 +1,10 @@
+[package]
+name = "aplicacion"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+description = "Cuentas Claras: casos de uso y puertos"
+
+[dependencies]
+dominio = { path = "../dominio" }

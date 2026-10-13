@@ -7,6 +7,8 @@ license = "Apache-2.0"
 repository = ""
 edition = "2024"
 rust-version = "1.90"
+[workspace]
+members = ["crates/*"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,3 +27,6 @@ tauri = { version = "2.12.1", features = [] }
 tauri-plugin-log = "2"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
+dominio = { path = "crates/dominio" }
+aplicacion = { path = "crates/aplicacion" }
+infraestructura = { path = "crates/infraestructura" }

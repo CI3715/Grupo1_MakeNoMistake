@@ -65,9 +65,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "aplicacion"
+version = "0.1.0"
+dependencies = [
+ "dominio",
+]
+
+[[package]]
 name = "app"
 version = "0.1.0"
 dependencies = [
+ "aplicacion",
+ "dominio",
+ "infraestructura",
  "log",
  "reqwest 0.12.28",
  "serde",
@@ -704,6 +714,10 @@ dependencies = [
  "selectors",
  "tendril",
 ]
+
+[[package]]
+name = "dominio"
+version = "0.1.0"
 
 [[package]]
 name = "dpi"
@@ -1638,6 +1652,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4200d433cbd5178df7797c9c2e75b348b728e39631cf14520d1e2fc424201f4"
 dependencies = [
  "cfb",
+]
+
+[[package]]
+name = "infraestructura"
+version = "0.1.0"
+dependencies = [
+ "aplicacion",
+ "dominio",
 ]
 
 [[package]]
