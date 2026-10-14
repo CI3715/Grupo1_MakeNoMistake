@@ -52,8 +52,8 @@ impl Moneda {
         vec![
             Moneda {
                 codigo: "VES".into(),
-                nombre: "Bolívar digital".into(),
-                simbolo: "Bs.D".into(),
+                nombre: "Bolívar".into(),
+                simbolo: "Bs.".into(),
                 decimales: 2,
             },
             Moneda {
@@ -70,8 +70,8 @@ impl Moneda {
             },
             Moneda {
                 codigo: "USDT".into(),
-                nombre: "Tether".into(),
-                simbolo: "₮".into(),
+                nombre: "Tether (dólar digital)".into(),
+                simbolo: "USDT".into(),
                 decimales: 2,
             },
         ]
@@ -354,6 +354,25 @@ mod tests {
     fn todas_las_monedas_tienen_dos_decimales() {
         for m in Moneda::catalogo() {
             assert_eq!(m.decimales, 2, "La moneda {} no tiene 2 decimales", m.codigo);
+        }
+    }
+
+    #[test]
+    fn catalogo_coincide_con_el_enunciado() {
+        let esperado = [
+            ("VES", "Bolívar", "Bs."),
+            ("USD", "Dólar estadounidense", "$"),
+            ("EUR", "Euro", "€"),
+            ("USDT", "Tether (dólar digital)", "USDT"),
+        ];
+        let catalogo = Moneda::catalogo();
+        for (codigo, nombre, simbolo) in esperado {
+            let m = catalogo
+                .iter()
+                .find(|m| m.codigo == codigo)
+                .expect("moneda del catálogo");
+            assert_eq!(m.nombre, nombre);
+            assert_eq!(m.simbolo, simbolo);
         }
     }
 
