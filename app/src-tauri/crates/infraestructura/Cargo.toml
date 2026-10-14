@@ -9,3 +9,4 @@ description = "Cuentas Claras: adaptadores"
 [dependencies]
 dominio = { path = "../dominio" }
 aplicacion = { path = "../aplicacion" }
+uuid = { version = "1.28.0", features = ["v4"] }
