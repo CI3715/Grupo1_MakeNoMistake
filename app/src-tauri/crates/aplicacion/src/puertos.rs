@@ -38,16 +38,50 @@ pub enum ResultadoGuardado {
 #[error("{0}")]
 pub struct ErrorRepositorio(pub String);
 
-/// Puerto de persistencia para el libro inmutable de eventos.
+/// Fila de la proyección materializada `cuentas` (modelo de lectura).
+///
+/// Es una caché derivada del libro de eventos: se puede borrar y reconstruir por
+/// completo en cualquier momento. Nunca es la fuente de verdad. Los montos viajan
+/// como texto ya formateado con la escala de su moneda.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CuentaProyectada {
+    /// Identificador de la cuenta (coincide con el del evento `CuentaCreada`).
+    pub id: String,
+    /// Nombre único de la cuenta.
+    pub nombre: String,
+    /// Tipo en texto (`"efectivo"`, `"banco"`, `"billetera_digital"`).
+    pub tipo: String,
+    /// Código de la moneda (`"VES"`, `"USD"`, ...).
+    pub moneda: String,
+    /// Saldo actual formateado con la escala de la moneda.
+    pub saldo_actual: String,
+    /// Estado de la cuenta (por ahora siempre `"activa"`).
+    pub estado: String,
+}
+
+/// Puerto de persistencia para el libro inmutable de eventos y sus proyecciones.
 ///
 /// Las implementaciones deben garantizar:
 /// 1. `listar` devuelve los eventos en estricto orden de inserción.
 /// 2. `guardar` es idempotente respecto al campo `id` y devuelve [`ResultadoGuardado::YaExistia`] si el identificador se repite.
 /// 3. Los eventos almacenados son inmutables y su contenido no se sobrescribe.
+/// 4. Al guardar un evento nuevo, la proyección `cuentas` se actualiza en la **misma
+///    transacción** (atomicidad): o se persiste el evento y su efecto, o ninguno.
+/// 5. `listar_cuentas` es una simple lectura de la proyección (no reproyecta eventos).
+/// 6. `reconstruir` borra las proyecciones y las recalcula desde el libro de eventos;
+///    el resultado debe ser idéntico al que se obtendría tras un `guardar` normal.
 pub trait RepositorioEventos: Send {
     fn guardar(&mut self, evento: &EventoRegistrado)
     -> Result<ResultadoGuardado, ErrorRepositorio>;
+
+    /// Eventos en estricto orden de inserción (fuente de verdad).
     fn listar(&self) -> Result<Vec<EventoRegistrado>, ErrorRepositorio>;
+
+    /// Lectura de la proyección `cuentas`, en orden de creación.
+    fn listar_cuentas(&self) -> Result<Vec<CuentaProyectada>, ErrorRepositorio>;
+
+    /// Reconstruye las proyecciones desde cero releyendo el libro de eventos.
+    fn reconstruir(&mut self) -> Result<(), ErrorRepositorio>;
 }
 
 /// Puerto del reloj: devuelve el momento actual en ISO 8601 UTC ("2026-10-12T18:00:00Z").

@@ -9,6 +9,7 @@ description = "Cuentas Claras: casos de uso y puertos"
 [dependencies]
 dominio = { path = "../dominio" }
 rust_decimal = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 

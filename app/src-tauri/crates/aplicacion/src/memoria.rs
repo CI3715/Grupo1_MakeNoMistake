@@ -4,15 +4,21 @@
 //! aislada y reproducible sin depender de sistemas de archivos, bases de datos
 //! ni relojes del sistema operativo.
 
+use crate::proyector;
 use crate::puertos::{
-    DispositivoOrigen, ErrorRepositorio, EventoRegistrado, GeneradorIdentificadores, Reloj,
-    RepositorioEventos, ResultadoGuardado,
+    CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
+    GeneradorIdentificadores, Reloj, RepositorioEventos, ResultadoGuardado,
 };
 
-/// Almacén de eventos volátil respaldado por un vector en memoria.
+/// Almacén de eventos volátil respaldado por vectores en memoria.
+///
+/// Mantiene el libro de eventos y su proyección `cuentas` sincronizados igual
+/// que el adaptador de SQLite: al guardar un evento nuevo, la proyección se
+/// actualiza acto seguido.
 #[derive(Debug, Default)]
 pub struct RepositorioEnMemoria {
     eventos: Vec<EventoRegistrado>,
+    cuentas: Vec<CuentaProyectada>,
 }
 
 impl RepositorioEnMemoria {
@@ -20,6 +26,7 @@ impl RepositorioEnMemoria {
     pub fn nuevo() -> RepositorioEnMemoria {
         RepositorioEnMemoria {
             eventos: Vec::new(),
+            cuentas: Vec::new(),
         }
     }
 }
@@ -32,12 +39,34 @@ impl RepositorioEventos for RepositorioEnMemoria {
         if self.eventos.iter().any(|e| e.id == evento.id) {
             return Ok(ResultadoGuardado::YaExistia);
         }
+        if let Some(cuenta) =
+            proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
+        {
+            self.cuentas.push(cuenta);
+        }
         self.eventos.push(evento.clone());
         Ok(ResultadoGuardado::Guardado)
     }
 
     fn listar(&self) -> Result<Vec<EventoRegistrado>, ErrorRepositorio> {
         Ok(self.eventos.clone())
+    }
+
+    fn listar_cuentas(&self) -> Result<Vec<CuentaProyectada>, ErrorRepositorio> {
+        Ok(self.cuentas.clone())
+    }
+
+    fn reconstruir(&mut self) -> Result<(), ErrorRepositorio> {
+        let mut cuentas = Vec::new();
+        for evento in &self.eventos {
+            if let Some(cuenta) =
+                proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
+            {
+                cuentas.push(cuenta);
+            }
+        }
+        self.cuentas = cuentas;
+        Ok(())
     }
 }
 
