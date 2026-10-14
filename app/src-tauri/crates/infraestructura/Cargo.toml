@@ -9,3 +9,6 @@ description = "Cuentas Claras: adaptadores"
 [dependencies]
 dominio = { path = "../dominio" }
 aplicacion = { path = "../aplicacion" }
+rusqlite = { version = "0.37.0", features = ["bundled", "chrono", "uuid"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
