@@ -1,9 +1,16 @@
+mod cuentas;
+mod dto;
 mod ping;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![ping::ping_servidor])
+        .invoke_handler(tauri::generate_handler![
+            ping::ping_servidor,
+            cuentas::listar_monedas,
+            cuentas::listar_cuentas,
+            cuentas::crear_cuenta
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
