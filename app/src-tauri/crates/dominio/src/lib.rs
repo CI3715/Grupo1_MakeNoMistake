@@ -353,7 +353,11 @@ mod tests {
     #[test]
     fn todas_las_monedas_tienen_dos_decimales() {
         for m in Moneda::catalogo() {
-            assert_eq!(m.decimales, 2, "La moneda {} no tiene 2 decimales", m.codigo);
+            assert_eq!(
+                m.decimales, 2,
+                "La moneda {} no tiene 2 decimales",
+                m.codigo
+            );
         }
     }
 
@@ -455,14 +459,7 @@ mod tests {
 
     #[test]
     fn crear_cuenta_con_saldo_cero() {
-        let resultado = Cuenta::crear(
-            "id-2".into(),
-            "Banco",
-            TipoCuenta::Banco,
-            "USD",
-            "0",
-            &[],
-        );
+        let resultado = Cuenta::crear("id-2".into(), "Banco", TipoCuenta::Banco, "USD", "0", &[]);
         assert!(resultado.is_ok());
     }
 
@@ -470,15 +467,8 @@ mod tests {
 
     #[test]
     fn nombre_vacio_falla() {
-        let err = Cuenta::crear(
-            "id-3".into(),
-            "",
-            TipoCuenta::Efectivo,
-            "USD",
-            "100",
-            &[],
-        )
-        .expect_err("nombre vacío debe fallar");
+        let err = Cuenta::crear("id-3".into(), "", TipoCuenta::Efectivo, "USD", "100", &[])
+            .expect_err("nombre vacío debe fallar");
 
         assert!(err.iter().any(|e| e.campo == Campo::Nombre));
     }
@@ -513,8 +503,10 @@ mod tests {
         )
         .expect_err("nombre repetido debe fallar");
 
-        assert!(err.iter().any(|e| e.campo == Campo::Nombre
-            && e.mensaje.contains("Ya existe")));
+        assert!(
+            err.iter()
+                .any(|e| e.campo == Campo::Nombre && e.mensaje.contains("Ya existe"))
+        );
     }
 
     // ── Cuenta::crear — validación: moneda inválida ──
@@ -548,8 +540,10 @@ mod tests {
         )
         .expect_err("saldo negativo debe fallar");
 
-        assert!(err.iter().any(|e| e.campo == Campo::SaldoInicial
-            && e.mensaje.contains("negativo")));
+        assert!(
+            err.iter()
+                .any(|e| e.campo == Campo::SaldoInicial && e.mensaje.contains("negativo"))
+        );
     }
 
     // ── Cuenta::crear — validación: demasiados decimales ──
@@ -566,8 +560,10 @@ mod tests {
         )
         .expect_err("demasiados decimales debe fallar");
 
-        assert!(err.iter().any(|e| e.campo == Campo::SaldoInicial
-            && e.mensaje.contains("decimales")));
+        assert!(
+            err.iter()
+                .any(|e| e.campo == Campo::SaldoInicial && e.mensaje.contains("decimales"))
+        );
     }
 
     // ── Cuenta::crear — validación: saldo no numérico ──
@@ -593,16 +589,20 @@ mod tests {
     fn multiples_errores_se_acumulan() {
         let err = Cuenta::crear(
             "id-10".into(),
-            "",          // nombre vacío
+            "", // nombre vacío
             TipoCuenta::Efectivo,
-            "BTC",       // moneda inválida
-            "-5.999",    // negativo + demasiados decimales (pero moneda inválida, no se chequea decimales)
+            "BTC",    // moneda inválida
+            "-5.999", // negativo + demasiados decimales (pero moneda inválida, no se chequea decimales)
             &[],
         )
         .expect_err("múltiples errores deben acumularse");
 
         // Al menos: nombre vacío, moneda inválida, saldo negativo
-        assert!(err.len() >= 2, "debe haber al menos 2 errores, hay {}", err.len());
+        assert!(
+            err.len() >= 2,
+            "debe haber al menos 2 errores, hay {}",
+            err.len()
+        );
         assert!(err.iter().any(|e| e.campo == Campo::Nombre));
         assert!(err.iter().any(|e| e.campo == Campo::Moneda));
     }

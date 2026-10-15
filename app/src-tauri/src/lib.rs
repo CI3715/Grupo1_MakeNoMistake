@@ -1,7 +1,8 @@
 mod cuentas;
+mod dto;
 mod ping;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use aplicacion::CasosDeUso;
 use infraestructura::db::BaseDatos;
@@ -11,14 +12,40 @@ use infraestructura::reloj::RelojSistema;
 use infraestructura::repositorios::RepositorioEventosSqlite;
 use tauri::Manager;
 
+/// Estado compartido de Tauri. El `Arc<Mutex<>>` vive solo aquí (crate `app`),
+/// como indica la Guía: dominio y aplicación no lo conocen.
+pub type EstadoCasosDeUso = Arc<Mutex<CasosDeUso>>;
+
+/// Arma los casos de uso para las pruebas de los comandos: repositorio en
+/// memoria (no toca el disco) y un dispositivo fijo, sin base de datos.
+#[cfg(test)]
+fn crear_casos_de_uso() -> CasosDeUso {
+    use aplicacion::{DispositivoOrigen, RepositorioEnMemoria};
+
+    struct DispositivoDePrueba;
+
+    impl DispositivoOrigen for DispositivoDePrueba {
+        fn id_dispositivo(&self) -> String {
+            "dispositivo-de-prueba".to_string()
+        }
+    }
+
+    CasosDeUso::nuevo(
+        Box::new(RepositorioEnMemoria::nuevo()),
+        Box::new(RelojSistema::nuevo()),
+        Box::new(GeneradorUuid::nuevo()),
+        Box::new(DispositivoDePrueba),
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             ping::ping_servidor,
-            cuentas::crear_cuenta,
-            cuentas::listar_cuentas,
             cuentas::listar_monedas,
+            cuentas::listar_cuentas,
+            cuentas::crear_cuenta
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -39,7 +66,7 @@ pub fn run() {
             log::info!("Base de datos local lista en {}", ruta.display());
 
             // Cablea los casos de uso con sus adaptadores reales sobre la misma
-            // conexión: repositorio de eventos/proyecciones, reloj, identificadores
+            // conexión: repositorio de eventos y proyección, reloj, identificadores
             // y el identificador persistente de este dispositivo.
             let conexion = base_datos.conexion();
             let repositorio = RepositorioEventosSqlite::with_conn(Arc::clone(&conexion));
@@ -50,7 +77,9 @@ pub fn run() {
                 Box::new(GeneradorUuid::nuevo()),
                 Box::new(dispositivo),
             );
-            app.manage(cuentas::ServicioCuentas::nuevo(casos));
+
+            let estado: EstadoCasosDeUso = Arc::new(Mutex::new(casos));
+            app.manage(estado);
             app.manage(base_datos);
 
             Ok(())
