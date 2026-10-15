@@ -69,6 +69,10 @@ name = "aplicacion"
 version = "0.1.0"
 dependencies = [
  "dominio",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1701,6 +1705,7 @@ version = "0.1.0"
 dependencies = [
  "aplicacion",
  "dominio",
+ "uuid",
 ]
 
 [[package]]
