@@ -79,7 +79,7 @@ impl Moneda {
 
     /// Busca una moneda por código (insensible a mayúsculas/minúsculas).
     pub fn por_codigo(codigo: &str) -> Option<Moneda> {
-        let codigo_upper = codigo.to_uppercase();
+        let codigo_upper = codigo.trim().to_uppercase();
         Self::catalogo()
             .into_iter()
             .find(|m| m.codigo == codigo_upper)
@@ -276,7 +276,8 @@ impl Cuenta {
 
                 // 5. Más decimales de los que permite la moneda
                 if let Some(ref m) = moneda {
-                    let escala = d.scale();
+                    // normalize() descarta ceros finales: "10.500" vale 10.5 y es válido.
+                    let escala = d.normalize().scale();
                     if escala > m.decimales {
                         errores.push(ErrorDominio::nuevo(
                             Campo::SaldoInicial,
@@ -297,7 +298,11 @@ impl Cuenta {
 
         // Si llegamos aquí, todo es válido.
         let moneda = moneda.expect("moneda validada");
-        let cantidad = saldo_decimal.expect("saldo validado");
+        let mut cantidad = saldo_decimal.expect("saldo validado");
+        if cantidad.is_zero() {
+            cantidad = Decimal::ZERO; // evita "-0"
+        }
+        cantidad.rescale(moneda.decimales); // escala canónica: 300 -> 300.00
 
         let cuenta = Cuenta {
             id: id.clone(),
@@ -607,14 +612,61 @@ mod tests {
         assert!(err.iter().any(|e| e.campo == Campo::Moneda));
     }
 
-    // ── Inmutabilidad de moneda ──
+    // ── INV-18: la moneda de una cuenta no puede cambiar ──
+
+    /// Código del dominio sin el módulo de pruebas.
+    fn codigo_de_produccion() -> &'static str {
+        let fuente = include_str!("lib.rs");
+        &fuente[..fuente.find("#[cfg(test)]").expect("módulo de pruebas")]
+    }
+
+    /// Texto del bloque `impl Cuenta { ... }` (sin llaves anidadas mal balanceadas).
+    fn impl_de_cuenta() -> String {
+        let src = codigo_de_produccion();
+        let inicio = src.find("impl Cuenta {").expect("impl Cuenta");
+        let mut prof = 0i32;
+        let mut fin = inicio;
+        for (i, c) in src[inicio..].char_indices() {
+            match c {
+                '{' => prof += 1,
+                '}' => {
+                    prof -= 1;
+                    if prof == 0 {
+                        fin = inicio + i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        src[inicio..=fin].to_string()
+    }
 
     #[test]
-    fn cuenta_no_expone_setter_de_moneda() {
-        // Este test es conceptual: la compilación garantiza que no hay
-        // forma de modificar la moneda de una cuenta porque los campos
-        // son privados y no existe ningún método &mut self que la cambie.
-        let (cuenta, _) = Cuenta::crear(
+    fn inv18_cuenta_no_tiene_metodos_mutables() {
+        let bloque = impl_de_cuenta();
+        assert!(
+            !bloque.contains("&mut self") && !bloque.contains("mut self"),
+            "Cuenta no puede exponer operaciones que modifiquen su estado (INV-18)"
+        );
+    }
+
+    #[test]
+    fn inv18_campos_de_cuenta_y_monto_son_privados() {
+        let src = codigo_de_produccion();
+        for tipo in ["pub struct Cuenta {", "pub struct Monto {"] {
+            let inicio = src.find(tipo).expect("struct") + tipo.len();
+            let cuerpo = &src[inicio..inicio + src[inicio..].find('}').unwrap()];
+            assert!(
+                !cuerpo.contains("pub "),
+                "{tipo} no debe tener campos públicos"
+            );
+        }
+    }
+
+    #[test]
+    fn inv18_la_moneda_del_saldo_es_la_del_evento_y_no_cambia() {
+        let (cuenta, evento) = Cuenta::crear(
             "id-11".into(),
             "Fija",
             TipoCuenta::Efectivo,
@@ -623,8 +675,96 @@ mod tests {
             &[],
         )
         .unwrap();
-
-        // Solo podemos leer, no escribir.
+        let copia = cuenta.clone();
         assert_eq!(cuenta.saldo().moneda().codigo, "USD");
+        assert_eq!(evento.moneda.codigo, "USD");
+        assert_eq!(copia.saldo().moneda(), cuenta.saldo().moneda());
+    }
+
+    // ── INV-01: monto = par indivisible cantidad + moneda ──
+
+    #[test]
+    fn montos_con_igual_cantidad_y_distinta_moneda_no_son_iguales() {
+        let usd = Moneda::por_codigo("USD").unwrap();
+        let eur = Moneda::por_codigo("EUR").unwrap();
+        assert_ne!(Monto::new(dec!(10), usd.clone()), Monto::new(dec!(10), eur));
+        assert_eq!(
+            Monto::new(dec!(10), usd.clone()),
+            Monto::new(dec!(10.00), usd)
+        );
+    }
+
+    #[test]
+    fn monto_de_cuenta_conserva_su_moneda_en_las_operaciones() {
+        let (cuenta, evento) =
+            Cuenta::crear("id-m".into(), "Dólares", TipoCuenta::Banco, "usd", "5", &[]).unwrap();
+        assert_eq!(cuenta.saldo().moneda(), &evento.moneda);
+        let suma = cuenta.saldo().sumar(cuenta.saldo()).unwrap();
+        assert_eq!(suma.moneda().codigo, "USD");
+        assert_eq!(suma.cantidad(), dec!(10));
+    }
+
+    // ── Normalización ──
+
+    #[test]
+    fn por_codigo_ignora_espacios() {
+        assert_eq!(Moneda::por_codigo(" usd ").unwrap().codigo, "USD");
+    }
+
+    #[test]
+    fn saldo_con_ceros_finales_es_valido() {
+        let (cuenta, _) = Cuenta::crear(
+            "id-z".into(),
+            "Ceros",
+            TipoCuenta::Banco,
+            "USD",
+            "10.500",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(cuenta.saldo().cantidad(), dec!(10.50));
+        assert_eq!(cuenta.saldo().cantidad().scale(), 2);
+    }
+
+    #[test]
+    fn saldo_entero_se_guarda_con_los_decimales_de_la_moneda() {
+        let (_, evento) = Cuenta::crear(
+            "id-e".into(),
+            "Entero",
+            TipoCuenta::Efectivo,
+            "VES",
+            "300",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(evento.saldo_inicial.to_string(), "300.00");
+    }
+
+    #[test]
+    fn saldo_cero_negativo_se_normaliza() {
+        let (_, evento) = Cuenta::crear(
+            "id-n".into(),
+            "Cero",
+            TipoCuenta::Efectivo,
+            "VES",
+            "-0.00",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(evento.saldo_inicial.to_string(), "0.00");
+    }
+
+    #[test]
+    fn diez_con_quinientos_cincuenta_y_cinco_milesimas_se_rechaza() {
+        let err = Cuenta::crear(
+            "id-d".into(),
+            "Dec",
+            TipoCuenta::Banco,
+            "USD",
+            "10.555",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::SaldoInicial));
     }
 }
