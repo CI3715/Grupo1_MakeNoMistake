@@ -15,3 +15,16 @@ export function formatearMontoLocal(montoTexto: string, simboloOMoneda: string):
 
   return `${simboloOMoneda} ${enteroFormateado},${decimales}`;
 }
+
+/**
+ * Convierte lo que escribe la persona ("1250,50", "1.250,50", "1250.50") al texto
+ * decimal con punto que espera el backend ("1250.50"). Solo normaliza el separador;
+ * todas las reglas de validación viven en el dominio (Rust).
+ */
+export function normalizarSaldo(texto: string): string {
+  const limpio = texto.trim();
+  if (limpio.includes(',')) {
+    return limpio.replace(/\./g, '').replace(',', '.');
+  }
+  return limpio;
+}
