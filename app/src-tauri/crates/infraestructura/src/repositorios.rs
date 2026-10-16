@@ -175,4 +175,33 @@ mod pruebas {
     fn contrato_sqlite_pasa_bateria_completa() {
         bateria_contrato_repositorio(repositorio_en_memoria_sqlite);
     }
+
+    #[test]
+    fn las_cuentas_persisten_al_cerrar_y_reabrir_el_archivo() {
+        use crate::db::BaseDatos;
+        use aplicacion::contrato::{datos_cuenta, evento_de_tipo};
+
+        let ruta =
+            std::env::temp_dir().join(format!("cuentas_claras_{}.sqlite", uuid::Uuid::new_v4()));
+
+        {
+            let bd = BaseDatos::persistente(&ruta).expect("abrir base");
+            let mut repo = RepositorioEventosSqlite::with_conn(bd.conexion());
+            let evento = evento_de_tipo("e1", "CuentaCreada", &datos_cuenta("c1", "Cartera"));
+            assert_eq!(repo.guardar(&evento).unwrap(), ResultadoGuardado::Guardado);
+        }
+
+        {
+            let bd = BaseDatos::persistente(&ruta).expect("reabrir base");
+            let repo = RepositorioEventosSqlite::with_conn(bd.conexion());
+            let cuentas = repo.listar_cuentas().unwrap();
+            assert_eq!(cuentas.len(), 1);
+            assert_eq!(cuentas[0].nombre, "Cartera");
+            assert_eq!(repo.listar().unwrap().len(), 1);
+        }
+
+        for sufijo in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", ruta.display(), sufijo));
+        }
+    }
 }
