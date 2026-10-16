@@ -8,6 +8,7 @@ pub mod codec;
 pub mod contrato;
 pub mod errores;
 pub mod memoria;
+pub mod proyector;
 pub mod puertos;
 pub mod vistas;
 
@@ -15,7 +16,7 @@ pub use casos_de_uso::{CasosDeUso, NuevaCuenta, TIPO_CUENTA_CREADA};
 pub use errores::{ErrorAplicacion, ErrorValidacion};
 pub use memoria::{DispositivoFijo, GeneradorSecuencial, RelojFijo, RepositorioEnMemoria};
 pub use puertos::{
-    DispositivoOrigen, ErrorRepositorio, EventoRegistrado, GeneradorIdentificadores, Reloj,
-    RepositorioEventos, ResultadoGuardado,
+    CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
+    GeneradorIdentificadores, Reloj, RepositorioEventos, ResultadoGuardado,
 };
 pub use vistas::{CuentaListada, ListaCuentas, MonedaDto, Subtotal};

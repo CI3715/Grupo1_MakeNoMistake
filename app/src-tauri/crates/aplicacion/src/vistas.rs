@@ -4,8 +4,10 @@
 //! punto decimal y con la escala exacta de su moneda para evitar conversiones
 //! en coma flotante en las capas superiores.
 
+use serde::Serialize;
+
 /// Representación de una cuenta financiera para su visualización en listados.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CuentaListada {
     /// Identificador único de la cuenta.
     pub id: String,
@@ -20,7 +22,7 @@ pub struct CuentaListada {
 }
 
 /// Suma total de saldos agrupada para una moneda específica.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Subtotal {
     /// Código de la moneda a la que corresponde el subtotal.
     pub moneda: String,
@@ -29,7 +31,7 @@ pub struct Subtotal {
 }
 
 /// Resultado de consultar las cuentas registradas y sus respectivos subtotales por moneda.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ListaCuentas {
     /// Lista de cuentas ordenadas cronológicamente según su orden de creación.
     pub cuentas: Vec<CuentaListada>,
@@ -38,7 +40,7 @@ pub struct ListaCuentas {
 }
 
 /// Datos descriptivos de una moneda soportada por el catálogo del sistema.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MonedaDto {
     /// Código identificador de la moneda (por ejemplo, `"USD"`).
     pub codigo: String,

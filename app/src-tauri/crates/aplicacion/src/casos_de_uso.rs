@@ -5,14 +5,16 @@
 //! y la proyección de lecturas y subtotales por moneda.
 
 use rust_decimal::Decimal;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::str::FromStr;
 
-use dominio::{Campo, Cuenta, CuentaCreada, ErrorDominio, Moneda, TipoCuenta};
+use dominio::{Campo, Cuenta, ErrorDominio, Moneda, TipoCuenta};
 
 use crate::codec;
 use crate::errores::{ErrorAplicacion, ErrorValidacion};
 use crate::puertos::{
-    DispositivoOrigen, EventoRegistrado, GeneradorIdentificadores, Reloj, RepositorioEventos,
+    CuentaProyectada, DispositivoOrigen, EventoRegistrado, GeneradorIdentificadores, Reloj,
+    RepositorioEventos,
 };
 use crate::vistas::{CuentaListada, ListaCuentas, MonedaDto, Subtotal};
 
@@ -20,7 +22,7 @@ use crate::vistas::{CuentaListada, ListaCuentas, MonedaDto, Subtotal};
 pub const TIPO_CUENTA_CREADA: &str = "CuentaCreada";
 
 /// Datos de entrada requeridos para registrar una nueva cuenta.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct NuevaCuenta {
     /// Nombre de la cuenta (obligatorio y único sin distinguir mayúsculas).
     pub nombre: String,
@@ -69,24 +71,26 @@ impl CasosDeUso {
             .collect()
     }
 
-    /// Reconstruye el listado de cuentas a partir de la secuencia de eventos almacenados
+    /// Lee el listado de cuentas directamente desde la proyección materializada
     /// y calcula los subtotales agrupados por cada moneda sin mezclar divisas distintas.
+    ///
+    /// No reproyecta eventos: la proyección ya se mantiene al día en la misma
+    /// transacción que guarda cada evento.
     pub fn listar_cuentas(&self) -> Result<ListaCuentas, ErrorAplicacion> {
-        let eventos = self.repositorio.listar()?;
-        let creadas = proyectar_eventos(&eventos)?;
+        let proyectadas = self.repositorio.listar_cuentas()?;
 
         let mut cuentas = Vec::new();
-        for c in &creadas {
+        for c in &proyectadas {
             cuentas.push(CuentaListada {
                 id: c.id.clone(),
                 nombre: c.nombre.clone(),
-                tipo: codec::tipo_a_texto(&c.tipo).to_string(),
-                moneda: c.moneda.codigo.clone(),
-                saldo_actual: formatear_monto(c.saldo_inicial, c.moneda.decimales),
+                tipo: c.tipo.clone(),
+                moneda: c.moneda.clone(),
+                saldo_actual: c.saldo_actual.clone(),
             });
         }
 
-        let subtotales = calcular_subtotales(&creadas)?;
+        let subtotales = calcular_subtotales(&proyectadas)?;
         Ok(ListaCuentas {
             cuentas,
             subtotales,
@@ -99,9 +103,9 @@ impl CasosDeUso {
     /// Si una o más validaciones fallan, acumula y devuelve todos los errores
     /// detectados sin persistir cambios ni consumir identificadores.
     pub fn crear_cuenta(&mut self, entrada: NuevaCuenta) -> Result<CuentaListada, ErrorAplicacion> {
-        let eventos = self.repositorio.listar()?;
-        let creadas = proyectar_eventos(&eventos)?;
-        let nombres_existentes: Vec<String> = creadas.iter().map(|c| c.nombre.clone()).collect();
+        let proyectadas = self.repositorio.listar_cuentas()?;
+        let nombres_existentes: Vec<String> =
+            proyectadas.iter().map(|c| c.nombre.clone()).collect();
 
         let tipo_resultado = codec::texto_a_tipo(&entrada.tipo);
         let tipo_para_validar = tipo_resultado.clone().unwrap_or(TipoCuenta::Efectivo);
@@ -179,41 +183,34 @@ fn formatear_monto(cantidad: Decimal, decimales: u32) -> String {
     format!("{:.prec$}", cantidad, prec = decimales as usize)
 }
 
-/// Proyecta la secuencia de eventos registrados hacia una lista de cuentas creadas,
-/// descartando eventos con identificadores duplicados o de tipos no reconocidos.
-fn proyectar_eventos(eventos: &[EventoRegistrado]) -> Result<Vec<CuentaCreada>, ErrorAplicacion> {
-    let mut vistos = HashSet::new();
-    let mut cuentas = Vec::new();
-    for e in eventos {
-        if !vistos.insert(e.id.clone()) {
-            continue;
-        }
-        if e.tipo == TIPO_CUENTA_CREADA {
-            cuentas.push(codec::deserializar(&e.datos)?);
-        }
-    }
-    Ok(cuentas)
-}
-
 /// Calcula la suma exacta de saldos por cada moneda presente, conservando el orden de aparición.
-fn calcular_subtotales(cuentas: &[CuentaCreada]) -> Result<Vec<Subtotal>, ErrorAplicacion> {
-    let mut monedas_orden: Vec<(String, u32)> = Vec::new();
+///
+/// Los saldos llegan ya formateados desde la proyección; se reconstruyen como
+/// decimales exactos a partir de su texto, nunca como punto flotante (INV-03).
+fn calcular_subtotales(cuentas: &[CuentaProyectada]) -> Result<Vec<Subtotal>, ErrorAplicacion> {
+    let mut monedas_orden: Vec<String> = Vec::new();
     let mut sumas: HashMap<String, Decimal> = HashMap::new();
 
     for c in cuentas {
-        let cod = c.moneda.codigo.clone();
-        if !sumas.contains_key(&cod) {
-            monedas_orden.push((cod.clone(), c.moneda.decimales));
+        if !sumas.contains_key(&c.moneda) {
+            monedas_orden.push(c.moneda.clone());
         }
-        let actual = sumas.entry(cod).or_insert_with(|| Decimal::new(0, 0));
-        *actual += c.saldo_inicial;
+        let monto = Decimal::from_str(&c.saldo_actual)
+            .map_err(|e| ErrorAplicacion::Interno(format!("saldo inválido: {e}")))?;
+        let actual = sumas
+            .entry(c.moneda.clone())
+            .or_insert_with(|| Decimal::new(0, 0));
+        *actual += monto;
     }
 
     let mut subtotales = Vec::new();
-    for (m, decimales) in monedas_orden {
+    for moneda in monedas_orden {
+        let decimales = Moneda::por_codigo(&moneda)
+            .map(|m| m.decimales)
+            .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda}")))?;
         subtotales.push(Subtotal {
-            moneda: m.clone(),
-            total: formatear_monto(sumas[&m], decimales),
+            moneda: moneda.clone(),
+            total: formatear_monto(sumas[&moneda], decimales),
         });
     }
     Ok(subtotales)
