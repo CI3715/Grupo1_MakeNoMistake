@@ -50,6 +50,18 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             clave TEXT PRIMARY KEY,
             valor TEXT NOT NULL
         );
+
+        -- 4) Inmutabilidad del libro (INV-13): un evento nunca se modifica ni se borra.
+        CREATE TRIGGER IF NOT EXISTS eventos_no_update
+        BEFORE UPDATE ON eventos
+        BEGIN
+            SELECT RAISE(ABORT, 'eventos es inmutable: no se puede modificar');
+        END;
+        CREATE TRIGGER IF NOT EXISTS eventos_no_delete
+        BEFORE DELETE ON eventos
+        BEGIN
+            SELECT RAISE(ABORT, 'eventos es inmutable: no se puede borrar');
+        END;
         ",
     )?;
     Ok(())
@@ -337,5 +349,34 @@ mod pruebas {
         let _ = std::fs::remove_file(&ruta);
         let _ = std::fs::remove_file(ruta.with_extension("db-wal"));
         let _ = std::fs::remove_file(ruta.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn eventos_no_se_pueden_modificar_ni_borrar() {
+        let conn = conexion_vacia();
+        insertar_evento(
+            &conn,
+            "e1",
+            "CuentaCreada",
+            "2026-01-01T00:00:00Z",
+            "d1",
+            "{}",
+        )
+        .expect("insertar");
+
+        assert!(
+            conn.execute("UPDATE eventos SET tipo = 'Otro' WHERE id = 'e1'", [])
+                .is_err(),
+            "UPDATE sobre eventos debe rechazarse"
+        );
+        assert!(
+            conn.execute("DELETE FROM eventos WHERE id = 'e1'", [])
+                .is_err(),
+            "DELETE sobre eventos debe rechazarse"
+        );
+
+        let eventos = listar_eventos(&conn).unwrap();
+        assert_eq!(eventos.len(), 1);
+        assert_eq!(eventos[0].tipo, "CuentaCreada");
     }
 }

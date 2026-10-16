@@ -1,6 +1,6 @@
 # Aplicación — Cuentas Claras
 
-Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. En la Entrega 1 la aplicación abre su ventana principal con una pantalla de verificación de conexión: un botón invoca el comando de Rust `ping_servidor`, que hace la petición `GET /ping` al servidor y devuelve el estado, el mensaje, la versión y la latencia en milisegundos.
+Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. Desde la Entrega 2 la aplicación abre directamente en la pantalla **Mis cuentas**, sin registro ni inicio de sesión: permite crear cuentas (efectivo, banco o billetera digital) con su moneda y saldo inicial, y las guarda solo en el dispositivo, en un archivo SQLite, sin necesidad de internet ni del servidor. El comando de Rust `ping_servidor` de la Entrega 1 sigue existiendo, pero ya no participa en este flujo.
 
 Los comandos de este documento se ejecutan desde la carpeta `app/`, salvo que se indique otra cosa. El archivo `package.json` vive aquí y no en la raíz del repositorio, así que si npm se queja de que no lo encuentra, casi seguro estás en la carpeta equivocada.
 
@@ -73,6 +73,49 @@ Este comando hace dos cosas seguidas. Primero lanza `npm run dev`, que levanta N
 
 Si solo se quiere trabajar la interfaz en el navegador, sin Rust, basta con `npm run dev` y abrir `http://localhost:3000`. Hay que tener en cuenta que el servidor del proyecto usa el puerto 8000, justamente para no chocar con el 3000 de Next.js; las instrucciones para levantarlo están en `servidor/README.md`.
 
+## Cuentas y almacenamiento local (Entrega 2)
+
+Las cuentas se guardan únicamente en el dispositivo. Al arrancar, la aplicación abre (o crea) un archivo SQLite llamado `cuentas_claras.db` dentro del directorio de datos de la aplicación (`app_data_dir` de Tauri), cuya carpeta se llama como el identificador de la aplicación, `com.cuentasclaras.desktop`:
+
+| Sistema | Ruta del archivo |
+|---|---|
+| Linux | `~/.local/share/com.cuentasclaras.desktop/cuentas_claras.db` |
+| macOS | `~/Library/Application Support/com.cuentasclaras.desktop/cuentas_claras.db` |
+| Windows | `%APPDATA%\com.cuentasclaras.desktop\cuentas_claras.db` |
+
+La ruta de Linux está comprobada; las otras dos siguen la convención de Tauri 2. Al iniciar en modo desarrollo, la terminal imprime la ruta real (`Base de datos local lista en ...`). Para empezar de cero, cierra la aplicación y borra `cuentas_claras.db` y, si existen, `cuentas_claras.db-wal` y `cuentas_claras.db-shm`.
+
+Cómo funciona, en pocas palabras:
+
+- Crear una cuenta valida los datos en el dominio (Rust) y registra un evento inmutable `CuentaCreada` en la tabla `eventos`. La tabla `cuentas` es una proyección derivada de esos eventos. La base rechaza cualquier `UPDATE` o `DELETE` sobre `eventos`.
+- El frontend solo se comunica con el núcleo mediante `invoke('listar_monedas')`, `invoke('listar_cuentas')` e `invoke('crear_cuenta')`. Ninguna operación sobre cuentas hace peticiones HTTP, y el servidor no recibe cuentas, saldos ni monedas.
+
+**Prueba de autonomía.** Cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: debe mostrar las mismas cuentas y permitir crear otra.
+
+## Ejecutar las pruebas
+
+Desde `src-tauri/`:
+
+```
+cargo test --workspace
+```
+
+Esto ejecuta las pruebas del dominio, de la capa de aplicación, de la infraestructura (SQLite) y de los comandos de Tauri, además de `tests/arquitectura.rs`, que comprueba que el dominio y la aplicación no dependen de la red ni de la base de datos y que no se usa coma flotante para dinero (INV-03). La primera ejecución compila Tauri y puede tardar varios minutos.
+
+Las pruebas de las reglas de negocio y los casos de uso (invariantes INV-01, INV-02, INV-03, INV-13 e INV-18 y cada validación de crear cuenta) usan un repositorio **en memoria**, sin base de datos ni red, y se pueden correr solas, sin compilar Tauri:
+
+```
+cargo test -p dominio -p aplicacion
+```
+
+Para la interfaz, desde `app/`:
+
+```
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
 ## Configurar la dirección del servidor
 
 Por defecto, la aplicación busca el servidor en `http://localhost:8000`, que es
@@ -106,10 +149,17 @@ Con la opción `output: "export"` de `next.config.ts`, este comando no produce u
 ```
 app/
 ├── app/                  # Páginas de la interfaz (App Router de Next.js)
-|   | components/
-    | ├── PingScreen.tsx  # Componente de prueba para verificar estado y comunicación con Tauri
+│   ├── components/
+│   │   ├── MisCuentas.tsx          # Pantalla principal: carga, crea y lista cuentas con invoke
+│   │   ├── FormularioCuenta.tsx    # Formulario "Nueva cuenta" con errores por campo
+│   │   ├── ListaCuentas.tsx        # Tabla de cuentas con formato local (Bs. 1.250,50)
+│   │   ├── SubtotalesPorMoneda.tsx # Subtotal por moneda (nunca se suman monedas distintas)
+│   │   ├── EstadoVacio.tsx         # Invitación a crear la primera cuenta
+│   │   └── PingScreen.tsx          # Pantalla de la Entrega 1 (ya no se muestra)
+│   ├── types/cuentas.ts  # Tipos compartidos con el núcleo de Rust
+│   ├── utils/formato.ts  # Formato de montos y normalización del saldo
 │   ├── layout.tsx        # Estructura común de todas las páginas
-│   ├── page.tsx          # Página principal
+│   ├── page.tsx          # Página principal (abre en Mis cuentas)
 │   └── globals.css       # Estilos globales (Tailwind)
 ├── public/               # Imágenes y archivos estáticos
 ├── out/                  # Resultado de `npm run build` (no se sube a Git)
@@ -119,10 +169,17 @@ app/
 │   ├── Cargo.lock        # Versiones exactas de Rust (sí se sube a Git)
 │   ├── capabilities/     # Permisos que la ventana tiene sobre el sistema
 │   ├── icons/            # Íconos de la aplicación
+│   ├── crates/
+│   │   ├── dominio/          # Reglas de negocio: Moneda, Monto, Cuenta, validaciones
+│   │   ├── aplicacion/       # Casos de uso, puertos y repositorio en memoria (pruebas)
+│   │   └── infraestructura/  # SQLite (rusqlite), reloj, identificadores, dispositivo
+│   ├── tests/arquitectura.rs # Reglas de dependencias entre capas
 │   └── src/
 │       ├── main.rs       # Punto de entrada
-│       ├── lib.rs        # Registro de los comandos de Rust
-│       └── ping.rs       # Comando ping_servidor (petición GET /ping)
+│       ├── lib.rs        # Arranque: abre la base local y cablea los casos de uso
+│       ├── cuentas.rs    # Comandos listar_monedas, listar_cuentas y crear_cuenta
+│       ├── dto.rs        # Tipos que viajan entre Rust y la interfaz
+│       └── ping.rs       # Comando ping_servidor (Entrega 1, fuera del flujo de cuentas)
 ├── next.config.ts        # Configuración de Next.js (exportación estática)
 ├── package.json          # Dependencias y scripts de la interfaz
 └── package-lock.json     # Versiones exactas de la interfaz
@@ -165,6 +222,8 @@ Si `cargo fmt --check` muestra diferencias, `cargo fmt` las corrige solo. `cargo
 
 **`npm install` avisa de vulnerabilidades de severidad alta.** Son dependencias de herramientas de desarrollo. No hay que ejecutar `npm audit fix --force`, porque aplica cambios que pueden romper el proyecto; las vulnerabilidades pendientes quedan para revisarse y, si no se resuelven, registrarse como deuda técnica.
 
-**La pantalla muestra "No se pudo conectar con el servidor".** El servidor no
+**En el navegador (`npm run dev`) aparece "No se pudieron cargar tus cuentas".** Es lo esperado: los comandos `invoke` solo existen dentro de la ventana de Tauri. Usa `npm run tauri dev`.
+
+**La pantalla de ping muestra "No se pudo conectar con el servidor".** El servidor no
 está encendido o la dirección es otra. Levántalo según `servidor/README.md` y
 comprueba que `http://localhost:8000/ping` responde en el navegador.

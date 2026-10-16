@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Cuentas Claras",
-  description: "Cuentas Claras: verificación de conexión con el servidor",
+  description: "Cuentas Claras: tus cuentas, guardadas en tu dispositivo",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
