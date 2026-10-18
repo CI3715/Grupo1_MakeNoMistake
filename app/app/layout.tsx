@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { SCRIPT_APARIENCIA } from "./utils/apariencia";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,11 +20,18 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    // suppressHydrationWarning: el script de abajo escribe data-tema y data-paleta
+    // en <html> antes de que React hidrate.
     <html
       lang="es"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head>
+        {/* Aplica el tema guardado antes del primer pintado: evita el parpadeo claro→oscuro. */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_APARIENCIA }} />
+      </head>
+      <body className="min-h-full flex flex-col bg-fondo text-texto">{children}</body>
     </html>
   );
 }

@@ -1,26 +1,203 @@
 @import "tailwindcss";
 
+/*
+ * Sistema de temas de Cuentas Claras.
+ *
+ * Los componentes NO usan colores fijos: usan estos tokens (bg-fondo, text-suave,
+ * from-grad-a...). Cambiar de paleta o de modo solo cambia las variables.
+ * <html data-tema="claro|oscuro" data-paleta="indigo|esmeralda|..."> lo escribe
+ * el script de layout.tsx antes de pintar (sin parpadeo) y el selector de apariencia.
+ *
+ * --acento*  : botones, iconos y chips sobre superficies.
+ * --grad-a/b : degradado de la cabecera y de las tarjetas de saldo. Siempre lo bastante
+ *              oscuro para llevar texto blanco encima (contraste >= 4.5).
+ */
+
+/* ── Base: modo claro + paleta Índigo (también es el valor de respaldo) ── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --fondo: #f4f5f9;
+  --superficie: #ffffff;
+  --superficie-2: #f1f2f6;
+  --borde: #e5e7ee;
+  --texto: #14151c;
+  --suave: #5f6270;
+
+  --acento: #4f46e5;
+  --acento-fg: #ffffff;
+  --acento-suave: #eceefe;
+  --acento-texto: #4338ca;
+  --grad-a: #4f46e5;
+  --grad-b: #7c3aed;
+
+  --peligro: #b42318;
+  --peligro-suave: #fef3f2;
+  --peligro-borde: #fecdca;
+
+  --sombra: 0 1px 2px rgb(20 21 40 / 0.05), 0 10px 30px -8px rgb(20 21 40 / 0.1);
+  color-scheme: light;
 }
 
+/* ── Modo oscuro (neutros + Índigo) ── */
+[data-tema="oscuro"] {
+  --fondo: #0b0b0f;
+  --superficie: #15151a;
+  --superficie-2: #1c1c23;
+  --borde: #26262f;
+  --texto: #ececf2;
+  --suave: #a0a1b0;
+
+  --acento: #818cf8;
+  --acento-fg: #0b0b14;
+  --acento-suave: #1f2140;
+  --acento-texto: #a5b4fc;
+  --grad-a: #3730a3;
+  --grad-b: #5b21b6;
+
+  --peligro: #f97066;
+  --peligro-suave: #2a1417;
+  --peligro-borde: #5c2428;
+
+  --sombra: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px -8px rgb(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+
+/* ── Paletas: solo cambian acento y degradado. Primero claro, luego oscuro. ── */
+[data-paleta="indigo"] {
+  --acento: #4f46e5;
+  --acento-fg: #ffffff;
+  --acento-suave: #eceefe;
+  --acento-texto: #4338ca;
+  --grad-a: #4f46e5;
+  --grad-b: #7c3aed;
+}
+[data-paleta="indigo"][data-tema="oscuro"] {
+  --acento: #818cf8;
+  --acento-fg: #0b0b14;
+  --acento-suave: #1f2140;
+  --acento-texto: #a5b4fc;
+  --grad-a: #3730a3;
+  --grad-b: #5b21b6;
+}
+
+[data-paleta="esmeralda"] {
+  --acento: #047857;
+  --acento-fg: #ffffff;
+  --acento-suave: #e6f6ef;
+  --acento-texto: #065f46;
+  --grad-a: #047857;
+  --grad-b: #0e7490;
+}
+[data-paleta="esmeralda"][data-tema="oscuro"] {
+  --acento: #34d399;
+  --acento-fg: #04130d;
+  --acento-suave: #10291f;
+  --acento-texto: #6ee7b7;
+  --grad-a: #065f46;
+  --grad-b: #115e59;
+}
+
+[data-paleta="oceano"] {
+  --acento: #0e7490;
+  --acento-fg: #ffffff;
+  --acento-suave: #e3f5f9;
+  --acento-texto: #155e75;
+  --grad-a: #0e7490;
+  --grad-b: #1d4ed8;
+}
+[data-paleta="oceano"][data-tema="oscuro"] {
+  --acento: #22d3ee;
+  --acento-fg: #031317;
+  --acento-suave: #0b2a31;
+  --acento-texto: #67e8f9;
+  --grad-a: #155e75;
+  --grad-b: #1e3a8a;
+}
+
+[data-paleta="violeta"] {
+  --acento: #7c3aed;
+  --acento-fg: #ffffff;
+  --acento-suave: #f1ebfe;
+  --acento-texto: #6d28d9;
+  --grad-a: #7c3aed;
+  --grad-b: #a21caf;
+}
+[data-paleta="violeta"][data-tema="oscuro"] {
+  --acento: #a78bfa;
+  --acento-fg: #0e0820;
+  --acento-suave: #261a45;
+  --acento-texto: #c4b5fd;
+  --grad-a: #5b21b6;
+  --grad-b: #86198f;
+}
+
+[data-paleta="terracota"] {
+  --acento: #c2410c;
+  --acento-fg: #ffffff;
+  --acento-suave: #fdeee3;
+  --acento-texto: #9a3412;
+  --grad-a: #c2410c;
+  --grad-b: #b91c1c;
+}
+[data-paleta="terracota"][data-tema="oscuro"] {
+  --acento: #fb923c;
+  --acento-fg: #1c0b02;
+  --acento-suave: #33200f;
+  --acento-texto: #fdba74;
+  --grad-a: #9a3412;
+  --grad-b: #7f1d1d;
+}
+
+[data-paleta="grafito"] {
+  --acento: #27272a;
+  --acento-fg: #ffffff;
+  --acento-suave: #efeff1;
+  --acento-texto: #27272a;
+  --grad-a: #27272a;
+  --grad-b: #52525b;
+}
+[data-paleta="grafito"][data-tema="oscuro"] {
+  --acento: #e4e4e7;
+  --acento-fg: #131316;
+  --acento-suave: #26262b;
+  --acento-texto: #e4e4e7;
+  --grad-a: #1f1f23;
+  --grad-b: #3f3f46;
+}
+
+/* ── Tokens → utilidades de Tailwind (bg-fondo, text-suave, from-grad-a...) ── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-fondo: var(--fondo);
+  --color-superficie: var(--superficie);
+  --color-superficie-2: var(--superficie-2);
+  --color-borde: var(--borde);
+  --color-texto: var(--texto);
+  --color-suave: var(--suave);
+  --color-acento: var(--acento);
+  --color-acento-fg: var(--acento-fg);
+  --color-acento-suave: var(--acento-suave);
+  --color-acento-texto: var(--acento-texto);
+  --color-grad-a: var(--grad-a);
+  --color-grad-b: var(--grad-b);
+  --color-peligro: var(--peligro);
+  --color-peligro-suave: var(--peligro-suave);
+  --color-peligro-borde: var(--peligro-borde);
+  --shadow-suave: var(--sombra);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
