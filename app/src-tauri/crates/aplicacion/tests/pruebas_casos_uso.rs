@@ -138,7 +138,7 @@ fn inv13_idempotencia_guardar_y_proyectar_dos_veces_el_mismo_evento() {
     };
     let desconocido = EventoRegistrado {
         id: "evento-futuro-2".to_string(),
-        tipo: "MovimientoRegistrado".to_string(),
+        tipo: "EventoDesconocido".to_string(),
         momento_registro: "2026-10-14T12:01:00Z".to_string(),
         dispositivo_origen: "disp-1".to_string(),
         datos: "{}".to_string(),

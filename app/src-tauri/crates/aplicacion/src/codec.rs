@@ -84,6 +84,92 @@ pub fn deserializar(datos: &str) -> Result<CuentaCreada, ErrorAplicacion> {
     })
 }
 
+/// Contenido de un evento `CategoriaCreada`, ya validado.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CategoriaDatos {
+    pub id: String,
+    pub nombre: String,
+    pub tipo: String,
+    pub es_fabrica: bool,
+}
+
+/// Deserializa y valida la carga de un evento `CategoriaCreada`.
+pub fn deserializar_categoria(datos: &str) -> Result<CategoriaDatos, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+
+    let tipo = texto(&valor, "tipo")?;
+    if tipo != "ingreso" && tipo != "egreso" {
+        return Err(ErrorAplicacion::Interno(format!(
+            "tipo de categoría desconocido: {tipo}"
+        )));
+    }
+
+    Ok(CategoriaDatos {
+        id: texto(&valor, "id")?,
+        nombre: texto(&valor, "nombre")?,
+        tipo,
+        es_fabrica: valor
+            .get("es_fabrica")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+/// Contenido de un evento de movimiento (`MovimientoRegistrado` o
+/// `MovimientoCorregido`), ya validado.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovimientoDatos {
+    pub id: String,
+    pub cuenta_id: String,
+    pub tipo: String,
+    pub monto: String,
+    pub fecha: String,
+    pub categoria_id: String,
+    pub nota: Option<String>,
+    /// Solo presente en `MovimientoCorregido`: el movimiento que se reemplaza.
+    pub movimiento_original_id: Option<String>,
+}
+
+/// Deserializa y valida la carga de un evento de movimiento.
+pub fn deserializar_movimiento(datos: &str) -> Result<MovimientoDatos, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+
+    let tipo = texto(&valor, "tipo")?;
+    if tipo != "ingreso" && tipo != "egreso" {
+        return Err(ErrorAplicacion::Interno(format!(
+            "tipo de movimiento desconocido: {tipo}"
+        )));
+    }
+
+    let monto = texto(&valor, "monto")?;
+    let decimal = Decimal::from_str(&monto)
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+    if decimal <= Decimal::new(0, 0) {
+        return Err(ErrorAplicacion::Interno(
+            "el monto del movimiento debe ser positivo".to_string(),
+        ));
+    }
+
+    Ok(MovimientoDatos {
+        id: texto(&valor, "id")?,
+        cuenta_id: texto(&valor, "cuenta_id")?,
+        tipo,
+        monto,
+        fecha: texto(&valor, "fecha")?,
+        categoria_id: texto(&valor, "categoria_id")?,
+        nota: valor
+            .get("nota")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        movimiento_original_id: valor
+            .get("movimiento_original_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    })
+}
+
 #[cfg(test)]
 mod pruebas {
     use super::*;

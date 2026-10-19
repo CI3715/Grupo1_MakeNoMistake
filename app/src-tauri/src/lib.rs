@@ -3,7 +3,7 @@ mod ping;
 
 use std::sync::Arc;
 
-use aplicacion::CasosDeUso;
+use aplicacion::{CasosDeUso, RepositorioEventos as _};
 use infraestructura::db::BaseDatos;
 use infraestructura::dispositivo::DispositivoOrigenSqlite;
 use infraestructura::id_gen::GeneradorUuid;
@@ -42,7 +42,16 @@ pub fn run() {
             // conexión: repositorio de eventos/proyecciones, reloj, identificadores
             // y el identificador persistente de este dispositivo.
             let conexion = base_datos.conexion();
-            let repositorio = RepositorioEventosSqlite::with_conn(Arc::clone(&conexion));
+            let mut repositorio = RepositorioEventosSqlite::with_conn(Arc::clone(&conexion));
+
+            // Reconstruye las proyecciones desde el libro de eventos al abrir.
+            // Así una base de la Entrega 2 (que no tenía las proyecciones de
+            // categorías y movimientos) se abre sin perder cuentas, y cualquier
+            // desincronización de la caché se corrige sola. El libro de eventos
+            // nunca se toca.
+            repositorio.reconstruir()?;
+            log::info!("Proyecciones reconstruidas desde el libro de eventos");
+
             let dispositivo = DispositivoOrigenSqlite::nuevo(Arc::clone(&conexion))?;
             let casos = CasosDeUso::nuevo(
                 Box::new(repositorio),
