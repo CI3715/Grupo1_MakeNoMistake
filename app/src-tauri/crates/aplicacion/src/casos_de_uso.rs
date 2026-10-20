@@ -8,7 +8,7 @@ use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use dominio::{Campo, Cuenta, ErrorDominio, Moneda, TipoCuenta};
+use dominio::{Cuenta, ErrorDominio, Moneda, TipoCuenta};
 
 use crate::codec;
 use crate::errores::{ErrorAplicacion, ErrorValidacion};
@@ -221,11 +221,7 @@ fn convertir_errores(errores: Vec<ErrorDominio>) -> Vec<ErrorValidacion> {
     errores
         .into_iter()
         .map(|e| ErrorValidacion {
-            campo: Some(match e.campo {
-                Campo::Nombre => "nombre".to_string(),
-                Campo::Moneda => "moneda".to_string(),
-                Campo::SaldoInicial => "saldo_inicial".to_string(),
-            }),
+            campo: Some(e.campo.a_texto().to_string()),
             mensaje: e.mensaje,
         })
         .collect()
