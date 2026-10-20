@@ -48,6 +48,136 @@ pub struct ErroresDto {
     pub errores: Vec<ErrorCampo>,
 }
 
+impl ErroresDto {
+    /// Respuesta de los comandos de la Entrega 3 que aún no están conectados.
+    pub fn no_implementado() -> Self {
+        ErroresDto {
+            errores: vec![ErrorCampo {
+                campo: None,
+                mensaje: "Esta función todavía no está disponible.".to_string(),
+            }],
+        }
+    }
+}
+
+// ---------- Entrega 3: categorías, movimientos y detalle de cuenta ----------
+//
+// Convenciones (las mismas de la Entrega 2):
+// - Todos los montos viajan como texto con punto decimal ("50.00"), nunca como
+//   número; la interfaz solo les da formato. Un monto negativo lleva "-" y los
+//   positivos no llevan "+".
+// - Las fechas viajan como texto AAAA-MM-DD. «Hoy» es la fecha local del dispositivo.
+// - Nombres en snake_case. Los errores usan `ErroresDto` con el campo que falla
+//   (`cuenta`, `tipo`, `monto`, `fecha`, `categoria`, `nota`, `nombre`).
+// - Los campos de entrada tienen valor por defecto para que un dato ausente se
+//   rechace con un mensaje por campo y no con un error técnico.
+
+/// Categoría de gasto o de ingreso. `tipo`: "gasto" o "ingreso".
+#[derive(Serialize)]
+pub struct CategoriaDto {
+    pub id: String,
+    pub nombre: String,
+    pub tipo: String,
+    pub de_fabrica: bool,
+}
+
+/// Datos para crear una categoría propia. `tipo`: "gasto" o "ingreso".
+#[allow(dead_code)] // se leerán al conectar los casos de uso
+#[derive(Deserialize)]
+pub struct NuevaCategoriaDto {
+    #[serde(default)]
+    pub nombre: String,
+    #[serde(default)]
+    pub tipo: String,
+}
+
+/// Datos de un gasto o un ingreso nuevo (también para previsualizarlo).
+/// `tipo`: "gasto" o "ingreso". `monto`: texto positivo ("50.00"); la moneda es
+/// siempre la de la cuenta. `fecha`: AAAA-MM-DD. `nota`: opcional ("" si no hay).
+#[allow(dead_code)] // se leerán al conectar los casos de uso
+#[derive(Deserialize)]
+pub struct NuevoMovimientoDto {
+    #[serde(default)]
+    pub cuenta_id: String,
+    #[serde(default)]
+    pub tipo: String,
+    #[serde(default)]
+    pub monto: String,
+    #[serde(default)]
+    pub fecha: String,
+    #[serde(default)]
+    pub categoria_id: String,
+    #[serde(default)]
+    pub nota: String,
+}
+
+/// Corrección de un movimiento: el monto correcto (0 lo anula por completo).
+#[allow(dead_code)] // se leerán al conectar los casos de uso
+#[derive(Deserialize)]
+pub struct CorreccionDto {
+    #[serde(default)]
+    pub movimiento_id: String,
+    #[serde(default)]
+    pub monto_correcto: String,
+}
+
+/// Un movimiento del libro, listo para mostrar.
+///
+/// - `tipo`: "gasto" o "ingreso" (el ajuste hereda el del original).
+/// - `monto`: valor absoluto registrado ("50.00"). `monto_con_signo`: efecto sobre
+///   el saldo ("-50.00" para un gasto, "800.00" para un ingreso; en un ajuste, el
+///   efecto del ajuste, por ejemplo "450.00").
+/// - `estado`: "vigente", "corregido" (tiene al menos un ajuste) o "ajuste".
+/// - `monto_vigente`: valor que hoy cuenta del movimiento (solo en gastos e
+///   ingresos; `None` en un ajuste).
+/// - `corrige_a`: identificador del original (solo en ajustes).
+/// - `ajustes`: identificadores de los ajustes que lo corrigen (solo en originales).
+/// - `monto_correcto`: monto que la persona indicó al corregir (solo en ajustes).
+#[derive(Serialize)]
+pub struct MovimientoDto {
+    pub id: String,
+    pub cuenta_id: String,
+    pub tipo: String,
+    pub monto: String,
+    pub monto_con_signo: String,
+    pub monto_vigente: Option<String>,
+    pub fecha: String,
+    pub categoria_id: String,
+    pub categoria_nombre: String,
+    pub nota: String,
+    pub estado: String,
+    pub corrige_a: Option<String>,
+    pub ajustes: Vec<String>,
+    pub monto_correcto: Option<String>,
+}
+
+/// Cómo se compone el saldo: saldo actual = saldo inicial + ingresos − gastos ± ajustes.
+/// `total_ajustes` puede ser negativo ("-20.00").
+#[derive(Serialize)]
+pub struct ComposicionDto {
+    pub saldo_inicial: String,
+    pub total_ingresos: String,
+    pub total_gastos: String,
+    pub total_ajustes: String,
+}
+
+/// Detalle de una cuenta: saldo actual, composición y movimientos del más
+/// reciente al más antiguo (por fecha y, si empatan, por momento de registro).
+#[derive(Serialize)]
+pub struct DetalleCuentaDto {
+    pub cuenta: CuentaDto,
+    pub composicion: ComposicionDto,
+    pub movimientos: Vec<MovimientoDto>,
+}
+
+/// Resultado de previsualizar un movimiento sin guardarlo: el saldo que quedaría
+/// y si es negativo (la interfaz advierte antes de confirmar).
+#[derive(Serialize)]
+pub struct PrevisualizacionDto {
+    pub saldo_resultante: String,
+    pub deja_saldo_negativo: bool,
+}
+
 // ---------- Conversiones desde la capa de aplicación ----------
 
 impl From<aplicacion::MonedaDto> for MonedaDto {
@@ -118,5 +248,141 @@ impl From<aplicacion::ErrorAplicacion> for ErroresDto {
             }],
         };
         ErroresDto { errores }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn claves(v: &Value) -> Vec<String> {
+        let mut c: Vec<String> = v.as_object().expect("objeto").keys().cloned().collect();
+        c.sort();
+        c
+    }
+
+    fn cuenta() -> CuentaDto {
+        CuentaDto {
+            id: "c1".into(),
+            nombre: "Billetera dólares".into(),
+            tipo: "banco".into(),
+            moneda: "USD".into(),
+            saldo_actual: "1750.00".into(),
+        }
+    }
+
+    fn movimiento() -> MovimientoDto {
+        MovimientoDto {
+            id: "m1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "500.00".into(),
+            monto_con_signo: "-500.00".into(),
+            monto_vigente: Some("50.00".into()),
+            fecha: "2026-10-19".into(),
+            categoria_id: "gasto:alimentacion".into(),
+            categoria_nombre: "Alimentación".into(),
+            nota: String::new(),
+            estado: "corregido".into(),
+            corrige_a: None,
+            ajustes: vec!["m2".into()],
+            monto_correcto: None,
+        }
+    }
+
+    #[test]
+    fn movimiento_tiene_los_campos_acordados() {
+        let v = serde_json::to_value(movimiento()).unwrap();
+        assert_eq!(
+            claves(&v),
+            vec![
+                "ajustes",
+                "categoria_id",
+                "categoria_nombre",
+                "corrige_a",
+                "cuenta_id",
+                "estado",
+                "fecha",
+                "id",
+                "monto",
+                "monto_con_signo",
+                "monto_correcto",
+                "monto_vigente",
+                "nota",
+                "tipo",
+            ]
+        );
+        assert_eq!(v["corrige_a"], Value::Null);
+        assert_eq!(v["monto_con_signo"], "-500.00");
+    }
+
+    #[test]
+    fn detalle_de_cuenta_tiene_los_campos_acordados() {
+        let detalle = DetalleCuentaDto {
+            cuenta: cuenta(),
+            composicion: ComposicionDto {
+                saldo_inicial: "1000.00".into(),
+                total_ingresos: "800.00".into(),
+                total_gastos: "500.00".into(),
+                total_ajustes: "450.00".into(),
+            },
+            movimientos: vec![movimiento()],
+        };
+        let v = serde_json::to_value(detalle).unwrap();
+        assert_eq!(claves(&v), vec!["composicion", "cuenta", "movimientos"]);
+        assert_eq!(
+            claves(&v["composicion"]),
+            vec![
+                "saldo_inicial",
+                "total_ajustes",
+                "total_gastos",
+                "total_ingresos"
+            ]
+        );
+    }
+
+    #[test]
+    fn previsualizacion_tiene_los_campos_acordados() {
+        let p = PrevisualizacionDto {
+            saldo_resultante: "-50.00".into(),
+            deja_saldo_negativo: true,
+        };
+        let v = serde_json::to_value(p).unwrap();
+        assert_eq!(claves(&v), vec!["deja_saldo_negativo", "saldo_resultante"]);
+    }
+
+    #[test]
+    fn categoria_tiene_los_campos_acordados() {
+        let c = CategoriaDto {
+            id: "gasto:alimentacion".into(),
+            nombre: "Alimentación".into(),
+            tipo: "gasto".into(),
+            de_fabrica: true,
+        };
+        let v = serde_json::to_value(c).unwrap();
+        assert_eq!(claves(&v), vec!["de_fabrica", "id", "nombre", "tipo"]);
+    }
+
+    #[test]
+    fn los_datos_de_entrada_ausentes_no_fallan_al_leerse() {
+        let m: NuevoMovimientoDto = serde_json::from_value(json!({})).unwrap();
+        assert!(m.monto.is_empty() && m.nota.is_empty());
+        let c: CorreccionDto = serde_json::from_value(json!({})).unwrap();
+        assert!(c.movimiento_id.is_empty());
+        let k: NuevaCategoriaDto = serde_json::from_value(json!({"nombre": "Mascotas"})).unwrap();
+        assert_eq!(k.nombre, "Mascotas");
+        assert!(k.tipo.is_empty());
+    }
+
+    #[test]
+    fn el_error_no_implementado_va_en_espanol_y_sin_campo() {
+        let e = ErroresDto::no_implementado();
+        assert_eq!(e.errores.len(), 1);
+        assert!(e.errores[0].campo.is_none());
+        assert_eq!(
+            e.errores[0].mensaje,
+            "Esta función todavía no está disponible."
+        );
     }
 }
