@@ -12,9 +12,8 @@ use crate::puertos::{
 
 /// Almacén de eventos volátil respaldado por vectores en memoria.
 ///
-/// Mantiene el libro de eventos y su proyección `cuentas` sincronizados igual
-/// que el adaptador de SQLite: al guardar un evento nuevo, la proyección se
-/// actualiza acto seguido.
+/// Mantiene el libro de eventos y su proyección `cuentas` sincronizados:
+/// al guardar un evento nuevo, la proyección se actualiza acto seguido.
 #[derive(Debug, Default)]
 pub struct RepositorioEnMemoria {
     eventos: Vec<EventoRegistrado>,
@@ -39,12 +38,12 @@ impl RepositorioEventos for RepositorioEnMemoria {
         if self.eventos.iter().any(|e| e.id == evento.id) {
             return Ok(ResultadoGuardado::YaExistia);
         }
-        if let Some(cuenta) =
-            proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
-        {
-            self.cuentas.push(cuenta);
-        }
+        // Valida inmediatamente eventos CuentaCreada antes de insertar.
+        let _ = proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?;
+
         self.eventos.push(evento.clone());
+        self.cuentas = proyector::proyectar_todas_las_cuentas(&self.eventos)
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
         Ok(ResultadoGuardado::Guardado)
     }
 
@@ -57,15 +56,8 @@ impl RepositorioEventos for RepositorioEnMemoria {
     }
 
     fn reconstruir(&mut self) -> Result<(), ErrorRepositorio> {
-        let mut cuentas = Vec::new();
-        for evento in &self.eventos {
-            if let Some(cuenta) =
-                proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
-            {
-                cuentas.push(cuenta);
-            }
-        }
-        self.cuentas = cuentas;
+        self.cuentas = proyector::proyectar_todas_las_cuentas(&self.eventos)
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
         Ok(())
     }
 }
@@ -74,13 +66,28 @@ impl RepositorioEventos for RepositorioEnMemoria {
 #[derive(Debug, Clone)]
 pub struct RelojFijo {
     momento: String,
+    fecha_local: String,
 }
 
 impl RelojFijo {
     /// Crea un reloj fijo configurado con la marca de tiempo ISO 8601 indicada.
     pub fn nuevo(momento: &str) -> RelojFijo {
+        let fecha_local = if momento.len() >= 10 {
+            momento[..10].to_string()
+        } else {
+            "2026-10-19".to_string()
+        };
         RelojFijo {
             momento: momento.to_string(),
+            fecha_local,
+        }
+    }
+
+    /// Crea un reloj fijo especificando tanto el instante UTC como la fecha local (`"AAAA-MM-DD"`).
+    pub fn con_fecha_local(momento: &str, fecha_local: &str) -> RelojFijo {
+        RelojFijo {
+            momento: momento.to_string(),
+            fecha_local: fecha_local.to_string(),
         }
     }
 }
@@ -88,6 +95,10 @@ impl RelojFijo {
 impl Reloj for RelojFijo {
     fn ahora_utc(&self) -> String {
         self.momento.clone()
+    }
+
+    fn hoy(&self) -> String {
+        self.fecha_local.clone()
     }
 }
 
