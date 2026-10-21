@@ -50,6 +50,8 @@ pub struct ErroresDto {
 
 impl ErroresDto {
     /// Respuesta de los comandos de la Entrega 3 que aún no están conectados.
+    #[allow(dead_code)] // los comandos ya no la usan
+    #[allow(dead_code)] // los comandos ya no la usan
     pub fn no_implementado() -> Self {
         ErroresDto {
             errores: vec![ErrorCampo {
