@@ -49,14 +49,26 @@ impl RepositorioEnMemoria {
             self.categorias.push(categoria);
         }
 
-        if let Some(movimiento) =
-            proyector::proyectar_movimiento(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
+        let mov_proyectado = match proyector::proyectar_movimiento(evento)
+            .map_err(|e| ErrorRepositorio(e.to_string()))?
         {
-            if let Some(original) = movimiento.reemplaza_a.clone()
-                && let Some(fila) = self.movimientos.iter_mut().find(|m| m.id == original)
-            {
-                fila.estado = "corregido".to_string();
-                fila.corregido_por_evento = Some(evento.id.clone());
+            Some(m) => Some(m),
+            None => proyector::proyectar_correccion_con_original(evento, &self.movimientos)
+                .map_err(|e| ErrorRepositorio(e.to_string()))?,
+        };
+
+        if let Some(movimiento) = mov_proyectado {
+            if let Some(original) = movimiento.reemplaza_a.clone() {
+                for fila in self
+                    .movimientos
+                    .iter_mut()
+                    .filter(|m| m.id == original || m.reemplaza_a.as_deref() == Some(&original))
+                {
+                    if fila.estado == "vigente" {
+                        fila.estado = "corregido".to_string();
+                        fila.corregido_por_evento = Some(evento.id.clone());
+                    }
+                }
             }
             let cuenta_id = movimiento.cuenta_id.clone();
             self.movimientos.push(movimiento);
@@ -132,13 +144,28 @@ impl RepositorioEventos for RepositorioEnMemoria {
 #[derive(Debug, Clone)]
 pub struct RelojFijo {
     momento: String,
+    fecha_local: String,
 }
 
 impl RelojFijo {
     /// Crea un reloj fijo configurado con la marca de tiempo ISO 8601 indicada.
     pub fn nuevo(momento: &str) -> RelojFijo {
+        let fecha_local = if momento.len() >= 10 {
+            momento[..10].to_string()
+        } else {
+            "2026-10-19".to_string()
+        };
         RelojFijo {
             momento: momento.to_string(),
+            fecha_local,
+        }
+    }
+
+    /// Crea un reloj fijo especificando tanto el instante UTC como la fecha local (`"AAAA-MM-DD"`).
+    pub fn con_fecha_local(momento: &str, fecha_local: &str) -> RelojFijo {
+        RelojFijo {
+            momento: momento.to_string(),
+            fecha_local: fecha_local.to_string(),
         }
     }
 }
@@ -146,6 +173,10 @@ impl RelojFijo {
 impl Reloj for RelojFijo {
     fn ahora_utc(&self) -> String {
         self.momento.clone()
+    }
+
+    fn hoy(&self) -> String {
+        self.fecha_local.clone()
     }
 }
 

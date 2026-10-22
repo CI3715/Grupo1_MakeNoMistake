@@ -1,40 +1,39 @@
-//! Puertos: lo que la aplicación necesita del mundo exterior.
+//! Definición de los puertos de salida (interfaces) que la capa de aplicación
+//! requiere para interactuar con servicios externos como almacenamiento, reloj
+//! y generación de identificadores.
 //!
-//! Cada puerto tiene (al menos) dos implementaciones: una de prueba en
-//! `memoria.rs` (este crate) y una real en `infraestructura` (Katherine).
-//!
-//! Los puertos exigen `Send` porque Tauri guarda los casos de uso dentro de un
-//! `Mutex` compartido entre hilos (ese `Arc<Mutex<>>` vive solo en el crate `app`).
+//! Todos los traits exigen el bound `Send` para permitir su uso seguro en
+//! contextos concurrentes protegidos por exclusión mutua (`Mutex`).
 
 use thiserror::Error;
 
-/// Un evento ya "sellado": lo que se guarda tal cual en la tabla `eventos`.
+/// Representación de un evento de dominio serializado y listo para persistirse
+/// en el almacén de eventos.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventoRegistrado {
-    /// UUID v4 como texto. Identificador único e inmutable (INV-13).
+    /// Identificador único e inmutable del evento en formato UUID v4.
     pub id: String,
     /// Identificador del tipo de evento (`"CuentaCreada"`, `"CategoriaCreada"`,
     /// `"MovimientoRegistrado"`, `"MovimientoCorregido"`, ...).
     pub tipo: String,
-    /// ISO 8601 en UTC, por ejemplo "2026-10-12T18:00:00Z".
+    /// Fecha y hora de creación en formato ISO 8601 UTC (`"YYYY-MM-DDTHH:MM:SSZ"`).
     pub momento_registro: String,
-    /// UUID del dispositivo (se genera la primera vez que se abre la app).
+    /// Identificador único del dispositivo donde se originó el evento.
     pub dispositivo_origen: String,
-    /// Contenido del evento, en JSON.
+    /// Carga útil del evento serializada en formato JSON.
     pub datos: String,
 }
 
-/// Resultado de intentar guardar un evento.
+/// Resultado de la operación de escritura de un evento en el repositorio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultadoGuardado {
-    /// El evento era nuevo y se guardó.
+    /// El evento no existía previamente y fue almacenado con éxito.
     Guardado,
-    /// Ya había un evento con ese `id`: no se hizo nada (idempotencia, INV-13).
+    /// Ya existía un evento registrado con el mismo `id`; se omitió la escritura para mantener idempotencia.
     YaExistia,
 }
 
-/// Fallo del almacenamiento. El texto es solo para registros internos:
-/// nunca se muestra a la persona usuaria.
+/// Error de lectura o escritura originado en el adaptador de persistencia.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{0}")]
 pub struct ErrorRepositorio(pub String);
@@ -52,13 +51,13 @@ pub struct CuentaProyectada {
     pub nombre: String,
     /// Tipo en texto (`"efectivo"`, `"banco"`, `"billetera_digital"`).
     pub tipo: String,
-    /// Código de la moneda (`"VES"`, `"USD"`, ...).
+    /// Código de la moneda (`"VES"`, `"USD"`, `"EUR"`, `"USDT"`).
     pub moneda: String,
     /// Saldo con el que se creó la cuenta. Es fijo: nunca cambia (D-11).
     pub saldo_inicial: String,
     /// `saldo_inicial` más el efecto de los movimientos vigentes (D-11).
     pub saldo_actual: String,
-    /// Estado de la cuenta (por ahora siempre `"activa"`).
+    /// Estado de la cuenta (por defecto `"activa"`).
     pub estado: String,
 }
 
@@ -123,6 +122,7 @@ pub struct MovimientoProyectado {
 /// Además, `saldo_inicial` de una cuenta es inmutable y `saldo_actual` siempre
 /// coincide con `saldo_inicial` más el efecto de los movimientos vigentes (D-11).
 pub trait RepositorioEventos: Send {
+    /// Almacena un evento en el repositorio si su identificador no ha sido registrado antes.
     fn guardar(&mut self, evento: &EventoRegistrado)
     -> Result<ResultadoGuardado, ErrorRepositorio>;
 
@@ -142,18 +142,30 @@ pub trait RepositorioEventos: Send {
     fn reconstruir(&mut self) -> Result<(), ErrorRepositorio>;
 }
 
-/// Puerto del reloj: devuelve el momento actual en ISO 8601 UTC ("2026-10-12T18:00:00Z").
+/// Proveedor de fecha y hora del sistema.
 pub trait Reloj: Send {
+    /// Devuelve el instante actual formateado en ISO 8601 UTC (`"2026-10-12T18:00:00Z"`).
     fn ahora_utc(&self) -> String;
+
+    /// Devuelve la fecha actual según la hora local del dispositivo en formato `"AAAA-MM-DD"`.
+    fn hoy(&self) -> String {
+        let utc = self.ahora_utc();
+        if utc.len() >= 10 {
+            utc[..10].to_string()
+        } else {
+            utc
+        }
+    }
 }
 
-/// Puerto del generador de identificadores: UUID v4 como texto.
+/// Proveedor de identificadores únicos para entidades y eventos.
 pub trait GeneradorIdentificadores: Send {
+    /// Genera y devuelve un nuevo identificador único como cadena de texto.
     fn nuevo_id(&mut self) -> String;
 }
 
-/// Puerto del dispositivo de origen: UUID generado la primera vez que se abre la
-/// app y guardado en la base. Se reutiliza en todos los eventos.
+/// Proveedor del identificador único de la instalación o dispositivo local.
 pub trait DispositivoOrigen: Send {
+    /// Devuelve el identificador persistente asociado al dispositivo actual.
     fn id_dispositivo(&self) -> String;
 }
