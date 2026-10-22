@@ -253,6 +253,124 @@ impl From<aplicacion::ErrorAplicacion> for ErroresDto {
     }
 }
 
+// ---------- Entrega 3: conversiones desde y hacia la capa de aplicación ----------
+
+impl From<aplicacion::CategoriaListada> for CategoriaDto {
+    fn from(c: aplicacion::CategoriaListada) -> Self {
+        CategoriaDto {
+            id: c.id,
+            nombre: c.nombre,
+            tipo: c.tipo,
+            de_fabrica: c.de_fabrica,
+        }
+    }
+}
+
+/// El núcleo devuelve el efecto con «+» explícito; el acuerdo del equipo dice que
+/// los positivos viajan sin «+», así que solo se quita ese carácter (no se calcula nada).
+impl From<aplicacion::MovimientoListado> for MovimientoDto {
+    fn from(m: aplicacion::MovimientoListado) -> Self {
+        // Mientras el núcleo no entregue el valor vigente, solo se conoce con
+        // certeza cuando el movimiento no tiene ajustes: es su propio monto.
+        let monto_vigente = if m.estado == "vigente" {
+            Some(m.monto.clone())
+        } else {
+            None
+        };
+        MovimientoDto {
+            id: m.id,
+            cuenta_id: m.cuenta_id,
+            tipo: m.tipo,
+            monto: m.monto,
+            monto_con_signo: m.monto_con_signo.trim_start_matches('+').to_string(),
+            monto_vigente,
+            fecha: m.fecha,
+            categoria_id: m.categoria.id,
+            categoria_nombre: m.categoria.nombre,
+            nota: m.nota,
+            estado: m.estado,
+            corrige_a: m.corrige_a,
+            ajustes: m.ajustes,
+            monto_correcto: None,
+        }
+    }
+}
+
+impl From<aplicacion::ComposicionVista> for ComposicionDto {
+    fn from(c: aplicacion::ComposicionVista) -> Self {
+        ComposicionDto {
+            saldo_inicial: c.saldo_inicial,
+            total_ingresos: c.total_ingresos,
+            total_gastos: c.total_gastos,
+            total_ajustes: c.total_ajustes,
+        }
+    }
+}
+
+impl From<aplicacion::DetalleCuentaVista> for DetalleCuentaDto {
+    fn from(d: aplicacion::DetalleCuentaVista) -> Self {
+        DetalleCuentaDto {
+            cuenta: CuentaDto::from(d.cuenta),
+            composicion: ComposicionDto::from(d.composicion),
+            movimientos: d.movimientos.into_iter().map(MovimientoDto::from).collect(),
+        }
+    }
+}
+
+impl From<aplicacion::PrevisualizacionMovimiento> for PrevisualizacionDto {
+    fn from(p: aplicacion::PrevisualizacionMovimiento) -> Self {
+        PrevisualizacionDto {
+            saldo_resultante: p.saldo_resultante,
+            deja_saldo_negativo: p.deja_saldo_negativo,
+        }
+    }
+}
+
+impl From<NuevoMovimientoDto> for aplicacion::NuevoMovimiento {
+    fn from(d: NuevoMovimientoDto) -> Self {
+        aplicacion::NuevoMovimiento {
+            cuenta_id: d.cuenta_id,
+            tipo: d.tipo,
+            monto: d.monto,
+            fecha: d.fecha,
+            categoria_id: d.categoria_id,
+            nota: if d.nota.trim().is_empty() {
+                None
+            } else {
+                Some(d.nota)
+            },
+        }
+    }
+}
+
+impl From<NuevoMovimientoDto> for aplicacion::DatosPrevisualizarMovimiento {
+    fn from(d: NuevoMovimientoDto) -> Self {
+        aplicacion::DatosPrevisualizarMovimiento {
+            cuenta_id: d.cuenta_id,
+            tipo: d.tipo,
+            monto: d.monto,
+        }
+    }
+}
+
+impl From<CorreccionDto> for aplicacion::DatosCorregirMovimiento {
+    fn from(d: CorreccionDto) -> Self {
+        aplicacion::DatosCorregirMovimiento {
+            movimiento_id: d.movimiento_id,
+            monto_correcto: d.monto_correcto,
+        }
+    }
+}
+
+impl From<NuevaCategoriaDto> for aplicacion::NuevaCategoria {
+    fn from(d: NuevaCategoriaDto) -> Self {
+        aplicacion::NuevaCategoria {
+            nombre: d.nombre,
+            tipo: d.tipo,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
