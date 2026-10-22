@@ -8,7 +8,7 @@ use crate::dto::{CuentaDto, ErroresDto, ListaCuentasDto, MonedaDto, NuevaCuentaD
 
 /// Obtiene el acceso exclusivo a los casos de uso. Si un hilo anterior falló
 /// con el candado tomado, se recupera el estado: los datos siguen siendo válidos.
-fn bloquear(casos: &Mutex<CasosDeUso>) -> MutexGuard<'_, CasosDeUso> {
+pub(crate) fn bloquear(casos: &Mutex<CasosDeUso>) -> MutexGuard<'_, CasosDeUso> {
     casos.lock().unwrap_or_else(|e| e.into_inner())
 }
 
