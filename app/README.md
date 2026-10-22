@@ -131,10 +131,10 @@ Con `npm run tauri dev` (empezando de cero, ver «Cuentas y almacenamiento local
 Desde `src-tauri/`:
 
 ```
-cargo test el_ejemplo_2_2
+cargo test --workspace ejemplo_2_2
 ```
 
-La prueba usa un repositorio en memoria (sin base de datos ni red), crea la cuenta, registra los tres movimientos y comprueba cada saldo intermedio: 1.000,00 → 1.800,00 → 1.300,00 → 1.750,00, además de la composición final y de que el original queda marcado como corregido.
+Corren dos pruebas, ambas con un repositorio en memoria (sin base de datos ni red): `ejemplo_2_2_billetera_dolares_e_invariantes_inv04_inv05`, en la capa de aplicación, y `el_ejemplo_2_2_se_reproduce_tal_cual`, en los comandos de Tauri. Crean la cuenta, registran los tres movimientos y comprueban cada saldo intermedio: 1.000,00 → 1.800,00 → 1.300,00 → 1.750,00, además de la composición final y de que el original queda marcado como corregido.
 
 ### Prueba de autonomía de la Entrega 3
 
