@@ -1,26 +1,36 @@
-//! Proyección de eventos hacia los modelos de lectura.
+//! Proyección de eventos hacia el modelo de lectura (`cuentas`, `categorias` y
+//! `movimientos`) y cálculo del saldo actual.
 //!
-//! Traduce eventos del libro inmutable hacia las proyecciones materializadas
-//! de cuentas, manteniendo los saldos derivados sincronizados con los movimientos
-//! y ajustes registrados.
+//! Concentra la única regla que traduce un evento del libro inmutable a una fila
+//! de proyección. Al vivir en la capa de aplicación, tanto el adaptador en
+//! memoria como el de SQLite comparten exactamente la misma lógica.
 
-use std::collections::HashSet;
+use dominio::Moneda;
+use rust_decimal::Decimal;
 use std::str::FromStr;
 
-use dominio::{Moneda, TipoMovimiento};
-use rust_decimal::Decimal;
-
-use crate::casos_de_uso::{
-    TIPO_CUENTA_CREADA, TIPO_MOVIMIENTO_CORREGIDO, TIPO_MOVIMIENTO_REGISTRADO,
-};
+use crate::casos_de_uso::TIPO_CUENTA_CREADA;
 use crate::codec;
 use crate::errores::ErrorAplicacion;
-use crate::puertos::{CuentaProyectada, EventoRegistrado};
+use crate::puertos::{
+    CategoriaProyectada, CuentaProyectada, EventoRegistrado, MovimientoProyectado,
+};
+
+/// Identificador de tipo de los eventos de categoría.
+pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
+/// Identificador de tipo del evento que registra un movimiento.
+pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
+/// Identificador de tipo del evento que corrige un movimiento existente.
+pub const TIPO_MOVIMIENTO_CORREGIDO: &str = "MovimientoCorregido";
 
 /// Traduce un evento `CuentaCreada` a la fila inicial que debe escribirse en la proyección `cuentas`.
 ///
-/// Devuelve `Ok(None)` para eventos que no crean una cuenta nueva. Un evento `CuentaCreada`
-/// con carga inválida devuelve error para evitar desincronizar la proyección.
+/// Devuelve `Ok(None)` para eventos que no afectan a esta proyección. Un evento
+/// `CuentaCreada` con carga inválida es un error: la proyección no puede quedar
+/// desincronizada.
+///
+/// La cuenta nace con `saldo_actual == saldo_inicial`; los movimientos posteriores
+/// ajustan `saldo_actual` sin tocar `saldo_inicial` (D-11).
 pub fn proyectar_cuenta(
     evento: &EventoRegistrado,
 ) -> Result<Option<CuentaProyectada>, ErrorAplicacion> {
@@ -38,68 +48,161 @@ pub fn proyectar_cuenta(
         nombre: cuenta.nombre,
         tipo: codec::tipo_a_texto(&cuenta.tipo).to_string(),
         moneda: cuenta.moneda.codigo,
+        saldo_inicial: saldo.clone(),
         saldo_actual: saldo,
         estado: "activa".to_string(),
     }))
 }
 
-/// Recalcula la proyección de todas las cuentas a partir de la secuencia completa de eventos,
-/// aplicando ingresos, gastos y ajustes de forma idempotente (INV-05, INV-13).
+/// Traduce un evento `CategoriaCreada` a la fila de la proyección `categorias`.
 ///
-/// Si un evento de movimiento o corrección tiene un JSON inválido (por ejemplo, en pruebas de contrato
-/// con eventos sintéticos), se ignora sin abortar la proyección de las cuentas existentes.
-pub fn proyectar_todas_las_cuentas(
-    eventos: &[EventoRegistrado],
-) -> Result<Vec<CuentaProyectada>, ErrorAplicacion> {
-    let mut vistos = HashSet::new();
-    let mut cuentas: Vec<CuentaProyectada> = Vec::new();
-    let mut saldos: Vec<(Decimal, u32)> = Vec::new();
-    let mut cuenta_de_movimiento: Vec<(String, usize)> = Vec::new();
+/// Devuelve `Ok(None)` para cualquier otro tipo de evento.
+pub fn proyectar_categoria(
+    evento: &EventoRegistrado,
+) -> Result<Option<CategoriaProyectada>, ErrorAplicacion> {
+    if evento.tipo != TIPO_CATEGORIA_CREADA {
+        return Ok(None);
+    }
+    let categoria = codec::deserializar_categoria(&evento.datos)?;
+    Ok(Some(CategoriaProyectada {
+        id: categoria.id,
+        nombre: categoria.nombre,
+        tipo: categoria.tipo,
+        es_fabrica: categoria.es_fabrica,
+        estado: "activa".to_string(),
+    }))
+}
 
-    for e in eventos {
-        if !vistos.insert(e.id.clone()) {
-            continue;
+/// Traduce un evento de movimiento (`MovimientoRegistrado` o `MovimientoCorregido`)
+/// a la fila que debe escribirse en la proyección `movimientos`.
+///
+/// Para una corrección con datos completos de reemplazo, `reemplaza_a` apunta al
+/// movimiento original. Si el evento es un ajuste de dominio que solo contiene
+/// la diferencia (`id_ajuste`, `efecto`), devuelve `Ok(None)` para que el ajuste
+/// sea procesado mediante `proyectar_correccion_ajuste`.
+pub fn proyectar_movimiento(
+    evento: &EventoRegistrado,
+) -> Result<Option<MovimientoProyectado>, ErrorAplicacion> {
+    if evento.tipo != TIPO_MOVIMIENTO_REGISTRADO && evento.tipo != TIPO_MOVIMIENTO_CORREGIDO {
+        return Ok(None);
+    }
+
+    if evento.tipo == TIPO_MOVIMIENTO_CORREGIDO
+        && let Ok(valor) = serde_json::from_str::<serde_json::Value>(&evento.datos)
+        && valor.get("id_ajuste").is_some()
+        && valor.get("cuenta_id").is_none()
+    {
+        return Ok(None);
+    }
+
+    let movimiento = codec::deserializar_movimiento(&evento.datos)?;
+
+    let reemplaza_a = if evento.tipo == TIPO_MOVIMIENTO_CORREGIDO {
+        match movimiento.movimiento_original_id {
+            Some(original) => Some(original),
+            None => {
+                return Err(ErrorAplicacion::Interno(
+                    "MovimientoCorregido sin movimiento_original_id".to_string(),
+                ));
+            }
         }
-        match e.tipo.as_str() {
-            TIPO_CUENTA_CREADA => {
-                if let Some(c) = proyectar_cuenta(e)? {
-                    let decs = Moneda::por_codigo(&c.moneda)
-                        .map(|m| m.decimales)
-                        .unwrap_or(2);
-                    let inicial = Decimal::from_str(&c.saldo_actual).unwrap_or(Decimal::ZERO);
-                    saldos.push((inicial, decs));
-                    cuentas.push(c);
-                }
+    } else {
+        None
+    };
+
+    Ok(Some(MovimientoProyectado {
+        id: movimiento.id,
+        cuenta_id: movimiento.cuenta_id,
+        tipo: movimiento.tipo,
+        monto: movimiento.monto,
+        fecha: movimiento.fecha,
+        categoria_id: movimiento.categoria_id,
+        nota: movimiento.nota,
+        estado: "vigente".to_string(),
+        reemplaza_a,
+        corregido_por_evento: None,
+    }))
+}
+
+///Construye un [`MovimientoProyectado`] a partir de un evento `MovimientoCorregido`
+/// de dominio (que almacena `id_ajuste`, `id_movimiento_original` y `monto_correcto`)
+/// tomando la cuenta y categoría del movimiento original.
+pub fn proyectar_correccion_con_original(
+    evento: &EventoRegistrado,
+    movimientos_previos: &[MovimientoProyectado],
+) -> Result<Option<MovimientoProyectado>, ErrorAplicacion> {
+    if evento.tipo != TIPO_MOVIMIENTO_CORREGIDO {
+        return Ok(None);
+    }
+    let valor: serde_json::Value = serde_json::from_str(&evento.datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+    if valor.get("id_ajuste").is_none() || valor.get("cuenta_id").is_some() {
+        return Ok(None);
+    }
+
+    let corr = codec::deserializar_correccion(&evento.datos)?;
+    let Some(orig) = movimientos_previos
+        .iter()
+        .find(|m| m.id == corr.id_movimiento_original)
+    else {
+        return Ok(None);
+    };
+
+    let fecha = if evento.momento_registro.len() >= 10 {
+        evento.momento_registro[..10].to_string()
+    } else {
+        orig.fecha.clone()
+    };
+    let monto_str = format!(
+        "{:.prec$}",
+        corr.monto_correcto,
+        prec = corr.moneda.decimales as usize
+    );
+
+    Ok(Some(MovimientoProyectado {
+        id: corr.id_ajuste,
+        cuenta_id: orig.cuenta_id.clone(),
+        tipo: orig.tipo.clone(),
+        monto: monto_str,
+        fecha,
+        categoria_id: orig.categoria_id.clone(),
+        nota: None,
+        estado: "vigente".to_string(),
+        reemplaza_a: Some(orig.id.clone()),
+        corregido_por_evento: None,
+    }))
+}
+
+/// Calcula el saldo actual de una cuenta a partir de su saldo inicial y sus
+/// movimientos vigentes, usando aritmética decimal exacta (INV-03) y formateando
+/// el resultado con los decimales de la moneda de la cuenta.
+///
+/// `movimientos_vigentes` es una lista de pares `(tipo, monto)` donde `tipo` es
+/// `"ingreso"` (suma) o `"egreso"`/`"gasto"` (resta).
+pub fn calcular_saldo_actual(
+    saldo_inicial: &str,
+    moneda: &str,
+    movimientos_vigentes: &[(String, String)],
+) -> Result<String, ErrorAplicacion> {
+    let mut total = Decimal::from_str(saldo_inicial)
+        .map_err(|e| ErrorAplicacion::Interno(format!("saldo inicial inválido: {e}")))?;
+
+    for (tipo, monto) in movimientos_vigentes {
+        let valor = Decimal::from_str(monto)
+            .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+        match tipo.as_str() {
+            "ingreso" => total += valor,
+            "egreso" | "gasto" => total -= valor,
+            otro => {
+                return Err(ErrorAplicacion::Interno(format!(
+                    "tipo de movimiento desconocido: {otro}"
+                )));
             }
-            TIPO_MOVIMIENTO_REGISTRADO => {
-                if let Ok(mov) = codec::deserializar_movimiento(&e.datos)
-                    && let Some(idx) = cuentas.iter().position(|c| c.id == mov.id_cuenta)
-                {
-                    match mov.tipo {
-                        TipoMovimiento::Ingreso => saldos[idx].0 += mov.monto,
-                        TipoMovimiento::Gasto => saldos[idx].0 -= mov.monto,
-                    }
-                    let decs = saldos[idx].1;
-                    cuentas[idx].saldo_actual =
-                        format!("{:.prec$}", saldos[idx].0, prec = decs as usize);
-                    cuenta_de_movimiento.push((mov.id_movimiento, idx));
-                }
-            }
-            TIPO_MOVIMIENTO_CORREGIDO => {
-                if let Ok(corr) = codec::deserializar_correccion(&e.datos)
-                    && let Some((_, idx)) = cuenta_de_movimiento
-                        .iter()
-                        .find(|(id_m, _)| *id_m == corr.id_movimiento_original)
-                {
-                    saldos[*idx].0 += corr.efecto;
-                    let decs = saldos[*idx].1;
-                    cuentas[*idx].saldo_actual =
-                        format!("{:.prec$}", saldos[*idx].0, prec = decs as usize);
-                }
-            }
-            _ => {}
         }
     }
 
-    Ok(cuentas)
+    let decimales = Moneda::por_codigo(moneda)
+        .map(|m| m.decimales)
+        .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda}")))?;
+    Ok(format!("{:.prec$}", total, prec = decimales as usize))
 }

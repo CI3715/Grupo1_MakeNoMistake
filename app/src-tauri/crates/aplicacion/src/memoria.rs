@@ -6,18 +6,21 @@
 
 use crate::proyector;
 use crate::puertos::{
-    CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
-    GeneradorIdentificadores, Reloj, RepositorioEventos, ResultadoGuardado,
+    CategoriaProyectada, CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
+    GeneradorIdentificadores, MovimientoProyectado, Reloj, RepositorioEventos, ResultadoGuardado,
 };
 
 /// Almacén de eventos volátil respaldado por vectores en memoria.
 ///
-/// Mantiene el libro de eventos y su proyección `cuentas` sincronizados:
-/// al guardar un evento nuevo, la proyección se actualiza acto seguido.
+/// Mantiene el libro de eventos y sus proyecciones `cuentas`, `categorias` y
+/// `movimientos` sincronizados igual que el adaptador de SQLite: al guardar un
+/// evento nuevo, las proyecciones se actualizan acto seguido.
 #[derive(Debug, Default)]
 pub struct RepositorioEnMemoria {
     eventos: Vec<EventoRegistrado>,
     cuentas: Vec<CuentaProyectada>,
+    categorias: Vec<CategoriaProyectada>,
+    movimientos: Vec<MovimientoProyectado>,
 }
 
 impl RepositorioEnMemoria {
@@ -26,7 +29,72 @@ impl RepositorioEnMemoria {
         RepositorioEnMemoria {
             eventos: Vec::new(),
             cuentas: Vec::new(),
+            categorias: Vec::new(),
+            movimientos: Vec::new(),
         }
+    }
+
+    /// Aplica los efectos de un evento sobre las proyecciones, en el orden en que
+    /// las comparte con el adaptador de SQLite.
+    fn aplicar(&mut self, evento: &EventoRegistrado) -> Result<(), ErrorRepositorio> {
+        if let Some(cuenta) =
+            proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
+        {
+            self.cuentas.push(cuenta);
+        }
+
+        if let Some(categoria) =
+            proyector::proyectar_categoria(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
+        {
+            self.categorias.push(categoria);
+        }
+
+        let mov_proyectado = match proyector::proyectar_movimiento(evento)
+            .map_err(|e| ErrorRepositorio(e.to_string()))?
+        {
+            Some(m) => Some(m),
+            None => proyector::proyectar_correccion_con_original(evento, &self.movimientos)
+                .map_err(|e| ErrorRepositorio(e.to_string()))?,
+        };
+
+        if let Some(movimiento) = mov_proyectado {
+            if let Some(original) = movimiento.reemplaza_a.clone() {
+                for fila in self
+                    .movimientos
+                    .iter_mut()
+                    .filter(|m| m.id == original || m.reemplaza_a.as_deref() == Some(&original))
+                {
+                    if fila.estado == "vigente" {
+                        fila.estado = "corregido".to_string();
+                        fila.corregido_por_evento = Some(evento.id.clone());
+                    }
+                }
+            }
+            let cuenta_id = movimiento.cuenta_id.clone();
+            self.movimientos.push(movimiento);
+            self.recalcular_saldo(&cuenta_id)?;
+        }
+
+        Ok(())
+    }
+
+    /// Recalcula `saldo_actual` de una cuenta a partir de su saldo inicial y sus
+    /// movimientos vigentes, sin tocar `saldo_inicial` (D-11).
+    fn recalcular_saldo(&mut self, cuenta_id: &str) -> Result<(), ErrorRepositorio> {
+        let vigentes: Vec<(String, String)> = self
+            .movimientos
+            .iter()
+            .filter(|m| m.cuenta_id == cuenta_id && m.estado == "vigente")
+            .map(|m| (m.tipo.clone(), m.monto.clone()))
+            .collect();
+
+        let Some(cuenta) = self.cuentas.iter_mut().find(|c| c.id == cuenta_id) else {
+            return Ok(());
+        };
+        cuenta.saldo_actual =
+            proyector::calcular_saldo_actual(&cuenta.saldo_inicial, &cuenta.moneda, &vigentes)
+                .map_err(|e| ErrorRepositorio(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -38,12 +106,8 @@ impl RepositorioEventos for RepositorioEnMemoria {
         if self.eventos.iter().any(|e| e.id == evento.id) {
             return Ok(ResultadoGuardado::YaExistia);
         }
-        // Valida inmediatamente eventos CuentaCreada antes de insertar.
-        let _ = proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?;
-
+        self.aplicar(evento)?;
         self.eventos.push(evento.clone());
-        self.cuentas = proyector::proyectar_todas_las_cuentas(&self.eventos)
-            .map_err(|e| ErrorRepositorio(e.to_string()))?;
         Ok(ResultadoGuardado::Guardado)
     }
 
@@ -55,9 +119,23 @@ impl RepositorioEventos for RepositorioEnMemoria {
         Ok(self.cuentas.clone())
     }
 
+    fn listar_categorias(&self) -> Result<Vec<CategoriaProyectada>, ErrorRepositorio> {
+        Ok(self.categorias.clone())
+    }
+
+    fn listar_movimientos(&self) -> Result<Vec<MovimientoProyectado>, ErrorRepositorio> {
+        Ok(self.movimientos.clone())
+    }
+
     fn reconstruir(&mut self) -> Result<(), ErrorRepositorio> {
-        self.cuentas = proyector::proyectar_todas_las_cuentas(&self.eventos)
-            .map_err(|e| ErrorRepositorio(e.to_string()))?;
+        self.cuentas.clear();
+        self.categorias.clear();
+        self.movimientos.clear();
+
+        let eventos = self.eventos.clone();
+        for evento in &eventos {
+            self.aplicar(evento)?;
+        }
         Ok(())
     }
 }

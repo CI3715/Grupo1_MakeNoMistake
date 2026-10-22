@@ -13,7 +13,8 @@ use thiserror::Error;
 pub struct EventoRegistrado {
     /// Identificador único e inmutable del evento en formato UUID v4.
     pub id: String,
-    /// Nombre del tipo de evento (`"CuentaCreada"`, `"MovimientoRegistrado"`, `"MovimientoCorregido"`, `"CategoriaCreada"`).
+    /// Identificador del tipo de evento (`"CuentaCreada"`, `"CategoriaCreada"`,
+    /// `"MovimientoRegistrado"`, `"MovimientoCorregido"`, ...).
     pub tipo: String,
     /// Fecha y hora de creación en formato ISO 8601 UTC (`"YYYY-MM-DDTHH:MM:SSZ"`).
     pub momento_registro: String,
@@ -52,10 +53,55 @@ pub struct CuentaProyectada {
     pub tipo: String,
     /// Código de la moneda (`"VES"`, `"USD"`, `"EUR"`, `"USDT"`).
     pub moneda: String,
-    /// Saldo actual formateado con la escala de la moneda.
+    /// Saldo con el que se creó la cuenta. Es fijo: nunca cambia (D-11).
+    pub saldo_inicial: String,
+    /// `saldo_inicial` más el efecto de los movimientos vigentes (D-11).
     pub saldo_actual: String,
     /// Estado de la cuenta (por defecto `"activa"`).
     pub estado: String,
+}
+
+/// Fila de la proyección materializada `categorias` (modelo de lectura).
+///
+/// Recibe las categorías de fábrica (`es_fabrica`) y las creadas por quien usa
+/// la aplicación. También es una caché derivada del libro de eventos.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CategoriaProyectada {
+    /// Identificador de la categoría.
+    pub id: String,
+    /// Nombre visible (único dentro de su tipo).
+    pub nombre: String,
+    /// `"ingreso"` o `"egreso"`.
+    pub tipo: String,
+    /// `true` para las once categorías que trae el sistema.
+    pub es_fabrica: bool,
+    /// Estado (`"activa"` por defecto; `"inactiva"` al desactivarla).
+    pub estado: String,
+}
+
+/// Fila de la proyección materializada `movimientos` (modelo de lectura).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovimientoProyectado {
+    /// Identificador del movimiento.
+    pub id: String,
+    /// Cuenta a la que pertenece.
+    pub cuenta_id: String,
+    /// `"ingreso"` o `"egreso"`.
+    pub tipo: String,
+    /// Monto positivo formateado con la escala de la moneda de la cuenta.
+    pub monto: String,
+    /// Fecha en formato `AAAA-MM-DD`.
+    pub fecha: String,
+    /// Categoría que clasifica el movimiento.
+    pub categoria_id: String,
+    /// Nota opcional.
+    pub nota: Option<String>,
+    /// `"vigente"` o `"corregido"`.
+    pub estado: String,
+    /// Si este movimiento es una corrección, apunta al movimiento original.
+    pub reemplaza_a: Option<String>,
+    /// Identificador del evento que corrigió este movimiento original.
+    pub corregido_por_evento: Option<String>,
 }
 
 /// Puerto de persistencia para el libro inmutable de eventos y sus proyecciones.
@@ -64,9 +110,17 @@ pub struct CuentaProyectada {
 /// 1. `listar` devuelve los eventos en estricto orden de inserción.
 /// 2. `guardar` es idempotente respecto al campo `id` y devuelve [`ResultadoGuardado::YaExistia`] si el identificador se repite.
 /// 3. Los eventos almacenados son inmutables y su contenido no se sobrescribe.
-/// 4. Al guardar un evento nuevo, la proyección `cuentas` se actualiza en la misma transacción.
-/// 5. `listar_cuentas` lee las cuentas proyectadas en orden de creación.
-/// 6. `reconstruir` borra las proyecciones y las recalcula desde el libro de eventos.
+/// 4. Al guardar un evento nuevo, las proyecciones `cuentas`, `categorias` y
+///    `movimientos` se actualizan en la **misma transacción** (atomicidad): o se
+///    persiste el evento y sus efectos, o ninguno.
+/// 5. `listar_cuentas`, `listar_categorias` y `listar_movimientos` son simples
+///    lecturas de las proyecciones (no reproyectan eventos).
+/// 6. `reconstruir` borra las tres proyecciones y las recalcula desde el libro de
+///    eventos; el resultado debe ser idéntico al que se obtendría tras un `guardar`
+///    normal.
+///
+/// Además, `saldo_inicial` de una cuenta es inmutable y `saldo_actual` siempre
+/// coincide con `saldo_inicial` más el efecto de los movimientos vigentes (D-11).
 pub trait RepositorioEventos: Send {
     /// Almacena un evento en el repositorio si su identificador no ha sido registrado antes.
     fn guardar(&mut self, evento: &EventoRegistrado)
@@ -77,6 +131,12 @@ pub trait RepositorioEventos: Send {
 
     /// Lectura de la proyección `cuentas`, en orden de creación.
     fn listar_cuentas(&self) -> Result<Vec<CuentaProyectada>, ErrorRepositorio>;
+
+    /// Lectura de la proyección `categorias`, en orden de creación.
+    fn listar_categorias(&self) -> Result<Vec<CategoriaProyectada>, ErrorRepositorio>;
+
+    /// Lectura de la proyección `movimientos`, en orden de registro.
+    fn listar_movimientos(&self) -> Result<Vec<MovimientoProyectado>, ErrorRepositorio>;
 
     /// Reconstruye las proyecciones desde cero releyendo el libro de eventos.
     fn reconstruir(&mut self) -> Result<(), ErrorRepositorio>;

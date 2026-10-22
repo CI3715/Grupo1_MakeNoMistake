@@ -138,6 +138,41 @@ fn inv03_aritmetica_decimal_exacta_y_formateo_con_decimales_de_la_moneda() {
     assert_eq!(lista.subtotales[1].total, "300.00");
 }
 
+/// Comprueba que guardar y proyectar dos veces el mismo evento e ignorar eventos desconocidos
+/// produzca exactamente el mismo estado (INV-13).
+#[test]
+fn inv13_idempotencia_guardar_y_proyectar_dos_veces_el_mismo_evento() {
+    let mut repo = RepositorioEnMemoria::nuevo();
+    let evento = EventoRegistrado {
+        id: "evento-unico-1".to_string(),
+        tipo: "CuentaCreada".to_string(),
+        momento_registro: "2026-10-14T12:00:00Z".to_string(),
+        dispositivo_origen: "disp-1".to_string(),
+        datos: r#"{"id":"c1","nombre":"Cartera","tipo":"efectivo","moneda":"VES","saldo_inicial":"10.00"}"#.to_string(),
+    };
+    let desconocido = EventoRegistrado {
+        id: "evento-futuro-2".to_string(),
+        tipo: "EventoDesconocido".to_string(),
+        momento_registro: "2026-10-14T12:01:00Z".to_string(),
+        dispositivo_origen: "disp-1".to_string(),
+        datos: "{}".to_string(),
+    };
+
+    assert_eq!(repo.guardar(&evento).unwrap(), ResultadoGuardado::Guardado);
+    assert_eq!(repo.guardar(&evento).unwrap(), ResultadoGuardado::YaExistia);
+    repo.guardar(&desconocido).unwrap();
+
+    let app = CasosDeUso::nuevo(
+        Box::new(repo),
+        Box::new(RelojFijo::nuevo("2026-10-14T12:00:00Z")),
+        Box::new(GeneradorSecuencial::nuevo()),
+        Box::new(DispositivoFijo::nuevo("disp-1")),
+    );
+
+    let lista = app.listar_cuentas().unwrap();
+    assert_eq!(lista.cuentas.len(), 1);
+}
+
 /// Reproduce paso a paso el ejemplo 2.2 del enunciado (M-01) y comprueba INV-04 e INV-05:
 /// Cuenta «Billetera dólares» en USD con saldo inicial 1000.00 -> Ingreso Salario +800.00 (1800.00)
 /// -> Gasto Alimentación -500.00 (1300.00) -> Ajuste a 50.00 (+450.00, saldo final 1750.00).
@@ -449,14 +484,14 @@ fn inv13_idempotencia_con_todos_los_eventos_nuevos() {
         tipo: "CategoriaCreada".to_string(),
         momento_registro: "2026-10-19T10:01:00Z".to_string(),
         dispositivo_origen: "disp-1".to_string(),
-        datos: r#"{"id_categoria":"cat-1","nombre":"Extra","tipo":"gasto"}"#.to_string(),
+        datos: r#"{"id":"cat-1","id_categoria":"cat-1","nombre":"Extra","tipo":"egreso","es_fabrica":false}"#.to_string(),
     };
     let ev_mov = EventoRegistrado {
         id: "ev-mov-1".to_string(),
         tipo: "MovimientoRegistrado".to_string(),
         momento_registro: "2026-10-19T10:02:00Z".to_string(),
         dispositivo_origen: "disp-1".to_string(),
-        datos: r#"{"id_movimiento":"m1","id_cuenta":"c1","tipo":"gasto","monto":"40.00","moneda":"USD","fecha":"2026-10-19","id_categoria":"cat-1","nota":" Café "}"#.to_string(),
+        datos: r#"{"id":"m1","id_movimiento":"m1","cuenta_id":"c1","id_cuenta":"c1","tipo":"egreso","monto":"40.00","moneda":"USD","fecha":"2026-10-19","categoria_id":"cat-1","id_categoria":"cat-1","nota":" Café "}"#.to_string(),
     };
     let ev_corr = EventoRegistrado {
         id: "ev-corr-1".to_string(),

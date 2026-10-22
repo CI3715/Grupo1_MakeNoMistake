@@ -693,7 +693,7 @@ impl CasosDeUso {
                     cuentas.push(codec::deserializar(&e.datos)?);
                 }
                 TIPO_CATEGORIA_CREADA => {
-                    let ev = codec::deserializar_categoria(&e.datos)?;
+                    let ev = codec::deserializar_evento_categoria(&e.datos)?;
                     categorias.push(Categoria {
                         id: ev.id_categoria,
                         nombre: ev.nombre,
@@ -702,7 +702,7 @@ impl CasosDeUso {
                     });
                 }
                 TIPO_MOVIMIENTO_REGISTRADO => {
-                    let ev = codec::deserializar_movimiento(&e.datos)?;
+                    let ev = codec::deserializar_evento_movimiento(&e.datos)?;
                     let monto = Monto::from_evento_interno(&ev, &ev.moneda);
                     movimientos.push(MovimientoProyectado {
                         orden: indice,

@@ -47,7 +47,7 @@ pub fn tipo_movimiento_a_texto(tipo: &TipoMovimiento) -> &str {
 pub fn texto_a_tipo_movimiento(texto: &str) -> Result<TipoMovimiento, ErrorAplicacion> {
     match texto.trim().to_lowercase().as_str() {
         "ingreso" => Ok(TipoMovimiento::Ingreso),
-        "gasto" => Ok(TipoMovimiento::Gasto),
+        "gasto" | "egreso" => Ok(TipoMovimiento::Gasto),
         otro => Err(ErrorAplicacion::Interno(format!(
             "Tipo de movimiento desconocido: {otro}"
         ))),
@@ -61,6 +61,20 @@ fn texto(valor: &Value, clave: &str) -> Result<String, ErrorAplicacion> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| ErrorAplicacion::Interno(format!("falta el campo {clave} en el evento")))
+}
+
+/// Extrae una propiedad probando una clave principal o una alternativa.
+fn texto_alternativo(
+    valor: &Value,
+    clave_1: &str,
+    clave_2: &str,
+) -> Result<String, ErrorAplicacion> {
+    valor
+        .get(clave_1)
+        .or_else(|| valor.get(clave_2))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| ErrorAplicacion::Interno(format!("falta el campo {clave_1} en el evento")))
 }
 
 /// Serializa un evento [`CuentaCreada`] en una cadena JSON con el saldo formateado
@@ -106,34 +120,166 @@ pub fn deserializar(datos: &str) -> Result<CuentaCreada, ErrorAplicacion> {
     })
 }
 
-/// Serializa un evento [`MovimientoRegistrado`] en una cadena JSON.
+/// Contenido de un evento `CategoriaCreada`, ya validado para la proyección.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CategoriaDatos {
+    pub id: String,
+    pub nombre: String,
+    pub tipo: String,
+    pub es_fabrica: bool,
+}
+
+/// Deserializa y valida la carga de un evento `CategoriaCreada` para la proyección.
+pub fn deserializar_categoria(datos: &str) -> Result<CategoriaDatos, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+
+    let tipo_raw = texto(&valor, "tipo")?;
+    let tipo = match tipo_raw.as_str() {
+        "ingreso" => "ingreso".to_string(),
+        "egreso" | "gasto" => "egreso".to_string(),
+        otro => {
+            return Err(ErrorAplicacion::Interno(format!(
+                "tipo de categoría desconocido: {otro}"
+            )));
+        }
+    };
+
+    Ok(CategoriaDatos {
+        id: texto_alternativo(&valor, "id", "id_categoria")?,
+        nombre: texto(&valor, "nombre")?,
+        tipo,
+        es_fabrica: valor
+            .get("es_fabrica")
+            .or_else(|| valor.get("de_fabrica"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+/// Contenido de un evento de movimiento (`MovimientoRegistrado` o
+/// `MovimientoCorregido`), ya validado para la proyección.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovimientoDatos {
+    pub id: String,
+    pub cuenta_id: String,
+    pub tipo: String,
+    pub monto: String,
+    pub fecha: String,
+    pub categoria_id: String,
+    pub nota: Option<String>,
+    /// Presente en `MovimientoCorregido`: el movimiento original que se corrige.
+    pub movimiento_original_id: Option<String>,
+}
+
+/// Deserializa y valida la carga de un evento de movimiento para la proyección.
+pub fn deserializar_movimiento(datos: &str) -> Result<MovimientoDatos, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+
+    let tipo_raw = texto(&valor, "tipo")?;
+    let tipo = match tipo_raw.as_str() {
+        "ingreso" => "ingreso".to_string(),
+        "egreso" | "gasto" => "egreso".to_string(),
+        otro => {
+            return Err(ErrorAplicacion::Interno(format!(
+                "tipo de movimiento desconocido: {otro}"
+            )));
+        }
+    };
+
+    let monto = texto_alternativo(&valor, "monto", "monto_correcto")?;
+    let decimal = Decimal::from_str(&monto)
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+
+    let orig_id = valor
+        .get("movimiento_original_id")
+        .or_else(|| valor.get("id_movimiento_original"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    if orig_id.is_none() && decimal <= Decimal::new(0, 0) {
+        return Err(ErrorAplicacion::Interno(
+            "el monto del movimiento debe ser positivo".to_string(),
+        ));
+    }
+
+    Ok(MovimientoDatos {
+        id: texto_alternativo(&valor, "id", "id_movimiento")
+            .or_else(|_| texto(&valor, "id_ajuste"))?,
+        cuenta_id: texto_alternativo(&valor, "cuenta_id", "id_cuenta")?,
+        tipo,
+        monto,
+        fecha: texto(&valor, "fecha")?,
+        categoria_id: texto_alternativo(&valor, "categoria_id", "id_categoria")?,
+        nota: valor
+            .get("nota")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty()),
+        movimiento_original_id: orig_id,
+    })
+}
+
+/// Serializa un evento [`MovimientoRegistrado`] en una cadena JSON compatible con
+/// el dominio y con las proyecciones de almacenamiento.
 pub fn serializar_movimiento(evento: &MovimientoRegistrado) -> String {
     let monto_formateado = format!(
         "{:.prec$}",
         evento.monto,
         prec = evento.moneda.decimales as usize
     );
-    json!({
-        "id_movimiento": evento.id_movimiento,
-        "id_cuenta": evento.id_cuenta,
-        "tipo": tipo_movimiento_a_texto(&evento.tipo),
-        "monto": monto_formateado,
-        "moneda": evento.moneda.codigo,
-        "fecha": evento.fecha,
-        "id_categoria": evento.id_categoria,
-        "nota": evento.nota.clone().unwrap_or_default(),
-    })
-    .to_string()
+    let tipo_dom = tipo_movimiento_a_texto(&evento.tipo);
+    let tipo_proy = match evento.tipo {
+        TipoMovimiento::Ingreso => "ingreso",
+        TipoMovimiento::Gasto => "egreso",
+    };
+    let mut obj = serde_json::Map::new();
+    obj.insert("id".into(), Value::String(evento.id_movimiento.clone()));
+    obj.insert(
+        "id_movimiento".into(),
+        Value::String(evento.id_movimiento.clone()),
+    );
+    obj.insert("cuenta_id".into(), Value::String(evento.id_cuenta.clone()));
+    obj.insert("id_cuenta".into(), Value::String(evento.id_cuenta.clone()));
+    obj.insert("tipo".into(), Value::String(tipo_proy.into()));
+    obj.insert("tipo_dominio".into(), Value::String(tipo_dom.into()));
+    obj.insert("monto".into(), Value::String(monto_formateado));
+    obj.insert("moneda".into(), Value::String(evento.moneda.codigo.clone()));
+    obj.insert("fecha".into(), Value::String(evento.fecha.clone()));
+    obj.insert(
+        "categoria_id".into(),
+        Value::String(evento.id_categoria.clone()),
+    );
+    obj.insert(
+        "id_categoria".into(),
+        Value::String(evento.id_categoria.clone()),
+    );
+    if let Some(ref n) = evento.nota {
+        obj.insert("nota".into(), Value::String(n.clone()));
+    }
+    Value::Object(obj).to_string()
 }
 
-/// Deserializa una cadena JSON para reconstruir un [`MovimientoRegistrado`].
-pub fn deserializar_movimiento(datos: &str) -> Result<MovimientoRegistrado, ErrorAplicacion> {
+/// Deserializa una cadena JSON para reconstruir un [`MovimientoRegistrado`] de dominio.
+pub fn deserializar_evento_movimiento(
+    datos: &str,
+) -> Result<MovimientoRegistrado, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
         .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
 
-    let tipo = texto_a_tipo_movimiento(&texto(&valor, "tipo")?)?;
-    let moneda_str = texto(&valor, "moneda")?;
-    let moneda = Moneda::por_codigo(&moneda_str)
+    let tipo_str = valor
+        .get("tipo_dominio")
+        .or_else(|| valor.get("tipo"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ErrorAplicacion::Interno("falta el campo tipo en el evento".to_string()))?;
+    let tipo = texto_a_tipo_movimiento(tipo_str)?;
+
+    let moneda_str = valor
+        .get("moneda")
+        .and_then(|v| v.as_str())
+        .unwrap_or("USD");
+    let moneda = Moneda::por_codigo(moneda_str)
         .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda_str}")))?;
 
     let monto_str = texto(&valor, "monto")?;
@@ -148,13 +294,13 @@ pub fn deserializar_movimiento(datos: &str) -> Result<MovimientoRegistrado, Erro
         .filter(|s| !s.is_empty());
 
     Ok(MovimientoRegistrado {
-        id_movimiento: texto(&valor, "id_movimiento")?,
-        id_cuenta: texto(&valor, "id_cuenta")?,
+        id_movimiento: texto_alternativo(&valor, "id_movimiento", "id")?,
+        id_cuenta: texto_alternativo(&valor, "id_cuenta", "cuenta_id")?,
         tipo,
         monto,
         moneda,
         fecha: texto(&valor, "fecha")?,
-        id_categoria: texto(&valor, "id_categoria")?,
+        id_categoria: texto_alternativo(&valor, "id_categoria", "categoria_id")?,
         nota,
     })
 }
@@ -174,52 +320,69 @@ pub fn serializar_correccion(evento: &MovimientoCorregido) -> String {
     .to_string()
 }
 
-/// Deserializa una cadena JSON para reconstruir un [`MovimientoCorregido`].
+/// Deserializa una cadena JSON para reconstruir un [`MovimientoCorregido`] de dominio.
 pub fn deserializar_correccion(datos: &str) -> Result<MovimientoCorregido, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
         .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
 
-    let moneda_str = texto(&valor, "moneda")?;
-    let moneda = Moneda::por_codigo(&moneda_str)
+    let moneda_str = valor
+        .get("moneda")
+        .and_then(|v| v.as_str())
+        .unwrap_or("USD");
+    let moneda = Moneda::por_codigo(moneda_str)
         .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda_str}")))?;
 
-    let monto_str = texto(&valor, "monto_correcto")?;
+    let monto_str = texto_alternativo(&valor, "monto_correcto", "monto")?;
     let mut monto_correcto = Decimal::from_str(&monto_str)
         .map_err(|e| ErrorAplicacion::Interno(format!("monto_correcto inválido: {e}")))?;
     monto_correcto.rescale(moneda.decimales);
 
-    let efecto_str = texto(&valor, "efecto")?;
+    let efecto_str = valor
+        .get("efecto")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0.00");
     let mut efecto = Decimal::from_str(efecto_str.trim().trim_start_matches('+'))
         .map_err(|e| ErrorAplicacion::Interno(format!("efecto inválido: {e}")))?;
     efecto.rescale(moneda.decimales);
 
     Ok(MovimientoCorregido {
-        id_ajuste: texto(&valor, "id_ajuste")?,
-        id_movimiento_original: texto(&valor, "id_movimiento_original")?,
+        id_ajuste: texto_alternativo(&valor, "id_ajuste", "id")?,
+        id_movimiento_original: texto_alternativo(
+            &valor,
+            "id_movimiento_original",
+            "movimiento_original_id",
+        )?,
         monto_correcto,
         efecto,
         moneda,
     })
 }
 
-/// Serializa un evento [`CategoriaCreada`] en una cadena JSON.
+/// Serializa un evento [`CategoriaCreada`] en una cadena JSON compatible con el
+/// dominio y con la proyección de almacenamiento.
 pub fn serializar_categoria(evento: &CategoriaCreada) -> String {
+    let tipo_proy = match evento.tipo {
+        TipoMovimiento::Ingreso => "ingreso",
+        TipoMovimiento::Gasto => "egreso",
+    };
     json!({
+        "id": evento.id_categoria,
         "id_categoria": evento.id_categoria,
         "nombre": evento.nombre,
-        "tipo": tipo_movimiento_a_texto(&evento.tipo),
+        "tipo": tipo_proy,
+        "es_fabrica": false,
     })
     .to_string()
 }
 
-/// Deserializa una cadena JSON para reconstruir una [`CategoriaCreada`].
-pub fn deserializar_categoria(datos: &str) -> Result<CategoriaCreada, ErrorAplicacion> {
+/// Deserializa una cadena JSON para reconstruir una [`CategoriaCreada`] de dominio.
+pub fn deserializar_evento_categoria(datos: &str) -> Result<CategoriaCreada, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
         .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
 
     let tipo = texto_a_tipo_movimiento(&texto(&valor, "tipo")?)?;
     Ok(CategoriaCreada {
-        id_categoria: texto(&valor, "id_categoria")?,
+        id_categoria: texto_alternativo(&valor, "id_categoria", "id")?,
         nombre: texto(&valor, "nombre")?,
         tipo,
     })
@@ -267,10 +430,9 @@ mod pruebas {
             id_categoria: "gasto:alimentacion".to_string(),
             nota: Some("Cena".to_string()),
         };
-        assert_eq!(
-            deserializar_movimiento(&serializar_movimiento(&mov)).unwrap(),
-            mov
-        );
+        let json_mov = serializar_movimiento(&mov);
+        assert_eq!(deserializar_evento_movimiento(&json_mov).unwrap(), mov);
+        assert_eq!(deserializar_movimiento(&json_mov).unwrap().id, "m-1");
 
         let corr = MovimientoCorregido {
             id_ajuste: "a-1".to_string(),
@@ -289,10 +451,9 @@ mod pruebas {
             nombre: "Mascotas".to_string(),
             tipo: TipoMovimiento::Gasto,
         };
-        assert_eq!(
-            deserializar_categoria(&serializar_categoria(&cat)).unwrap(),
-            cat
-        );
+        let json_cat = serializar_categoria(&cat);
+        assert_eq!(deserializar_evento_categoria(&json_cat).unwrap(), cat);
+        assert_eq!(deserializar_categoria(&json_cat).unwrap().id, "cat-1");
     }
 
     #[test]
