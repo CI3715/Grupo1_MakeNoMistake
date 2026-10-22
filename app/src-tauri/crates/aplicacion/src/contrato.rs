@@ -2,9 +2,13 @@
 //!
 //! Verifica que cualquier implementación del repositorio (en memoria o persistente)
 //! respete las invariantes de orden de inserción, inmutabilidad e idempotencia, y
-//! que mantenga la proyección `cuentas` coherente con el libro de eventos.
+//! que mantenga las proyecciones `cuentas`, `categorias` y `movimientos` coherentes
+//! con el libro de eventos, incluido el saldo inicial separado del actual (D-11).
 
-use crate::puertos::{CuentaProyectada, EventoRegistrado, RepositorioEventos, ResultadoGuardado};
+use crate::puertos::{
+    CategoriaProyectada, CuentaProyectada, EventoRegistrado, MovimientoProyectado,
+    RepositorioEventos, ResultadoGuardado,
+};
 
 /// Construye un [`EventoRegistrado`] de tipo `CuentaCreada` con el identificador y
 /// carga JSON indicados.
@@ -30,6 +34,47 @@ pub fn datos_cuenta(id: &str, nombre: &str) -> String {
     )
 }
 
+/// Construye una carga JSON de `CuentaCreada` con un saldo inicial arbitrario.
+pub fn datos_cuenta_con_saldo(id: &str, nombre: &str, saldo_inicial: &str) -> String {
+    format!(
+        r#"{{"id":"{id}","nombre":"{nombre}","tipo":"efectivo","moneda":"USD","saldo_inicial":"{saldo_inicial}"}}"#
+    )
+}
+
+/// Construye una carga JSON válida de un evento `CategoriaCreada`.
+pub fn datos_categoria(id: &str, nombre: &str, tipo: &str, es_fabrica: bool) -> String {
+    format!(r#"{{"id":"{id}","nombre":"{nombre}","tipo":"{tipo}","es_fabrica":{es_fabrica}}}"#)
+}
+
+/// Construye una carga JSON válida de un evento `MovimientoRegistrado`.
+pub fn datos_movimiento(
+    id: &str,
+    cuenta_id: &str,
+    tipo: &str,
+    monto: &str,
+    fecha: &str,
+    categoria_id: &str,
+) -> String {
+    format!(
+        r#"{{"id":"{id}","cuenta_id":"{cuenta_id}","tipo":"{tipo}","monto":"{monto}","fecha":"{fecha}","categoria_id":"{categoria_id}"}}"#
+    )
+}
+
+/// Construye una carga JSON de `MovimientoCorregido` que reemplaza a `original`.
+pub fn datos_corregido(
+    id: &str,
+    original: &str,
+    cuenta_id: &str,
+    tipo: &str,
+    monto: &str,
+    fecha: &str,
+    categoria_id: &str,
+) -> String {
+    format!(
+        r#"{{"id":"{id}","movimiento_original_id":"{original}","cuenta_id":"{cuenta_id}","tipo":"{tipo}","monto":"{monto}","fecha":"{fecha}","categoria_id":"{categoria_id}"}}"#
+    )
+}
+
 /// Construye la fila esperada en la proyección `cuentas` para una cuenta de prueba.
 fn cuenta_proyectada(id: &str, nombre: &str) -> CuentaProyectada {
     CuentaProyectada {
@@ -37,6 +82,7 @@ fn cuenta_proyectada(id: &str, nombre: &str) -> CuentaProyectada {
         nombre: nombre.to_string(),
         tipo: "efectivo".to_string(),
         moneda: "VES".to_string(),
+        saldo_inicial: "0.00".to_string(),
         saldo_actual: "0.00".to_string(),
         estado: "activa".to_string(),
     }
@@ -63,6 +109,18 @@ where
             .expect("listar cuentas de un repositorio vacío")
             .is_empty(),
         "un repositorio nuevo no debe tener cuentas proyectadas"
+    );
+    assert!(
+        repo.listar_categorias()
+            .expect("listar categorías de un repositorio vacío")
+            .is_empty(),
+        "un repositorio nuevo no debe tener categorías proyectadas"
+    );
+    assert!(
+        repo.listar_movimientos()
+            .expect("listar movimientos de un repositorio vacío")
+            .is_empty(),
+        "un repositorio nuevo no debe tener movimientos proyectados"
     );
 
     // 2. Guardar un evento nuevo lo lista igual y lo proyecta en `cuentas`.
@@ -127,14 +185,24 @@ where
         vec![cuenta_proyectada("c1", "Original")]
     );
 
-    // 6. Los eventos de tipos no reconocidos no alteran la proyección de cuentas.
+    // 6. Los eventos de tipos no reconocidos no alteran ninguna proyección.
     let mut repo = fabrica();
     repo.guardar(&evento_de_prueba("id-1", &datos_cuenta("c1", "Cartera")))
         .expect("guardar cuenta");
-    repo.guardar(&evento_de_tipo("id-2", "MovimientoRegistrado", "{}"))
+    repo.guardar(&evento_de_tipo("id-2", "EventoDesconocido", "{}"))
         .expect("guardar evento desconocido");
     assert_eq!(repo.listar().expect("listar").len(), 2);
     assert_eq!(repo.listar_cuentas().expect("listar cuentas").len(), 1);
+    assert!(
+        repo.listar_categorias()
+            .expect("listar categorías")
+            .is_empty()
+    );
+    assert!(
+        repo.listar_movimientos()
+            .expect("listar movimientos")
+            .is_empty()
+    );
 
     // 7. `reconstruir` recalcula las proyecciones desde los eventos y deja el mismo
     //    resultado que la proyección incremental.
@@ -147,9 +215,118 @@ where
         repo.guardar(&evento_de_prueba(id, &datos_cuenta(cid, nombre)))
             .expect("guardar");
     }
-    repo.guardar(&evento_de_tipo("e4", "MovimientoRegistrado", "{}"))
+    repo.guardar(&evento_de_tipo("e4", "EventoDesconocido", "{}"))
         .expect("guardar evento desconocido");
     let antes = repo.listar_cuentas().expect("listar cuentas");
     repo.reconstruir().expect("reconstruir");
     assert_eq!(repo.listar_cuentas().expect("listar cuentas"), antes);
+
+    // 8. Categorías y movimientos se proyectan y el saldo actual se calcula desde
+    //    el saldo inicial, que permanece intacto (D-11).
+    let mut repo = fabrica();
+    repo.guardar(&evento_de_prueba(
+        "e-cuenta",
+        &datos_cuenta_con_saldo("c1", "Cartera", "100.00"),
+    ))
+    .expect("guardar cuenta");
+    repo.guardar(&evento_de_tipo(
+        "e-cat",
+        "CategoriaCreada",
+        &datos_categoria("cat-1", "Salario", "ingreso", false),
+    ))
+    .expect("guardar categoría");
+    repo.guardar(&evento_de_tipo(
+        "e-m1",
+        "MovimientoRegistrado",
+        &datos_movimiento("m1", "c1", "ingreso", "30.00", "2026-10-14", "cat-1"),
+    ))
+    .expect("guardar movimiento");
+    repo.guardar(&evento_de_tipo(
+        "e-m2",
+        "MovimientoRegistrado",
+        &datos_movimiento("m2", "c1", "egreso", "10.00", "2026-10-15", "cat-1"),
+    ))
+    .expect("guardar movimiento");
+
+    assert_eq!(
+        repo.listar_categorias().expect("listar categorías"),
+        vec![CategoriaProyectada {
+            id: "cat-1".to_string(),
+            nombre: "Salario".to_string(),
+            tipo: "ingreso".to_string(),
+            es_fabrica: false,
+            estado: "activa".to_string(),
+        }]
+    );
+    assert_eq!(
+        repo.listar_movimientos().expect("listar movimientos"),
+        vec![
+            MovimientoProyectado {
+                id: "m1".to_string(),
+                cuenta_id: "c1".to_string(),
+                tipo: "ingreso".to_string(),
+                monto: "30.00".to_string(),
+                fecha: "2026-10-14".to_string(),
+                categoria_id: "cat-1".to_string(),
+                nota: None,
+                estado: "vigente".to_string(),
+                reemplaza_a: None,
+                corregido_por_evento: None,
+            },
+            MovimientoProyectado {
+                id: "m2".to_string(),
+                cuenta_id: "c1".to_string(),
+                tipo: "egreso".to_string(),
+                monto: "10.00".to_string(),
+                fecha: "2026-10-15".to_string(),
+                categoria_id: "cat-1".to_string(),
+                nota: None,
+                estado: "vigente".to_string(),
+                reemplaza_a: None,
+                corregido_por_evento: None,
+            },
+        ]
+    );
+    let cuenta = &repo.listar_cuentas().expect("listar cuentas")[0];
+    assert_eq!(cuenta.saldo_inicial, "100.00", "el saldo inicial no cambia");
+    assert_eq!(cuenta.saldo_actual, "120.00", "100 + 30 - 10");
+
+    // 9. Corregir un movimiento marca el original y crea una fila nueva; el saldo
+    //    solo cuenta la corrección.
+    repo.guardar(&evento_de_tipo(
+        "e-m3",
+        "MovimientoCorregido",
+        &datos_corregido("m3", "m1", "c1", "ingreso", "5.00", "2026-10-14", "cat-1"),
+    ))
+    .expect("guardar corrección");
+
+    let movimientos = repo.listar_movimientos().expect("listar movimientos");
+    assert_eq!(movimientos.len(), 3);
+    assert_eq!(movimientos[0].id, "m1");
+    assert_eq!(movimientos[0].estado, "corregido");
+    assert_eq!(movimientos[0].corregido_por_evento.as_deref(), Some("e-m3"));
+    assert_eq!(movimientos[2].id, "m3");
+    assert_eq!(movimientos[2].estado, "vigente");
+    assert_eq!(movimientos[2].reemplaza_a.as_deref(), Some("m1"));
+    let cuenta = &repo.listar_cuentas().expect("listar cuentas")[0];
+    assert_eq!(cuenta.saldo_inicial, "100.00");
+    assert_eq!(cuenta.saldo_actual, "95.00", "100 + 5 - 10 (m1 corregido)");
+
+    // 10. `reconstruir` rearma también categorías y movimientos.
+    let cuentas_antes = repo.listar_cuentas().expect("listar cuentas");
+    let categorias_antes = repo.listar_categorias().expect("listar categorías");
+    let movimientos_antes = repo.listar_movimientos().expect("listar movimientos");
+    repo.reconstruir().expect("reconstruir");
+    assert_eq!(
+        repo.listar_cuentas().expect("listar cuentas"),
+        cuentas_antes
+    );
+    assert_eq!(
+        repo.listar_categorias().expect("listar categorías"),
+        categorias_antes
+    );
+    assert_eq!(
+        repo.listar_movimientos().expect("listar movimientos"),
+        movimientos_antes
+    );
 }
