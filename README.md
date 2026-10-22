@@ -72,7 +72,7 @@ npm run tauri dev
 
 La primera compilación de Rust tarda varios minutos; las siguientes, segundos.
 
-**Servidor** (desde `servidor/`, en otra terminal; solo hace falta para la comprobación de conexión de la Entrega 1):
+**Servidor** (desde `servidor/`, en otra terminal; solo hace falta para la comprobación de conexión de la Entrega 1; **no se necesita para crear ni consultar cuentas**):
 
 ```bash
 cd servidor
@@ -86,7 +86,9 @@ Comprobación: `http://localhost:8000/ping` debe responder `{"estado": "ok", ...
 
 | Qué | Comando | Desde |
 |---|---|---|
-| Pruebas del núcleo de Rust | `cargo test --workspace` | `app/src-tauri/` |
+| Pruebas del núcleo de Rust (todas) | `cargo test --workspace` | `app/src-tauri/` |
+| Solo reglas de negocio y casos de uso (repositorio en memoria, sin base de datos ni red) | `cargo test -p dominio -p aplicacion` | `app/src-tauri/` |
+| Tipos y compilación de la interfaz | `npx tsc --noEmit`, `npm run build` | `app/` |
 | Formato, linter y auditoría de Rust | `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo audit` | `app/src-tauri/` |
 | Linter y auditoría de la interfaz | `npm run lint`, `npm audit` | `app/` |
 | Pruebas del servidor | `uv run pytest` | `servidor/` |
@@ -96,7 +98,15 @@ Antes de abrir un pull request deben pasar todas las comprobaciones de la pieza 
 
 ## Datos locales
 
-Las cuentas se guardan únicamente en un archivo SQLite dentro del directorio de datos de la aplicación (`app_data_dir` de Tauri), sin ningún proceso servidor adicional y sin enviar nada a internet. La ruta exacta del archivo en cada sistema operativo se documenta aquí al cerrar la Entrega 2.
+Las cuentas se guardan únicamente en un archivo SQLite dentro del directorio de datos de la aplicación (`app_data_dir` de Tauri), sin ningún proceso servidor adicional y sin enviar nada a internet. El archivo se llama `cuentas_claras.db` y vive en la carpeta de datos de la aplicación, cuyo nombre es el identificador `com.cuentasclaras.desktop`:
+
+| Sistema | Ruta del archivo |
+|---|---|
+| Linux | `~/.local/share/com.cuentasclaras.desktop/cuentas_claras.db` |
+| macOS | `~/Library/Application Support/com.cuentasclaras.desktop/cuentas_claras.db` |
+| Windows | `%APPDATA%\com.cuentasclaras.desktop\cuentas_claras.db` |
+
+La ruta de Linux está comprobada; las de macOS y Windows siguen la convención de Tauri 2. Al arrancar en modo desarrollo, la aplicación escribe la ruta real en el registro (`Base de datos local lista en ...`). Junto al archivo pueden aparecer `cuentas_claras.db-wal` y `cuentas_claras.db-shm`, que son parte normal de SQLite. Para empezar de cero basta con cerrar la aplicación y borrar esos archivos.
 
 ## Cómo contribuir
 

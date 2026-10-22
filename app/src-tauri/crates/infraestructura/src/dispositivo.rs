@@ -11,10 +11,9 @@ pub struct DispositivoOrigenSqlite {
 
 impl DispositivoOrigenSqlite {
     pub fn nuevo(conn: Arc<Mutex<Connection>>) -> Result<Self> {
-        let mut conn = conn.lock().map_err(|e| rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(1),
-            Some(e.to_string()),
-        ))?;
+        let mut conn = conn.lock().map_err(|e| {
+            rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(1), Some(e.to_string()))
+        })?;
         let tx = conn.transaction()?;
         tx.execute(
             "CREATE TABLE IF NOT EXISTS configuracion (
@@ -23,11 +22,13 @@ impl DispositivoOrigenSqlite {
             )",
             [],
         )?;
-        let existente: Option<String> = tx.query_row(
-            "SELECT valor FROM configuracion WHERE clave = ?1",
-            params![CLAVE],
-            |r| r.get(0),
-        ).optional()?;
+        let existente: Option<String> = tx
+            .query_row(
+                "SELECT valor FROM configuracion WHERE clave = ?1",
+                params![CLAVE],
+                |r| r.get(0),
+            )
+            .optional()?;
         let id = if let Some(v) = existente {
             v
         } else {

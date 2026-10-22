@@ -1253,4 +1253,33 @@ mod pruebas {
         let _ = std::fs::remove_file(ruta.with_extension("db-wal"));
         let _ = std::fs::remove_file(ruta.with_extension("db-shm"));
     }
+
+    #[test]
+    fn eventos_no_se_pueden_modificar_ni_borrar() {
+        let conn = conexion_vacia();
+        insertar_evento(
+            &conn,
+            "e1",
+            "CuentaCreada",
+            "2026-01-01T00:00:00Z",
+            "d1",
+            "{}",
+        )
+        .expect("insertar");
+
+        assert!(
+            conn.execute("UPDATE eventos SET tipo = 'Otro' WHERE id = 'e1'", [])
+                .is_err(),
+            "UPDATE sobre eventos debe rechazarse"
+        );
+        assert!(
+            conn.execute("DELETE FROM eventos WHERE id = 'e1'", [])
+                .is_err(),
+            "DELETE sobre eventos debe rechazarse"
+        );
+
+        let eventos = listar_eventos(&conn).unwrap();
+        assert_eq!(eventos.len(), 1);
+        assert_eq!(eventos[0].tipo, "CuentaCreada");
+    }
 }
