@@ -1,5 +1,6 @@
 mod cuentas;
 mod dto;
+mod movimientos;
 mod ping;
 
 use std::sync::{Arc, Mutex};
@@ -45,7 +46,13 @@ pub fn run() {
             ping::ping_servidor,
             cuentas::listar_monedas,
             cuentas::listar_cuentas,
-            cuentas::crear_cuenta
+            cuentas::crear_cuenta,
+            movimientos::registrar_movimiento,
+            movimientos::corregir_movimiento,
+            movimientos::previsualizar_movimiento,
+            movimientos::listar_categorias,
+            movimientos::crear_categoria,
+            movimientos::detalle_cuenta
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
