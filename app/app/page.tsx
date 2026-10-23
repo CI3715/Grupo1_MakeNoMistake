@@ -806,7 +806,7 @@ export default function Home() {
                       <option value="USD">USD ($)</option>
                       <option value="VES">VES (Bs.)</option>
                       <option value="EUR">EUR (€)</option>
-                      <option value="COP">COP ($)</option>
+                      <option value="USDT">USDT (₮)</option>
                     </select>
                     {erroresCuenta.moneda && <p className="text-rose-400 text-[11px] font-medium mt-1">{erroresCuenta.moneda}</p>}
                   </div>
