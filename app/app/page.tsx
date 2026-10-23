@@ -792,7 +792,7 @@ export default function Home() {
                     >
                       <option value="efectivo">Efectivo</option>
                       <option value="banco">Banco</option>
-                      <option value="digital">Digital</option>
+                      <option value="billetera_digital">Digital</option>
                     </select>
                     {erroresCuenta.tipo && <p className="text-rose-400 text-[11px] font-medium mt-1">{erroresCuenta.tipo}</p>}
                   </div>

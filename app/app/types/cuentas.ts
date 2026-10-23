@@ -1,6 +1,6 @@
-export type TipoMoneda = 'USD' | 'VES' | 'EUR' | 'USDT' | string;
+export type TipoMoneda = 'USD' | 'VES' | 'EUR' | 'USDT';
 export type TipoMovimiento = 'ingreso' | 'gasto';
-export type TipoCuenta = 'efectivo' | 'banco' | 'billetera' | 'tarjeta';
+export type TipoCuenta = 'efectivo' | 'banco' | 'billetera_digital' | 'tarjeta';
 
 export interface Categoria {
   id: string;
