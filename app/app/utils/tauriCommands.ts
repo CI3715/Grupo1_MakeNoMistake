@@ -99,3 +99,19 @@ export async function registrarMovimientoCommand(payload: {
 }): Promise<MovimientoDto> {
   return await invoke<MovimientoDto>('registrar_movimiento', { datos: payload });
 }
+
+export interface PrevisualizacionDto {
+  saldo_resultante: string;
+  deja_saldo_negativo: boolean;
+}
+
+export async function previsualizarMovimientoCommand(payload: {
+  cuenta_id: string;
+  tipo: string;
+  monto: string;
+  fecha: string;
+  categoria_id: string;
+  nota: string;
+}): Promise<PrevisualizacionDto> {
+  return await invoke<PrevisualizacionDto>('previsualizar_movimiento', { datos: payload });
+}

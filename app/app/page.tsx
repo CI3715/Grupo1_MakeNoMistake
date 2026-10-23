@@ -8,6 +8,7 @@ import {
   listarCategoriasCommand,
   crearCategoriaCommand,
   registrarMovimientoCommand,
+  previsualizarMovimientoCommand,
   CuentaDto,
   DetalleCuentaDto,
   CategoriaDto,
@@ -15,6 +16,7 @@ import {
   ErroresDto,
 } from './utils/tauriCommands';
 import { invoke } from '@tauri-apps/api/core';
+import { DialogoAdvertencia } from './components/DialogoAdvertencia';
 
 // Comando de corrección mapeado a Tauri
 async function corregirMovimientoCommand(movimientoId: string, montoCorrecto: string): Promise<MovimientoDto> {
@@ -64,9 +66,13 @@ export default function Home() {
   // Errores por campo
   const [erroresCuenta, setErroresCuenta] = useState<Record<string, string>>({});
   const [erroresMov, setErroresMov] = useState<Record<string, string>>({});
+  const [mostrarAdvertencia, setMostrarAdvertencia] = useState(false);
+  const [saldoAdvertencia, setSaldoAdvertencia] = useState('');
   const [erroresCat, setErroresCat] = useState<Record<string, string>>({});
 
-  // Carga de cuentas y filtrado estricto: EXCLUYE todas las categorías de fábrica
+  // Carga de cuentas y categorías. La base guarda el catálogo de fábrica como eventos (ids cat-fabrica-*);
+  // el núcleo además devuelve una copia interna (de_fabrica = true) con otros ids que la base no acepta.
+  // Solo se muestran las del catálogo guardado, para no repetirlas ni elegir un id inválido.
   const cargarCuentasYCategorias = async () => {
     try {
       const resLista = await listarCuentasCommand();
@@ -75,9 +81,8 @@ export default function Home() {
       const lista = resLista.cuentas || [];
       setCuentas(lista);
 
-      // Eliminamos las categorías de fábrica del array en memoria
-      const creadasPorUsuario = (resCat || []).filter((c) => !c.de_fabrica);
-      setCategorias(creadasPorUsuario);
+      const delCatalogoGuardado = (resCat || []).filter((c) => !c.de_fabrica);
+      setCategorias(delCatalogoGuardado);
 
       if (lista.length > 0 && !cuentaActivaId) {
         setCuentaActivaId(lista[0].id);
@@ -164,12 +169,12 @@ export default function Home() {
   };
 
   // Registrar Movimiento
-  const handleAgregarMovimiento = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAgregarMovimiento = async (e: React.FormEvent | null, confirmado = false) => {
+    e?.preventDefault();
     setErroresMov({});
 
     if (!catMovId) {
-      setErroresMov({ categoria: 'Primero debes crear una categoría personalizada.' });
+      setErroresMov({ categoria: 'Elige una categoría.' });
       return;
     }
 
@@ -179,6 +184,26 @@ export default function Home() {
     }
 
     const montoLimpio = montoMov.trim().replace(',', '.');
+
+    if (tipoMov === 'gasto' && !confirmado) {
+      try {
+        const prev = await previsualizarMovimientoCommand({
+          cuenta_id: cuentaActivaId,
+          tipo: tipoMov,
+          monto: montoLimpio,
+          fecha: fechaMov,
+          categoria_id: catMovId,
+          nota: notaMov,
+        });
+        if (prev.deja_saldo_negativo) {
+          setSaldoAdvertencia(prev.saldo_resultante);
+          setMostrarAdvertencia(true);
+          return;
+        }
+      } catch {
+        // Los errores por campo los muestra el propio registro.
+      }
+    }
 
     try {
       await registrarMovimientoCommand({
@@ -192,6 +217,7 @@ export default function Home() {
 
       setMontoMov('');
       setNotaMov('');
+      setMostrarAdvertencia(false);
       setMostrarModalMovimiento(false);
 
       await cargarDetalleCuenta(cuentaActivaId);
@@ -550,6 +576,15 @@ export default function Home() {
         )}
 
         {/* MODAL REGISTRAR MOVIMIENTO */}
+        <DialogoAdvertencia
+          visible={mostrarAdvertencia}
+          montoResultante={saldoAdvertencia}
+          onConfirmar={() => {
+            setMostrarAdvertencia(false);
+            handleAgregarMovimiento(null, true);
+          }}
+          onCancelar={() => setMostrarAdvertencia(false)}
+        />
         {mostrarModalMovimiento && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className={`w-full max-w-md p-6 rounded-2xl border shadow-xl ${bgCard}`}>
