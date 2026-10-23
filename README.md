@@ -21,6 +21,7 @@ El servidor **nunca** recibe ni almacena cuentas, saldos, movimientos ni categor
 |---|---|---|
 | 1 | Ambiente de desarrollo: aplicación Tauri + Next.js y servidor FastAPI con `GET /ping`. | Terminada |
 | 2 | Crear y guardar cuentas en el dispositivo (SQLite embebido, sin internet). | En desarrollo |
+| 3 | Registrar gastos e ingresos, corregirlos con ajustes y ver saldos, todo en el dispositivo. | En desarrollo |
 
 ## Estructura del repositorio
 
@@ -107,6 +108,8 @@ Las cuentas se guardan únicamente en un archivo SQLite dentro del directorio de
 | Windows | `%APPDATA%\com.cuentasclaras.desktop\cuentas_claras.db` |
 
 La ruta de Linux está comprobada; las de macOS y Windows siguen la convención de Tauri 2. Al arrancar en modo desarrollo, la aplicación escribe la ruta real en el registro (`Base de datos local lista en ...`). Junto al archivo pueden aparecer `cuentas_claras.db-wal` y `cuentas_claras.db-shm`, que son parte normal de SQLite. Para empezar de cero basta con cerrar la aplicación y borrar esos archivos.
+
+Desde la Entrega 3 el mismo archivo guarda también los movimientos y las categorías. Los movimientos son inmutables: nunca se modifican ni se eliminan, y una corrección se registra como un ajuste que referencia al original. El saldo siempre se calcula a partir de los movimientos. El ejemplo del enunciado (1.000,00 → 1.800,00 → 1.300,00 → 1.750,00) se reproduce paso a paso, tanto en la aplicación como con una prueba automatizada, en `app/README.md`, sección «Movimientos, saldos y el ejemplo 2.2».
 
 ## Cómo contribuir
 
