@@ -398,7 +398,7 @@ impl CasosDeUso {
                 self.repositorio.guardar(&evento)?;
 
                 let cat = buscar_resumen_categoria(&ev_dom.id_categoria, &estado.categorias);
-                Ok(armar_movimiento_original_listado(&ev_dom, cat, Vec::new()))
+                Ok(armar_movimiento_original_listado(&ev_dom, cat, &[]))
             }
         }
     }
@@ -620,11 +620,11 @@ impl CasosDeUso {
             .iter()
             .filter(|m| m.movimiento.id_cuenta == cuenta_ev.id)
         {
-            let ids_ajustes: Vec<String> = estado
+            let ajustes_mov: Vec<Ajuste> = estado
                 .ajustes
                 .iter()
                 .filter(|a| a.ajuste.id_movimiento_original == mp.movimiento.id)
-                .map(|a| a.ajuste.id_ajuste.clone())
+                .map(|a| a.ajuste.clone())
                 .collect();
 
             let cat = buscar_resumen_categoria(&mp.movimiento.id_categoria, &estado.categorias);
@@ -638,7 +638,7 @@ impl CasosDeUso {
                 id_categoria: mp.movimiento.id_categoria.clone(),
                 nota: mp.movimiento.nota.clone(),
             };
-            let vista = armar_movimiento_original_listado(&ev_equiv, cat, ids_ajustes);
+            let vista = armar_movimiento_original_listado(&ev_equiv, cat, &ajustes_mov);
             items_ordenados.push((mp.movimiento.fecha.clone(), mp.orden, vista));
         }
 
@@ -859,11 +859,12 @@ fn buscar_resumen_categoria(id_cat: &str, categorias: &[Categoria]) -> Categoria
     }
 }
 
-/// Construye la vista de un movimiento original registrado.
+/// Construye la vista de un movimiento original registrado, calculando su valor vigente
+/// a partir de su monto original y el efecto acumulado de sus ajustes.
 fn armar_movimiento_original_listado(
     ev: &MovimientoRegistrado,
     categoria: CategoriaResumen,
-    ajustes: Vec<String>,
+    ajustes_mov: &[Ajuste],
 ) -> MovimientoListado {
     let decs = ev.moneda.decimales;
     let monto_str = formatear_monto(ev.monto, decs);
@@ -871,6 +872,15 @@ fn armar_movimiento_original_listado(
         TipoMovimiento::Ingreso => format!("+{monto_str}"),
         TipoMovimiento::Gasto => format!("-{monto_str}"),
     };
+
+    let suma_efectos: Decimal = ajustes_mov.iter().map(|a| a.efecto).sum();
+    let vigente_dec = match ev.tipo {
+        TipoMovimiento::Gasto => ev.monto - suma_efectos,
+        TipoMovimiento::Ingreso => ev.monto + suma_efectos,
+    };
+    let monto_vigente_str = formatear_monto(vigente_dec, decs);
+
+    let ajustes: Vec<String> = ajustes_mov.iter().map(|a| a.id_ajuste.clone()).collect();
     let estado = if ajustes.is_empty() {
         "vigente".to_string()
     } else {
@@ -883,6 +893,7 @@ fn armar_movimiento_original_listado(
         tipo: codec::tipo_movimiento_a_texto(&ev.tipo).to_string(),
         monto: monto_str,
         monto_con_signo,
+        monto_vigente: Some(monto_vigente_str),
         fecha: ev.fecha.clone(),
         categoria,
         nota: ev.nota.clone().unwrap_or_default(),
@@ -913,6 +924,7 @@ fn armar_ajuste_listado(
         tipo: codec::tipo_movimiento_a_texto(&original.tipo).to_string(),
         monto: monto_abs,
         monto_con_signo,
+        monto_vigente: None,
         fecha: fecha.to_string(),
         categoria,
         nota: String::new(),

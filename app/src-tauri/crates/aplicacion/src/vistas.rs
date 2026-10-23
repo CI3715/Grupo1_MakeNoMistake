@@ -87,6 +87,8 @@ pub struct MovimientoListado {
     pub monto: String,
     /// Monto con signo explícito según su efecto en el saldo (ej. `"+800.00"`, `"-500.00"`, `"+450.00"`).
     pub monto_con_signo: String,
+    /// Valor vigente del movimiento tras aplicar sus ajustes (`None` cuando el registro es un ajuste).
+    pub monto_vigente: Option<String>,
     /// Fecha del movimiento en formato `"AAAA-MM-DD"`.
     pub fecha: String,
     /// Datos de la categoría asociada.
