@@ -833,11 +833,7 @@ fn resolver_id_categoria(entrada: &str, categorias: &[Categoria]) -> String {
         return c.id.clone();
     }
     match lower.as_str() {
-        "salario" | "ingreso:salario" => "ingreso:sueldo".to_string(),
-        "ventas" | "ingreso:ventas" => "ingreso:negocio".to_string(),
-        "regalos" | "ingreso:regalos" => "ingreso:transferencias".to_string(),
         "otros ingresos" | "ingreso:otros_ingresos" => "ingreso:otros".to_string(),
-        "entretenimiento" | "gasto:entretenimiento" => "gasto:ocio".to_string(),
         "alimentacion" => "gasto:alimentacion".to_string(),
         "educacion" => "gasto:educacion".to_string(),
         _ => limpio.to_string(),

@@ -295,7 +295,7 @@ fn validaciones_de_registrar_movimiento() {
     }
 
     // 2. Categoría vacía, inexistente o del tipo equivocado (categoría de ingreso en un gasto)
-    for cat_mala in ["   ", "gasto:inexistente", "ingreso:sueldo"] {
+    for cat_mala in ["   ", "gasto:inexistente", "ingreso:salario"] {
         let err = app
             .registrar_movimiento(NuevoMovimiento {
                 cuenta_id: cuenta.id.clone(),
