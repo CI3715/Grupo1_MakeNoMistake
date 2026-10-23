@@ -1,6 +1,6 @@
 # Aplicación — Cuentas Claras
 
-Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. Desde la Entrega 2 la aplicación abre directamente en la pantalla **Mis cuentas**, sin registro ni inicio de sesión: permite crear cuentas (efectivo, banco o billetera digital) con su moneda y saldo inicial, y las guarda solo en el dispositivo, en un archivo SQLite, sin necesidad de internet ni del servidor. El comando de Rust `ping_servidor` de la Entrega 1 sigue existiendo, pero ya no participa en este flujo.
+Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. Desde la Entrega 2 la aplicación abre directamente en la pantalla **Mis cuentas**, sin registro ni inicio de sesión: permite crear cuentas (efectivo, banco o billetera digital) con su moneda y saldo inicial, y las guarda solo en el dispositivo, en un archivo SQLite, sin necesidad de internet ni del servidor. El comando de Rust `ping_servidor` de la Entrega 1 sigue existiendo, pero ya no participa en este flujo. Desde la Entrega 3 cada cuenta también registra gastos e ingresos, permite corregirlos mediante ajustes y calcula su saldo automáticamente, todo en el dispositivo y sin conexión.
 
 Los comandos de este documento se ejecutan desde la carpeta `app/`, salvo que se indique otra cosa. El archivo `package.json` vive aquí y no en la raíz del repositorio, así que si npm se queja de que no lo encuentra, casi seguro estás en la carpeta equivocada.
 
@@ -92,6 +92,54 @@ Cómo funciona, en pocas palabras:
 
 **Prueba de autonomía.** Cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: debe mostrar las mismas cuentas y permitir crear otra.
 
+## Movimientos, saldos y el ejemplo 2.2 (Entrega 3)
+
+Desde la Entrega 3 cada cuenta tiene movimientos: gastos, ingresos y correcciones. Al abrir una cuenta desde **Mis cuentas** se ve su saldo actual, cómo se compone (saldo inicial, total de ingresos, total de gastos y total de ajustes) y la lista de movimientos, del más reciente al más antiguo. Todo se guarda en el mismo archivo SQLite de las cuentas y funciona sin internet y sin el servidor.
+
+Reglas que conviene tener presentes:
+
+- **Un movimiento registrado nunca se modifica ni se elimina** (INV-04). No existe ninguna opción para editar ni borrar, ni en la interfaz ni en el dominio. Si hubo un error, se usa **Corregir**: se indica el monto correcto y el sistema registra un movimiento de **ajuste** por la diferencia, que referencia al original. El original sigue visible y marcado como corregido. Un monto correcto de `0` anula el movimiento por completo. Los ajustes no se corrigen; siempre se corrige el original.
+- **El saldo siempre se calcula desde los movimientos** (INV-05): saldo actual = saldo inicial + ingresos − gastos ± ajustes. La interfaz no suma ni resta: muestra los textos que entrega el núcleo.
+- **Validaciones** (viven en el dominio y cada error indica el campo que falla): monto cero, negativo o con más decimales de los que admite la moneda de la cuenta (`monto`); categoría vacía, inexistente o del otro tipo (`categoria`); fecha futura (`fecha`). Un gasto puede dejar el saldo en negativo, pero la interfaz avisa antes de confirmar.
+- **Categorías**: vienen 7 de gasto (Alimentación, Transporte, Servicios, Salud, Educación, Entretenimiento, Otros gastos) y 4 de ingreso (Salario, Ventas, Regalos, Otros ingresos). Se pueden crear categorías propias; no puede haber dos del mismo tipo con el mismo nombre, sin distinguir mayúsculas.
+- **«Hoy»** es la fecha local del dispositivo, no la de UTC.
+
+Comandos de Tauri que usa la interfaz, todos con montos como texto y errores `{ campo, mensaje }` en español:
+
+| Comando | Qué hace |
+|---|---|
+| `invoke('registrar_movimiento')` | Valida y registra un gasto o un ingreso. |
+| `invoke('previsualizar_movimiento')` | Calcula el saldo que quedaría y si es negativo, sin guardar nada. |
+| `invoke('corregir_movimiento')` | Registra el ajuste por la diferencia y devuelve el ajuste. |
+| `invoke('listar_categorias')` | Categorías de fábrica y propias. |
+| `invoke('crear_categoria')` | Crea una categoría propia. |
+| `invoke('detalle_cuenta')` | Saldo actual, composición y movimientos de una cuenta. |
+
+### Reproducir el ejemplo 2.2 en la aplicación
+
+Con `npm run tauri dev` (empezando de cero, ver «Cuentas y almacenamiento local»):
+
+1. Crea la cuenta **Billetera dólares** en **USD** con saldo inicial `1000,00`.
+2. Ábrela desde **Mis cuentas**: el saldo es `$ 1.000,00` y la lista de movimientos está vacía.
+3. Registra un **ingreso** de `800,00` con la categoría **Salario**. El saldo pasa a `$ 1.800,00`.
+4. Registra un **gasto** de `500,00` con la categoría **Alimentación** (se quería anotar 50 y se escribió 500). El saldo pasa a `$ 1.300,00`.
+5. Sobre ese gasto elige **Corregir** e indica el monto correcto `50,00`. Se registra un ajuste de `+ $ 450,00` y el saldo queda en `$ 1.750,00` (1.000 + 800 − 50).
+6. El gasto original sigue en la lista, marcado como corregido, y el ajuste muestra a qué movimiento corrige.
+
+### Reproducir el ejemplo 2.2 con la prueba automatizada
+
+Desde `src-tauri/`:
+
+```
+cargo test --workspace ejemplo_2_2
+```
+
+Corren dos pruebas, ambas con un repositorio en memoria (sin base de datos ni red): `ejemplo_2_2_billetera_dolares_e_invariantes_inv04_inv05`, en la capa de aplicación, y `el_ejemplo_2_2_se_reproduce_tal_cual`, en los comandos de Tauri. Crean la cuenta, registran los tres movimientos y comprueban cada saldo intermedio: 1.000,00 → 1.800,00 → 1.300,00 → 1.750,00, además de la composición final y de que el original queda marcado como corregido.
+
+### Prueba de autonomía de la Entrega 3
+
+Registra y corrige movimientos, cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: los movimientos, la marca de corregido y los saldos deben ser exactamente los mismos. Ningún movimiento ni saldo se envía al servidor (INV-16).
+
 ## Ejecutar las pruebas
 
 Desde `src-tauri/`:
@@ -107,6 +155,15 @@ Las pruebas de las reglas de negocio y los casos de uso (invariantes INV-01, INV
 ```
 cargo test -p dominio -p aplicacion
 ```
+
+Las pruebas de la Entrega 3 se pueden ejecutar por partes, siempre desde `src-tauri/`:
+
+| Qué comprueban | Comando |
+|---|---|
+| Los comandos de movimientos, categorías y detalle (incluido el ejemplo 2.2) con el repositorio en memoria | `cargo test movimientos` |
+| El dominio: movimientos, ajustes, categorías y cálculo del saldo | `cargo test -p dominio` |
+| Los casos de uso `RegistrarMovimiento` y `CorregirMovimiento` y las invariantes INV-04, INV-05 e INV-13, sin base de datos ni red | `cargo test -p aplicacion` |
+| Que no haya `f32` ni `f64` en el dinero, ni HTTP en los comandos, ni `UPDATE` o `DELETE` sobre la tabla de eventos | `cargo test --test arquitectura` |
 
 Para la interfaz, desde `app/`:
 
@@ -178,6 +235,7 @@ app/
 │       ├── main.rs       # Punto de entrada
 │       ├── lib.rs        # Arranque: abre la base local y cablea los casos de uso
 │       ├── cuentas.rs    # Comandos listar_monedas, listar_cuentas y crear_cuenta
+│       ├── movimientos.rs # Comandos de movimientos, categorías y detalle de cuenta (Entrega 3)
 │       ├── dto.rs        # Tipos que viajan entre Rust y la interfaz
 │       └── ping.rs       # Comando ping_servidor (Entrega 1, fuera del flujo de cuentas)
 ├── next.config.ts        # Configuración de Next.js (exportación estática)
