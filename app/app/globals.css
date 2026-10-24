@@ -75,13 +75,13 @@
   --grad-b: #5b21b6;
 
   /* ── Estados y alertas en modo oscuro (colores vivos y de alto contraste) ── */
-  --peligro: #ef4444;         /* Rojo vivo de alto impacto */
+  --peligro: #b51818;         /* Rojo vivo de alto impacto */
   --peligro-fg: #ffffff;
   --peligro-suave: #2a1114;   /* Fondo oscuro con tinte carmesí */
   --peligro-borde: #7f1d1d;   /* Borde rojo oscuro definido */
   --peligro-texto: #f87171;   /* Texto rojo claro legible */
 
-  --exito: #10b981;           /* Verde esmeralda vivo y luminoso */
+  --exito: #188433;           /* Verde esmeralda vivo y luminoso */
   --exito-fg: #ffffff;
   --exito-suave: #07251a;     /* Fondo oscuro con tinte esmeralda */
   --exito-borde: #065f46;     /* Borde esmeralda definido */
