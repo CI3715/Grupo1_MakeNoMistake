@@ -62,7 +62,7 @@ export const MisCuentas: React.FC<Props> = ({
         aria-labelledby="titulo-panel"
         className="min-w-0 overflow-hidden rounded-3xl border border-borde bg-superficie shadow-suave"
       >
-        <div className="flex items-center justify-between gap-4 border-b border-borde px-6 py-4">
+        <div className="flex items-center justify-between gap-4 border-b border-borde px-4 py-3.5 sm:px-6 sm:py-4">
           <div>
             <h2 id="titulo-panel" className="text-lg font-semibold tracking-tight text-texto">
               {mostrarFormulario ? 'Nueva cuenta' : 'Cuentas'}

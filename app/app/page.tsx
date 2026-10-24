@@ -208,31 +208,38 @@ export default function Home() {
           <div className="absolute -bottom-44 left-1/3 size-96 rounded-full bg-white/5 blur-3xl" />
         </div>
 
-        <div className="relative mx-auto w-full max-w-5xl px-5 pt-6 sm:px-8">
-          {/* Barra superior de navegación */}
-          <header className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="grid size-10 place-items-center rounded-2xl bg-white/15 shadow-sm ring-1 ring-white/25 backdrop-blur-xs">
-                <IconoLogo width={22} height={22} />
-              </span>
-              <div>
-                <span className="text-lg font-bold tracking-tight">Cuentas Claras</span>
-                <span className="hidden ml-2 rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-white/90 sm:inline">
-                  LOCAL-FIRST
+        <div className="relative mx-auto w-full max-w-5xl px-4 pt-5 sm:px-8 sm:pt-6">
+          {/* Barra superior de navegación adaptada a móvil y escritorio */}
+          <header className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="grid size-9 place-items-center rounded-2xl bg-white/15 shadow-sm ring-1 ring-white/25 backdrop-blur-xs sm:size-10">
+                  <IconoLogo width={20} height={20} />
                 </span>
+                <div>
+                  <span className="text-base font-bold tracking-tight sm:text-lg">Cuentas Claras</span>
+                  <span className="hidden ml-2 rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-white/90 sm:inline">
+                    LOCAL-FIRST
+                  </span>
+                </div>
+              </div>
+
+              {/* En móviles (< 640px), el selector de apariencia va a la derecha del logo */}
+              <div className="sm:hidden">
+                <SelectorApariencia />
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5">
-              {/* Píldora de navegación entre vistas */}
-              <nav aria-label="Vistas principales" className="flex rounded-xl bg-white/15 p-1 ring-1 ring-white/20 backdrop-blur-xs">
+            <div className="flex items-center justify-between gap-2.5 sm:justify-end">
+              {/* Píldora de navegación entre vistas con contraste perfecto */}
+              <nav aria-label="Vistas principales" className="flex rounded-xl bg-black/25 p-1 ring-1 ring-white/20 backdrop-blur-md">
                 <button
                   type="button"
                   onClick={() => setPantallaActual('mis-cuentas')}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
                     pantallaActual === 'mis-cuentas'
-                      ? 'bg-white text-texto shadow-sm'
-                      : 'text-white/80 hover:text-white'
+                      ? 'bg-white text-slate-950 shadow-sm'
+                      : 'text-white/85 hover:text-white hover:bg-white/10'
                   }`}
                 >
                   Mis cuentas
@@ -246,10 +253,10 @@ export default function Home() {
                       }
                       setPantallaActual('detalle-cuenta');
                     }}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
                       pantallaActual === 'detalle-cuenta'
-                        ? 'bg-white text-texto shadow-sm'
-                        : 'text-white/80 hover:text-white'
+                        ? 'bg-white text-slate-950 shadow-sm'
+                        : 'text-white/85 hover:text-white hover:bg-white/10'
                     }`}
                   >
                     Detalle de cuenta
@@ -257,17 +264,19 @@ export default function Home() {
                 )}
               </nav>
 
-              {/* Selector de apariencia (tema y paletas) */}
-              <SelectorApariencia />
+              {/* En escritorio (>= 640px), el selector va al final de la barra */}
+              <div className="hidden sm:block">
+                <SelectorApariencia />
+              </div>
             </div>
           </header>
 
           {/* Título de la cabecera */}
-          <div className="mt-8">
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+          <div className="mt-6 sm:mt-8">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-4xl">
               {pantallaActual === 'mis-cuentas' ? 'Mis cuentas' : detalleCuenta?.cuenta.nombre || 'Detalle de cuenta'}
             </h1>
-            <p className="mt-1.5 text-sm text-white/80">
+            <p className="mt-1 text-xs text-white/80 sm:mt-1.5 sm:text-sm">
               {pantallaActual === 'mis-cuentas'
                 ? 'Todas tus cuentas y saldos guardados localmente en este dispositivo.'
                 : `Libro de movimientos y desglose de saldo en ${detalleCuenta?.cuenta.moneda || ''}.`}
@@ -277,7 +286,7 @@ export default function Home() {
       </div>
 
       {/* Contenido principal, superpuesto a la cabecera con margen negativo */}
-      <main className="relative mx-auto -mt-16 w-full max-w-5xl px-5 sm:px-8">
+      <main className="relative mx-auto -mt-14 w-full max-w-5xl px-4 sm:-mt-16 sm:px-8">
         {pantallaActual === 'mis-cuentas' ? (
           <MisCuentas
             monedas={monedas}

@@ -55,7 +55,7 @@ export const DialogoAdvertencia: React.FC<Props> = ({
           <button
             type="button"
             onClick={onConfirmar}
-            className="rounded-xl bg-aviso px-5 py-2 text-xs font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[0.98]"
+            className="rounded-xl bg-aviso px-5 py-2 text-xs font-bold text-slate-950 shadow-sm transition hover:brightness-110 active:scale-[0.98]"
           >
             Continuar y registrar
           </button>

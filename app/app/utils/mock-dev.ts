@@ -49,13 +49,17 @@ const CUENTAS_INICIALES: Cuenta[] = [
 ];
 
 const CATEGORIAS_INICIALES: Categoria[] = [
-  { id: 'cat-1', nombre: 'Supermercado', tipo: 'gasto', de_fabrica: false },
-  { id: 'cat-2', nombre: 'Salud y Farmacia', tipo: 'gasto', de_fabrica: false },
-  { id: 'cat-3', nombre: 'Restaurantes', tipo: 'gasto', de_fabrica: false },
-  { id: 'cat-4', nombre: 'Servicios Básicos', tipo: 'gasto', de_fabrica: false },
-  { id: 'cat-5', nombre: 'Salario / Nómina', tipo: 'ingreso', de_fabrica: false },
-  { id: 'cat-6', nombre: 'Transferencia Familiar', tipo: 'ingreso', de_fabrica: false },
-  { id: 'cat-7', nombre: 'Venta de Servicios', tipo: 'ingreso', de_fabrica: false },
+  { id: 'cat-1', nombre: 'Alimentación', tipo: 'gasto', de_fabrica: true },
+  { id: 'cat-2', nombre: 'Transporte', tipo: 'gasto', de_fabrica: true },
+  { id: 'cat-3', nombre: 'Servicios', tipo: 'gasto', de_fabrica: true },
+  { id: 'cat-4', nombre: 'Salud', tipo: 'gasto', de_fabrica: true },
+  { id: 'cat-5', nombre: 'Educación', tipo: 'gasto', de_fabrica: true },
+  { id: 'cat-6', nombre: 'Entretenimiento', tipo: 'gasto', de_fabrica: true },
+  { id: 'cat-7', nombre: 'Otros gastos', tipo: 'gasto', de_fabrica: true },
+  { id: 'cat-8', nombre: 'Salario', tipo: 'ingreso', de_fabrica: true },
+  { id: 'cat-9', nombre: 'Ventas', tipo: 'ingreso', de_fabrica: true },
+  { id: 'cat-10', nombre: 'Regalos', tipo: 'ingreso', de_fabrica: true },
+  { id: 'cat-11', nombre: 'Otros ingresos', tipo: 'ingreso', de_fabrica: true },
 ];
 
 const MOVIMIENTOS_INICIALES: Record<string, Movimiento[]> = {

@@ -37,7 +37,7 @@ export const FormularioMovimiento: React.FC<Props> = ({
   const [enviando, setEnviando] = useState(false);
 
   const categoriasFiltradas = categorias.filter(
-    (c) => c.tipo.toLowerCase() === tipo.toLowerCase() && !c.de_fabrica
+    (c) => c.tipo.toLowerCase() === tipo.toLowerCase()
   );
 
   const handleSubmit = async (e: React.FormEvent) => {

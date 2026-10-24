@@ -74,29 +74,30 @@
   --grad-a: #3730a3;
   --grad-b: #5b21b6;
 
-  --peligro: #f87171;
+  /* ── Estados y alertas en modo oscuro (colores vivos y de alto contraste) ── */
+  --peligro: #ef4444;         /* Rojo vivo de alto impacto */
   --peligro-fg: #ffffff;
-  --peligro-suave: #2a1417;
-  --peligro-borde: #5c2428;
-  --peligro-texto: #fca5a5;
+  --peligro-suave: #2a1114;   /* Fondo oscuro con tinte carmesí */
+  --peligro-borde: #7f1d1d;   /* Borde rojo oscuro definido */
+  --peligro-texto: #f87171;   /* Texto rojo claro legible */
 
-  --exito: #34d399;
-  --exito-fg: #04130d;
-  --exito-suave: #0d291e;
-  --exito-borde: #134e3a;
-  --exito-texto: #6ee7b7;
+  --exito: #10b981;           /* Verde esmeralda vivo y luminoso */
+  --exito-fg: #ffffff;
+  --exito-suave: #07251a;     /* Fondo oscuro con tinte esmeralda */
+  --exito-borde: #065f46;     /* Borde esmeralda definido */
+  --exito-texto: #34d399;     /* Texto esmeralda brillante legible */
 
-  --aviso: #fbbf24;
-  --aviso-fg: #1c1303;
-  --aviso-suave: #2e2008;
-  --aviso-borde: #593e0b;
-  --aviso-texto: #fde68a;
+  --aviso: #f59e0b;
+  --aviso-fg: #ffffff;
+  --aviso-suave: #271a04;
+  --aviso-borde: #78350f;
+  --aviso-texto: #fbbf24;
 
-  --info: #60a5fa;
-  --info-fg: #07172f;
-  --info-suave: #0d213f;
-  --info-borde: #1d3e6e;
-  --info-texto: #93c5fd;
+  --info: #3b82f6;
+  --info-fg: #ffffff;
+  --info-suave: #0c1f3d;
+  --info-borde: #1e3a8a;
+  --info-texto: #60a5fa;
 
   --sombra: 0 1px 3px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.6);
   color-scheme: dark;
