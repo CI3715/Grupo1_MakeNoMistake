@@ -12,17 +12,16 @@ import {
 } from '../utils/apariencia';
 
 /**
- * Botón con un panel pequeño para elegir modo (claro/oscuro/sistema) y color.
- * Está pensado para ir sobre la cabecera de degradado (botón translúcido, texto blanco).
+ * Botón con un panel flotante para elegir modo (claro/oscuro/sistema) y paleta de color.
+ * Diseñado para ir sobre la cabecera con degradado (botón translúcido, texto blanco).
  */
 export function SelectorApariencia() {
   const [abierto, setAbierto] = useState(false);
-  // El panel solo se dibuja al abrirlo (ya en el cliente), por eso no hay desajuste de hidratación.
   const [apariencia, setApariencia] = useState<Apariencia>(leerApariencia);
   const contenedor = useRef<HTMLDivElement>(null);
   const { modo, paleta } = apariencia;
 
-  // Cerrar con clic fuera o con Escape.
+  // Cerrar con clic fuera o Escape.
   useEffect(() => {
     if (!abierto) return;
     const alPulsar = (e: PointerEvent) => {
@@ -39,7 +38,7 @@ export function SelectorApariencia() {
     };
   }, [abierto]);
 
-  // En modo "sistema", seguir los cambios del sistema operativo en vivo.
+  // En modo "sistema", seguir cambios del sistema operativo en vivo.
   useEffect(() => {
     if (modo !== 'sistema') return;
     const consulta = window.matchMedia('(prefers-color-scheme: dark)');
@@ -64,17 +63,17 @@ export function SelectorApariencia() {
         aria-haspopup="dialog"
         aria-expanded={abierto}
         title="Apariencia"
-        className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/15 px-3.5 text-sm font-medium text-white ring-1 ring-white/25 backdrop-blur transition hover:bg-white/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        className="inline-flex h-9 items-center gap-2 rounded-xl bg-white/15 px-3 text-xs font-medium text-white ring-1 ring-white/25 backdrop-blur transition hover:bg-white/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:h-10 sm:px-3.5 sm:text-sm"
       >
-        <IconoPaleta width={18} height={18} />
-        Apariencia
+        <IconoPaleta width={16} height={16} />
+        <span>Apariencia</span>
       </button>
 
       {abierto && (
         <div
           role="dialog"
           aria-label="Apariencia"
-          className="absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-borde bg-superficie p-4 text-texto shadow-suave"
+          className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-borde bg-superficie p-4 text-texto shadow-suave"
         >
           <p className="mb-2 text-xs font-medium text-suave">Tema</p>
           <div role="group" aria-label="Tema" className="grid grid-cols-3 gap-1 rounded-xl bg-superficie-2 p-1">
@@ -84,7 +83,7 @@ export function SelectorApariencia() {
                 type="button"
                 aria-pressed={modo === m.id}
                 onClick={() => cambiar({ modo: m.id, paleta })}
-                className={`rounded-lg px-2 py-1.5 text-sm transition ${
+                className={`rounded-lg px-2 py-1.5 text-xs transition sm:text-sm ${
                   modo === m.id
                     ? 'bg-superficie font-medium text-texto shadow-sm'
                     : 'text-suave hover:text-texto'

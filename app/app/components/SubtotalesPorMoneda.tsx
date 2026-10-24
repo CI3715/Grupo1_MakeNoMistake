@@ -37,7 +37,7 @@ export const SubtotalesPorMoneda: React.FC<Props> = ({ subtotales, monedas, cuen
                   {sub.moneda}
                 </span>
               </div>
-              <p className="relative mt-6 text-3xl font-semibold tracking-tight tabular-nums">
+              <p className="relative mt-5 text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">
                 {formatearMontoLocal(sub.total, obtenerSimbolo(sub.moneda))}
               </p>
               <p className="relative mt-1 text-sm text-white/75">

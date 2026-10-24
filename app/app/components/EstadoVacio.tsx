@@ -8,12 +8,12 @@ interface Props {
 export const EstadoVacio: React.FC<Props> = ({ onCrearCuenta }) => {
   return (
     <div className="flex flex-col items-center px-6 py-16 text-center">
-      <span className="mb-4 grid size-14 place-items-center rounded-2xl bg-acento-suave text-acento-texto">
+      <span className="mb-4 grid size-14 place-items-center rounded-2xl bg-acento-suave text-acento-texto shadow-sm">
         <IconoBilletera width={26} height={26} />
       </span>
       <h3 className="text-lg font-semibold">No tienes cuentas registradas</h3>
-      <p className="mt-1 max-w-sm text-sm text-suave">
-        Comienza creando tu primera cuenta para llevar el control de tus finanzas.
+      <p className="mt-1.5 max-w-sm text-sm text-suave">
+        Comienza creando tu primera cuenta para llevar el control de tus finanzas personales.
       </p>
       <button
         onClick={onCrearCuenta}

@@ -11,27 +11,25 @@ interface Props {
   errores: ErrorCampo[];
 }
 
-const CAMPO = 'w-full rounded-xl border bg-superficie px-3.5 py-2.5 text-base outline-none transition placeholder:text-suave/60';
+const CAMPO =
+  'w-full rounded-xl border bg-superficie px-3.5 py-2.5 text-sm text-texto outline-none transition placeholder:text-suave/60 sm:text-base';
 const CAMPO_OK = 'border-borde focus:border-acento focus:ring-4 focus:ring-acento/15';
 const CAMPO_ERROR = 'border-peligro focus:ring-4 focus:ring-peligro/15';
 
-const CAJA_SALDO = 'flex items-center gap-2 rounded-xl border bg-superficie px-3.5 py-2.5 transition';
-const CAJA_SALDO_OK = 'border-borde focus-within:border-acento focus-within:ring-4 focus-within:ring-acento/15';
+const CAJA_SALDO =
+  'flex items-center gap-2 rounded-xl border bg-superficie px-3.5 py-2.5 transition';
+const CAJA_SALDO_OK =
+  'border-borde focus-within:border-acento focus-within:ring-4 focus-within:ring-acento/15';
 const CAJA_SALDO_ERROR = 'border-peligro focus-within:ring-4 focus-within:ring-peligro/15';
 
-/** Aspecto de una opción (tipo o moneda) mostrada como botón de radio. */
 const OPCION =
-  'flex cursor-pointer flex-col items-center gap-1 rounded-xl border border-borde bg-superficie px-2 py-3 text-sm text-suave transition hover:border-suave/40 peer-checked:border-acento peer-checked:bg-acento-suave peer-checked:text-acento-texto peer-focus-visible:ring-4 peer-focus-visible:ring-acento/25';
+  'flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-borde bg-superficie px-2 py-3 text-xs text-suave transition hover:border-suave/40 peer-checked:border-acento peer-checked:bg-acento-suave peer-checked:text-acento-texto peer-focus-visible:ring-4 peer-focus-visible:ring-acento/25 sm:text-sm';
 
-/**
- * Formulario "Nueva cuenta". Se dibuja plano porque va dentro del panel de MisCuentas,
- * que ya pone el título, el borde y la sombra.
- */
 export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar, errores }) => {
   const id = useId();
   const [nombre, setNombre] = useState('');
   const [tipo, setTipo] = useState<TipoCuenta>('efectivo');
-  const [moneda, setMoneda] = useState(monedas[0]?.codigo || 'VES');
+  const [moneda, setMoneda] = useState(monedas[0]?.codigo || 'USD');
   const [saldoInicial, setSaldoInicial] = useState('0.00');
   const [enviando, setEnviando] = useState(false);
 
@@ -55,7 +53,7 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
     return mensajes.length > 0 ? mensajes.join(' ') : null;
   };
 
-  const erroresGenerales = errores.filter((e) => e.campo === null);
+  const erroresGenerales = errores.filter((e) => !e.campo);
   const errorNombre = getError('nombre');
   const errorTipo = getError('tipo');
   const errorMoneda = getError('moneda');
@@ -67,7 +65,7 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
       {erroresGenerales.length > 0 && (
         <div
           role="alert"
-          className="mb-5 rounded-xl border border-peligro-borde bg-peligro-suave p-3 text-sm text-peligro"
+          className="mb-5 rounded-xl border border-peligro-borde bg-peligro-suave p-3.5 text-sm text-peligro"
         >
           {erroresGenerales.map((e, i) => (
             <p key={i}>{e.mensaje}</p>
@@ -77,8 +75,8 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
 
       {/* Nombre */}
       <div className="mb-5">
-        <label htmlFor={`${id}-nombre`} className="mb-1.5 block text-sm font-medium">
-          Nombre
+        <label htmlFor={`${id}-nombre`} className="mb-1.5 block text-xs font-semibold text-suave uppercase tracking-wider sm:text-sm sm:normal-case sm:tracking-normal">
+          Nombre de la cuenta
         </label>
         <input
           id={`${id}-nombre`}
@@ -89,10 +87,10 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
           aria-invalid={errorNombre ? true : undefined}
           aria-describedby={errorNombre ? `${id}-nombre-error` : undefined}
           className={`${CAMPO} ${errorNombre ? CAMPO_ERROR : CAMPO_OK}`}
-          placeholder="Ej. Cartera, Cuenta nómina"
+          placeholder="Ej. Cartera, Banco Mercantil, Efectivo"
         />
         {errorNombre && (
-          <p id={`${id}-nombre-error`} className="mt-1.5 text-sm text-peligro">
+          <p id={`${id}-nombre-error`} className="mt-1.5 text-xs text-peligro font-medium">
             {errorNombre}
           </p>
         )}
@@ -100,7 +98,7 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
 
       {/* Tipo */}
       <fieldset className="mb-5">
-        <legend className="mb-1.5 text-sm font-medium">Tipo de cuenta</legend>
+        <legend className="mb-1.5 text-xs font-semibold text-suave uppercase tracking-wider sm:text-sm sm:normal-case sm:tracking-normal">Tipo de cuenta</legend>
         <div className="grid grid-cols-3 gap-2">
           {TIPOS.map((t) => (
             <label key={t.valor} className="relative">
@@ -114,17 +112,17 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
               />
               <span className={OPCION}>
                 <IconoTipo tipo={t.valor} />
-                {t.nombre}
+                <span className="font-medium">{t.nombre}</span>
               </span>
             </label>
           ))}
         </div>
-        {errorTipo && <p className="mt-1.5 text-sm text-peligro">{errorTipo}</p>}
+        {errorTipo && <p className="mt-1.5 text-xs text-peligro font-medium">{errorTipo}</p>}
       </fieldset>
 
       {/* Moneda */}
       <fieldset className="mb-5">
-        <legend className="mb-1.5 text-sm font-medium">Moneda</legend>
+        <legend className="mb-1.5 text-xs font-semibold text-suave uppercase tracking-wider sm:text-sm sm:normal-case sm:tracking-normal">Moneda</legend>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {monedas.map((m) => (
             <label key={m.codigo} className="relative" title={m.nombre}>
@@ -137,22 +135,22 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
                 className="peer sr-only"
               />
               <span className={OPCION}>
-                <span className="font-semibold">{m.codigo}</span>
-                <span className="text-xs opacity-80">{m.simbolo}</span>
+                <span className="font-bold text-texto">{m.codigo}</span>
+                <span className="text-xs text-suave">{m.simbolo}</span>
               </span>
             </label>
           ))}
         </div>
-        {errorMoneda && <p className="mt-1.5 text-sm text-peligro">{errorMoneda}</p>}
+        {errorMoneda && <p className="mt-1.5 text-xs text-peligro font-medium">{errorMoneda}</p>}
       </fieldset>
 
       {/* Saldo inicial */}
       <div className="mb-6">
-        <label htmlFor={`${id}-saldo`} className="mb-1.5 block text-sm font-medium">
+        <label htmlFor={`${id}-saldo`} className="mb-1.5 block text-xs font-semibold text-suave uppercase tracking-wider sm:text-sm sm:normal-case sm:tracking-normal">
           Saldo inicial
         </label>
         <div className={`${CAJA_SALDO} ${errorSaldo ? CAJA_SALDO_ERROR : CAJA_SALDO_OK}`}>
-          <span className="text-suave" aria-hidden="true">
+          <span className="text-suave font-semibold" aria-hidden="true">
             {simbolo}
           </span>
           <input
@@ -163,15 +161,15 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
             onChange={(e) => setSaldoInicial(e.target.value)}
             aria-invalid={errorSaldo ? true : undefined}
             aria-describedby={`${id}-saldo-ayuda${errorSaldo ? ` ${id}-saldo-error` : ''}`}
-            className="w-full bg-transparent text-base tabular-nums outline-none placeholder:text-suave/60"
+            className="w-full bg-transparent text-sm font-medium tabular-nums outline-none placeholder:text-suave/60 sm:text-base"
             placeholder="0,00"
           />
         </div>
         <p id={`${id}-saldo-ayuda`} className="mt-1.5 text-xs text-suave">
-          Puedes usar coma o punto para los decimales.
+          Puedes usar coma o punto para los decimales (ej. 1250,50 o 1250.50).
         </p>
         {errorSaldo && (
-          <p id={`${id}-saldo-error`} className="mt-1 text-sm text-peligro">
+          <p id={`${id}-saldo-error`} className="mt-1 text-xs text-peligro font-medium">
             {errorSaldo}
           </p>
         )}
@@ -181,16 +179,16 @@ export const FormularioCuenta: React.FC<Props> = ({ monedas, onCrear, onCancelar
         <button
           type="button"
           onClick={onCancelar}
-          className="h-10 rounded-xl border border-borde px-4 text-sm text-suave transition hover:bg-superficie-2 hover:text-texto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento"
+          className="h-10 rounded-xl border border-borde px-4 text-xs font-medium text-suave transition hover:bg-superficie-2 hover:text-texto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento sm:text-sm"
         >
           Cancelar
         </button>
         <button
           type="submit"
           disabled={enviando}
-          className="h-10 rounded-xl bg-acento px-5 text-sm font-medium text-acento-fg transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento"
+          className="h-10 rounded-xl bg-acento px-5 text-xs font-semibold text-acento-fg shadow-sm transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento sm:text-sm"
         >
-          {enviando ? 'Guardando…' : 'Guardar cuenta'}
+          {enviando ? 'Guardando…' : 'Crear cuenta'}
         </button>
       </div>
     </form>

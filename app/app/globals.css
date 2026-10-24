@@ -1,24 +1,22 @@
 @import "tailwindcss";
 
 /*
- * Sistema de temas de Cuentas Claras.
+ * Sistema de temas y diseño de Cuentas Claras.
  *
- * Los componentes NO usan colores fijos: usan estos tokens (bg-fondo, text-suave,
- * from-grad-a...). Cambiar de paleta o de modo solo cambia las variables.
+ * Los componentes usan tokens semánticos (bg-fondo, bg-superficie, text-suave,
+ * from-grad-a, to-grad-b, bg-acento, etc.).
  * <html data-tema="claro|oscuro" data-paleta="indigo|esmeralda|..."> lo escribe
- * el script de layout.tsx antes de pintar (sin parpadeo) y el selector de apariencia.
- *
- * --acento*  : botones, iconos y chips sobre superficies.
- * --grad-a/b : degradado de la cabecera y de las tarjetas de saldo. Siempre lo bastante
- *              oscuro para llevar texto blanco encima (contraste >= 4.5).
+ * el script de layout.tsx antes del primer pintado para evitar parpadeos.
  */
 
-/* ── Base: modo claro + paleta Índigo (también es el valor de respaldo) ── */
+/* ── Base: modo claro + paleta Índigo por defecto ── */
 :root {
   --fondo: #f4f5f9;
   --superficie: #ffffff;
   --superficie-2: #f1f2f6;
+  --superficie-hover: #e9ebf2;
   --borde: #e5e7ee;
+  --borde-fuerte: #d1d5e2;
   --texto: #14151c;
   --suave: #5f6270;
 
@@ -29,20 +27,43 @@
   --grad-a: #4f46e5;
   --grad-b: #7c3aed;
 
-  --peligro: #b42318;
-  --peligro-suave: #fef3f2;
-  --peligro-borde: #fecdca;
+  /* Estados y alertas */
+  --peligro: #dc2626;
+  --peligro-fg: #ffffff;
+  --peligro-suave: #fef2f2;
+  --peligro-borde: #fecaca;
+  --peligro-texto: #991b1b;
 
-  --sombra: 0 1px 2px rgb(20 21 40 / 0.05), 0 10px 30px -8px rgb(20 21 40 / 0.1);
+  --exito: #059669;
+  --exito-fg: #ffffff;
+  --exito-suave: #ecfdf5;
+  --exito-borde: #a7f3d0;
+  --exito-texto: #065f46;
+
+  --aviso: #d97706;
+  --aviso-fg: #ffffff;
+  --aviso-suave: #fffbeb;
+  --aviso-borde: #fde68a;
+  --aviso-texto: #92400e;
+
+  --info: #2563eb;
+  --info-fg: #ffffff;
+  --info-suave: #eff6ff;
+  --info-borde: #bfdbfe;
+  --info-texto: #1e40af;
+
+  --sombra: 0 1px 3px rgb(20 21 40 / 0.06), 0 12px 32px -8px rgb(20 21 40 / 0.1);
   color-scheme: light;
 }
 
-/* ── Modo oscuro (neutros + Índigo) ── */
+/* ── Modo oscuro ── */
 [data-tema="oscuro"] {
   --fondo: #0b0b0f;
   --superficie: #15151a;
   --superficie-2: #1c1c23;
+  --superficie-hover: #24242d;
   --borde: #26262f;
+  --borde-fuerte: #393946;
   --texto: #ececf2;
   --suave: #a0a1b0;
 
@@ -53,15 +74,35 @@
   --grad-a: #3730a3;
   --grad-b: #5b21b6;
 
-  --peligro: #f97066;
+  --peligro: #f87171;
+  --peligro-fg: #ffffff;
   --peligro-suave: #2a1417;
   --peligro-borde: #5c2428;
+  --peligro-texto: #fca5a5;
 
-  --sombra: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px -8px rgb(0 0 0 / 0.5);
+  --exito: #34d399;
+  --exito-fg: #04130d;
+  --exito-suave: #0d291e;
+  --exito-borde: #134e3a;
+  --exito-texto: #6ee7b7;
+
+  --aviso: #fbbf24;
+  --aviso-fg: #1c1303;
+  --aviso-suave: #2e2008;
+  --aviso-borde: #593e0b;
+  --aviso-texto: #fde68a;
+
+  --info: #60a5fa;
+  --info-fg: #07172f;
+  --info-suave: #0d213f;
+  --info-borde: #1d3e6e;
+  --info-texto: #93c5fd;
+
+  --sombra: 0 1px 3px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.6);
   color-scheme: dark;
 }
 
-/* ── Paletas: solo cambian acento y degradado. Primero claro, luego oscuro. ── */
+/* ── Paletas de color personalizadas ── */
 [data-paleta="indigo"] {
   --acento: #4f46e5;
   --acento-fg: #ffffff;
@@ -164,12 +205,14 @@
   --grad-b: #3f3f46;
 }
 
-/* ── Tokens → utilidades de Tailwind (bg-fondo, text-suave, from-grad-a...) ── */
+/* ── Mapeo de tokens a utilidades de Tailwind v4 ── */
 @theme inline {
   --color-fondo: var(--fondo);
   --color-superficie: var(--superficie);
   --color-superficie-2: var(--superficie-2);
+  --color-superficie-hover: var(--superficie-hover);
   --color-borde: var(--borde);
+  --color-borde-fuerte: var(--borde-fuerte);
   --color-texto: var(--texto);
   --color-suave: var(--suave);
   --color-acento: var(--acento);
@@ -178,9 +221,31 @@
   --color-acento-texto: var(--acento-texto);
   --color-grad-a: var(--grad-a);
   --color-grad-b: var(--grad-b);
+
   --color-peligro: var(--peligro);
+  --color-peligro-fg: var(--peligro-fg);
   --color-peligro-suave: var(--peligro-suave);
   --color-peligro-borde: var(--peligro-borde);
+  --color-peligro-texto: var(--peligro-texto);
+
+  --color-exito: var(--exito);
+  --color-exito-fg: var(--exito-fg);
+  --color-exito-suave: var(--exito-suave);
+  --color-exito-borde: var(--exito-borde);
+  --color-exito-texto: var(--exito-texto);
+
+  --color-aviso: var(--aviso);
+  --color-aviso-fg: var(--aviso-fg);
+  --color-aviso-suave: var(--aviso-suave);
+  --color-aviso-borde: var(--aviso-borde);
+  --color-aviso-texto: var(--aviso-texto);
+
+  --color-info: var(--info);
+  --color-info-fg: var(--info-fg);
+  --color-info-suave: var(--info-suave);
+  --color-info-borde: var(--info-borde);
+  --color-info-texto: var(--info-texto);
+
   --shadow-suave: var(--sombra);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);

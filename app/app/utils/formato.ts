@@ -6,14 +6,18 @@
 export function formatearMontoLocal(montoTexto: string, simboloOMoneda: string): string {
   if (!montoTexto) return `${simboloOMoneda} 0,00`;
 
-  const partes = montoTexto.split('.');
+  const esNegativo = montoTexto.startsWith('-');
+  const sinSigno = esNegativo ? montoTexto.slice(1) : montoTexto;
+
+  const partes = sinSigno.split('.');
   const entero = partes[0] || '0';
   const decimales = partes[1] || '00';
 
   // Formatear la parte entera añadiendo separadores de miles con punto (.)
   const enteroFormateado = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
-  return `${simboloOMoneda} ${enteroFormateado},${decimales}`;
+  const resultado = `${simboloOMoneda} ${enteroFormateado},${decimales}`;
+  return esNegativo ? `-${resultado}` : resultado;
 }
 
 /**

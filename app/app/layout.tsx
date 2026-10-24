@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description: "Cuentas Claras: tus cuentas, guardadas en tu dispositivo",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     // suppressHydrationWarning: el script de abajo escribe data-tema y data-paleta
     // en <html> antes de que React hidrate.
@@ -28,10 +28,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* Aplica el tema guardado antes del primer pintado: evita el parpadeo claro→oscuro. */}
+        {/* Aplica el tema guardado antes del primer pintado para evitar parpadeos */}
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_APARIENCIA }} />
       </head>
-      <body className="min-h-full flex flex-col bg-fondo text-texto">{children}</body>
+      <body className="min-h-full flex flex-col bg-fondo text-texto selection:bg-acento/20">
+        {children}
+      </body>
     </html>
   );
 }
