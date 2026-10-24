@@ -37,9 +37,6 @@ export const MisCuentas: React.FC<Props> = ({
   const total = lista.cuentas.length;
   const listo = !cargando && !errorCarga;
 
-  const total = lista.cuentas.length;
-  const listo = !cargando && !errorCarga;
-
   return (
     <div className="grid items-start gap-6 md:grid-cols-[17.5rem_1fr]">
       {/* Saldo por moneda */}
