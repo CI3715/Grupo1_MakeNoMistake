@@ -1,249 +1,273 @@
-// app/components/DetalleCuenta.tsx
-import React, { useState } from "react";
+import React, { useState } from 'react';
+import { Cuenta, DetalleCuentaData, Categoria, Movimiento, TipoMovimiento, Moneda } from '../types/cuentas';
+import { ComposicionSaldo } from './ComposicionSaldo';
+import { ListaMovimientos } from './ListaMovimientos';
+import { DialogoCorregir } from './DialogoCorregir';
+import { DialogoAdvertencia } from './DialogoAdvertencia';
+import { FormularioMovimiento } from './FormularioMovimiento';
+import { FormularioCategoria } from './FormularioCategoria';
+import { IconoFlechaAtras, IconoGasto, IconoIngreso, IconoMas, IconoTipo } from './Iconos';
+import { nombreTipo } from '../utils/tipos';
 
-export interface Movimiento {
-  id: string;
-  fecha: string;
-  categoria: string;
-  nota: string;
-  monto: number;
-  tipo: "Ingreso" | "Gasto";
-  relacion: string;
+interface Props {
+  detalle: DetalleCuentaData;
+  cuentas: Cuenta[];
+  monedas: Moneda[];
+  categorias: Categoria[];
+  onVolver: () => void;
+  onCambiarCuenta: (cuentaId: string) => void;
+  onRegistrarMovimiento: (datos: {
+    cuenta_id: string;
+    tipo: TipoMovimiento;
+    monto: string;
+    fecha: string;
+    categoria_id: string;
+    nota: string;
+  }) => Promise<void>;
+  onPrevisualizarMovimiento: (datos: {
+    cuenta_id: string;
+    tipo: TipoMovimiento;
+    monto: string;
+    fecha: string;
+    categoria_id: string;
+    nota: string;
+  }) => Promise<{ saldo_resultante: string; deja_saldo_negativo: boolean }>;
+  onCorregirMovimiento: (movimientoId: string, montoCorrecto: string) => Promise<void>;
+  onCrearCategoria: (nombre: string, tipo: TipoMovimiento) => Promise<void>;
 }
 
-interface DetalleCuentaProps {
-  cuenta: { nombre: string; moneda: string; simbolo: string; saldoInicial: number; saldoActual: number };
-  movimientos: Movimiento[];
-  categorias: { Ingreso: string[]; Gasto: string[] };
-  ingresos: number;
-  gastos: number;
-  ajustes: number;
-  onGuardarMovimiento: (m: { tipo: "Ingreso" | "Gasto"; monto: number; fecha: string; categoria: string; nota: string }) => void;
-  onCorregir: (mov: Movimiento) => void;
-  onAgregarCategoria: (tipo: "Ingreso" | "Gasto", nombre: string) => void;
-}
-
-export default function DetalleCuenta({
-  cuenta,
-  movimientos,
+export const DetalleCuenta: React.FC<Props> = ({
+  detalle,
+  cuentas,
+  monedas,
   categorias,
-  ingresos,
-  gastos,
-  ajustes,
-  onGuardarMovimiento,
-  onCorregir,
-  onAgregarCategoria,
-}: DetalleCuentaProps) {
-  const hoy = new Date().toISOString().split("T")[0];
+  onVolver,
+  onCambiarCuenta,
+  onRegistrarMovimiento,
+  onPrevisualizarMovimiento,
+  onCorregirMovimiento,
+  onCrearCategoria,
+}) => {
+  const { cuenta, composicion, movimientos } = detalle;
+  const monedaObj = monedas.find((m) => m.codigo === cuenta.moneda);
+  const simbolo = monedaObj?.simbolo || cuenta.moneda;
 
-  const [tipo, setTipo] = useState<"Ingreso" | "Gasto">("Gasto");
-  const [monto, setMonto] = useState("");
-  const [fecha, setFecha] = useState(hoy);
-  const [categoria, setCategoria] = useState("");
-  const [nota, setNota] = useState("");
+  // Estados de modales
+  const [modalMovimiento, setModalMovimiento] = useState(false);
+  const [tipoMovimientoModal, setTipoMovimientoModal] = useState<TipoMovimiento>('gasto');
+  const [modalCategoria, setModalCategoria] = useState(false);
+  const [tipoCategoriaModal, setTipoCategoriaModal] = useState<TipoMovimiento>('gasto');
+  const [movimientoAEditar, setMovimientoAEditar] = useState<Movimiento | null>(null);
 
-  const [nuevaCatNombre, setNuevaCatNombre] = useState("");
-  const [nuevaCatTipo, setNuevaCatTipo] = useState<"Ingreso" | "Gasto">("Gasto");
+  // Advertencia de saldo negativo
+  const [advertenciaSaldo, setAdvertenciaSaldo] = useState<string | null>(null);
+  const [movimientoPendiente, setMovimientoPendiente] = useState<{
+    tipo: TipoMovimiento;
+    monto: string;
+    fecha: string;
+    categoria_id: string;
+    nota: string;
+  } | null>(null);
 
-  const handleSubmitMovimiento = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = parseFloat(monto);
-    if (isNaN(val) || val <= 0 || !categoria) return;
-    onGuardarMovimiento({ tipo, monto: val, fecha, categoria, nota });
-    setMonto("");
-    setNota("");
+  const abrirModalMovimiento = (tipo: TipoMovimiento) => {
+    setTipoMovimientoModal(tipo);
+    setModalMovimiento(true);
   };
 
-  const handleNuevaCategoriaSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!nuevaCatNombre.trim()) return;
-    onAgregarCategoria(nuevaCatTipo, nuevaCatNombre.trim());
-    setNuevaCatNombre("");
+  const handleRegistrarMovimiento = async (datos: {
+    tipo: TipoMovimiento;
+    monto: string;
+    fecha: string;
+    categoria_id: string;
+    nota: string;
+  }) => {
+    // Si es gasto, previsualizar para advertir si deja saldo negativo
+    if (datos.tipo === 'gasto') {
+      try {
+        const prev = await onPrevisualizarMovimiento({
+          cuenta_id: cuenta.id,
+          ...datos,
+        });
+        if (prev.deja_saldo_negativo) {
+          setAdvertenciaSaldo(prev.saldo_resultante);
+          setMovimientoPendiente(datos);
+          setModalMovimiento(false);
+          return;
+        }
+      } catch {
+        // En caso de error de validación, continuar para que lo maneje el registro
+      }
+    }
+
+    await onRegistrarMovimiento({
+      cuenta_id: cuenta.id,
+      ...datos,
+    });
+  };
+
+  const confirmarMovimientoConAdvertencia = async () => {
+    if (!movimientoPendiente) return;
+    try {
+      await onRegistrarMovimiento({
+        cuenta_id: cuenta.id,
+        ...movimientoPendiente,
+      });
+    } finally {
+      setAdvertenciaSaldo(null);
+      setMovimientoPendiente(null);
+    }
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">{cuenta.nombre} ({cuenta.moneda})</h2>
-        <p className="text-xs text-[var(--text-muted)] mt-0.5">Detalle de cuenta y movimientos</p>
-      </div>
+    <div className="space-y-6">
+      {/* Barra de navegación superior con botón Volver y selector de cuentas */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={onVolver}
+          className="inline-flex h-10 items-center gap-2 rounded-2xl border border-borde bg-superficie px-4 text-xs font-semibold text-texto shadow-suave transition hover:bg-superficie-2 hover:border-acento focus-visible:outline-2 focus-visible:outline-acento sm:text-sm"
+        >
+          <IconoFlechaAtras width={16} height={16} />
+          <span>Volver a Mis cuentas</span>
+        </button>
 
-      {/* COMPOSICIÓN DEL SALDO */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5 shadow-sm">
-        <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Composición del Saldo</h3>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
-          <div className="bg-gray-100/70 dark:bg-slate-800/50 p-3 rounded-xl">
-            <p className="text-xs text-[var(--text-muted)]">Saldo Inicial</p>
-            <p className="text-sm font-bold mt-1">{cuenta.simbolo} {cuenta.saldoInicial.toFixed(2)}</p>
-          </div>
-          <div className="bg-emerald-50 dark:bg-emerald-950/30 p-3 rounded-xl border border-emerald-100/50 dark:border-emerald-900/20">
-            <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Ingresos</p>
-            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-1">+ {cuenta.simbolo} {ingresos.toFixed(2)}</p>
-          </div>
-          <div className="bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl border border-rose-100/50 dark:border-rose-900/20">
-            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">Gastos</p>
-            <p className="text-sm font-bold text-rose-600 dark:text-rose-400 mt-1">- {cuenta.simbolo} {gastos.toFixed(2)}</p>
-          </div>
-          <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-xl border border-blue-100/50 dark:border-blue-900/20">
-            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Ajustes</p>
-            <p className="text-sm font-bold text-blue-600 dark:text-blue-400 mt-1">{cuenta.simbolo} + {ajustes.toFixed(2)}</p>
-          </div>
-          <div className="bg-purple-50 dark:bg-purple-950/30 p-3 rounded-xl border border-purple-100/50 dark:border-purple-900/20">
-            <p className="text-xs text-purple-600 dark:text-purple-400 font-medium">Saldo Actual</p>
-            <p className="text-sm font-extrabold text-[#A855F7] mt-1">{cuenta.simbolo} {cuenta.saldoActual.toFixed(2)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* HISTORIAL Y FORMULARIO */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Historial */}
-          <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5 shadow-sm">
-            <h3 className="text-base font-bold mb-4">Historial de Movimientos</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-[var(--border-color)] text-[var(--text-muted)]">
-                    <th className="pb-3 font-semibold">Fecha</th>
-                    <th className="pb-3 font-semibold">Categoría</th>
-                    <th className="pb-3 font-semibold">Nota</th>
-                    <th className="pb-3 font-semibold text-right">Monto</th>
-                    <th className="pb-3 font-semibold text-center">Estado / Relación</th>
-                    <th className="pb-3 font-semibold text-right">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border-color)]">
-                  {movimientos.map((m) => (
-                    <tr key={m.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/20">
-                      <td className="py-3.5 text-xs">{m.fecha}</td>
-                      <td className="py-3.5 font-medium">{m.categoria}</td>
-                      <td className="py-3.5 text-[var(--text-muted)]">{m.nota || "-"}</td>
-                      <td className={`py-3.5 font-bold text-right ${m.tipo === "Gasto" ? "text-rose-500" : "text-emerald-500"}`}>
-                        {m.tipo === "Gasto" ? `- ${cuenta.simbolo}` : `+ ${cuenta.simbolo}`} {m.monto.toFixed(2)}
-                      </td>
-                      <td className="py-3.5 text-center">
-                        {m.relacion === "Corregido" ? (
-                          <span className="bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-md">
-                            Corregido
-                          </span>
-                        ) : m.relacion.includes("Ajuste") ? (
-                          <span className="bg-blue-200 dark:bg-blue-900/60 text-blue-900 dark:text-blue-200 text-[10px] font-bold px-2 py-0.5 rounded-md">
-                            {m.relacion}
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-gray-400">Normal</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 text-right">
-                        <button
-                          onClick={() => onCorregir(m)}
-                          className="bg-[#A855F7] text-white text-[11px] px-3 py-1 rounded-lg font-medium hover:bg-purple-600 transition-all"
-                        >
-                          Corregir
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Nueva Categoría */}
-          <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5 shadow-sm">
-            <h3 className="text-sm font-bold mb-3">Nueva Categoría</h3>
-            <form onSubmit={handleNuevaCategoriaSubmit} className="flex gap-3">
-              <input
-                type="text"
-                placeholder="Nombre de categoría"
-                value={nuevaCatNombre}
-                onChange={(e) => setNuevaCatNombre(e.target.value)}
-                className="flex-1 bg-[var(--input-bg)] border border-[var(--border-color)] px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
-              />
+        <div className="flex flex-wrap items-center gap-2">
+          {cuentas.length > 1 && (
+            <div className="flex items-center gap-1.5 rounded-2xl border border-borde bg-superficie px-3 py-1.5 shadow-sm">
+              <span className="text-xs text-suave hidden sm:inline">Cuenta:</span>
               <select
-                value={nuevaCatTipo}
-                onChange={(e) => setNuevaCatTipo(e.target.value as "Ingreso" | "Gasto")}
-                className="bg-[var(--input-bg)] border border-[var(--border-color)] px-3 py-2 rounded-xl text-xs focus:outline-none"
+                value={cuenta.id}
+                onChange={(e) => onCambiarCuenta(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-texto outline-none cursor-pointer"
               >
-                <option value="Gasto">Gasto</option>
-                <option value="Ingreso">Ingreso</option>
-              </select>
-              <button type="submit" className="bg-[#A855F7] text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-purple-600">
-                Añadir
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* Panel Registrar Movimiento */}
-        <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-5 shadow-sm h-fit">
-          <h3 className="text-base font-bold mb-4">Registrar Movimiento</h3>
-          <form onSubmit={handleSubmitMovimiento} className="space-y-4">
-            <div className="flex gap-4 text-xs font-medium">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="tipo" checked={tipo === "Gasto"} onChange={() => setTipo("Gasto")} className="accent-[#A855F7]" />
-                Gasto
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="tipo" checked={tipo === "Ingreso"} onChange={() => setTipo("Ingreso")} className="accent-[#A855F7]" />
-                Ingreso
-              </label>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-[var(--text-muted)] mb-1">Monto</label>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Ej: 50,00"
-                value={monto}
-                onChange={(e) => setMonto(e.target.value)}
-                className="w-full bg-[var(--input-bg)] border border-[var(--border-color)] px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-[var(--text-muted)] mb-1">Fecha</label>
-              <input
-                type="date"
-                value={fecha}
-                onChange={(e) => setFecha(e.target.value)}
-                className="w-full bg-[var(--input-bg)] border border-[var(--border-color)] px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-[var(--text-muted)] mb-1">Categoría</label>
-              <select
-                value={categoria}
-                onChange={(e) => setCategoria(e.target.value)}
-                className="w-full bg-[var(--input-bg)] border border-[var(--border-color)] px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
-              >
-                <option value="">Seleccione categoría...</option>
-                {categorias[tipo].map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                {cuentas.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-superficie text-texto">
+                    {c.nombre} ({c.moneda})
+                  </option>
                 ))}
               </select>
             </div>
+          )}
 
-            <div>
-              <label className="block text-[11px] font-semibold text-[var(--text-muted)] mb-1">Nota (opcional)</label>
-              <input
-                type="text"
-                placeholder="Ej: Mercado del sábado"
-                value={nota}
-                onChange={(e) => setNota(e.target.value)}
-                className="w-full bg-[var(--input-bg)] border border-[var(--border-color)] px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
-              />
-            </div>
-
-            <button type="submit" className="w-full bg-[#A855F7] text-white py-2.5 rounded-xl font-semibold text-xs hover:bg-purple-600 transition-all shadow-md mt-2">
-              Añadir Movimiento
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={() => abrirModalMovimiento('gasto')}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-peligro px-4 text-xs font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[0.98] sm:text-sm"
+          >
+            <IconoGasto width={14} height={14} />
+            Nuevo Gasto
+          </button>
+          <button
+            type="button"
+            onClick={() => abrirModalMovimiento('ingreso')}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-exito px-4 text-xs font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[0.98] sm:text-sm"
+          >
+            <IconoIngreso width={14} height={14} />
+            Nuevo Ingreso
+          </button>
         </div>
       </div>
+
+      {/* Tarjeta principal con detalle y composición */}
+      <div className="rounded-3xl border border-borde bg-superficie p-6 shadow-suave">
+        {/* Cabecera interna de la cuenta */}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-borde pb-5">
+          <div className="flex items-center gap-3">
+            <span className="grid size-12 place-items-center rounded-2xl bg-acento-suave text-acento-texto shadow-sm">
+              <IconoTipo tipo={cuenta.tipo} width={24} height={24} />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold tracking-tight text-texto sm:text-2xl">
+                  {cuenta.nombre}
+                </h3>
+                <span className="rounded-full bg-acento-suave px-2.5 py-0.5 text-xs font-bold text-acento-texto">
+                  {cuenta.moneda}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-suave">
+                {nombreTipo(cuenta.tipo)} · ID local: <span className="font-mono text-[11px] opacity-75">{cuenta.id}</span>
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTipoCategoriaModal('gasto');
+              setModalCategoria(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-borde bg-superficie-2 px-3.5 py-2 text-xs font-semibold text-suave transition hover:border-acento hover:text-texto"
+          >
+            <IconoMas width={14} height={14} />
+            Nueva Categoría
+          </button>
+        </div>
+
+        {/* Composición del Saldo */}
+        <ComposicionSaldo
+          composicion={composicion}
+          simbolo={simbolo}
+          saldoActual={cuenta.saldo_actual}
+        />
+
+        {/* Lista de Movimientos */}
+        <ListaMovimientos
+          movimientos={movimientos}
+          simbolo={simbolo}
+          onCorregir={(m) => setMovimientoAEditar(m)}
+        />
+      </div>
+
+      {/* Modales */}
+      {modalMovimiento && (
+        <FormularioMovimiento
+          cuentaNombre={cuenta.nombre}
+          simbolo={simbolo}
+          tipoInicial={tipoMovimientoModal}
+          categorias={categorias}
+          onRegistrar={handleRegistrarMovimiento}
+          onAbrirNuevaCategoria={(t) => {
+            setTipoCategoriaModal(t);
+            setModalCategoria(true);
+          }}
+          onCerrar={() => setModalMovimiento(false)}
+        />
+      )}
+
+      {modalCategoria && (
+        <FormularioCategoria
+          tipoInicial={tipoCategoriaModal}
+          onCrear={async (nombre, tipo) => {
+            await onCrearCategoria(nombre, tipo);
+          }}
+          onCerrar={() => setModalCategoria(false)}
+        />
+      )}
+
+      {advertenciaSaldo !== null && (
+        <DialogoAdvertencia
+          saldoNegativo={advertenciaSaldo}
+          simbolo={simbolo}
+          onConfirmar={confirmarMovimientoConAdvertencia}
+          onCancelar={() => {
+            setAdvertenciaSaldo(null);
+            setMovimientoPendiente(null);
+          }}
+        />
+      )}
+
+      {movimientoAEditar && (
+        <DialogoCorregir
+          movimiento={movimientoAEditar}
+          simbolo={simbolo}
+          onConfirmar={async (movId, montoCorrecto) => {
+            await onCorregirMovimiento(movId, montoCorrecto);
+            setMovimientoAEditar(null);
+          }}
+          onCerrar={() => setMovimientoAEditar(null)}
+        />
+      )}
     </div>
   );
-}
+};

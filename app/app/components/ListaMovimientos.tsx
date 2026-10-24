@@ -1,71 +1,114 @@
-'use client';
-
 import React from 'react';
 import { Movimiento } from '../types/cuentas';
+import { formatearMontoLocal } from '../utils/formato';
+import { IconoCorregir, IconoGasto, IconoIngreso } from './Iconos';
 
 interface Props {
   movimientos: Movimiento[];
+  simbolo: string;
   onCorregir: (movimiento: Movimiento) => void;
-  modoOscuro?: boolean;
 }
 
-export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir, modoOscuro }) => {
-  return (
-    <div className={`overflow-x-auto rounded-2xl border ${modoOscuro ? 'border-gray-800 bg-[#151c28]' : 'border-gray-200 bg-white'} shadow-sm`}>
-      <table className="w-full text-left text-xs">
-        <thead className={modoOscuro ? 'bg-gray-900/50 text-gray-400' : 'bg-gray-50/50 text-gray-500'}>
-          <tr className="border-b border-gray-200 dark:border-gray-800">
-            <th className="p-3.5 font-semibold">Fecha</th>
-            <th className="p-3.5 font-semibold">Categoría</th>
-            <th className="p-3.5 font-semibold">Nota</th>
-            <th className="p-3.5 text-right font-semibold">Monto</th>
-            <th className="p-3.5 text-center font-semibold">Estado / Relación</th>
-            <th className="p-3.5 text-center font-semibold">Acción</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-          {movimientos.map((m) => {
-            const esGasto = m.tipo === 'gasto';
-            const colorMonto = esGasto ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400';
+export const ListaMovimientos: React.FC<Props> = ({ movimientos, simbolo, onCorregir }) => {
+  if (movimientos.length === 0) {
+    return (
+      <div className="rounded-3xl border border-dashed border-borde bg-superficie p-10 text-center shadow-sm">
+        <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-superficie-2 text-suave">
+          <IconoIngreso width={22} height={22} />
+        </div>
+        <h4 className="mt-3 text-sm font-semibold text-texto">Sin movimientos registrados</h4>
+        <p className="mt-1 text-xs text-suave">
+          Esta cuenta todavía no tiene ingresos ni gastos. Registra el primero para ver el historial.
+        </p>
+      </div>
+    );
+  }
 
-            return (
-              <tr key={m.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition">
-                <td className="p-3.5 whitespace-nowrap">{m.fecha}</td>
-                <td className="p-3.5 font-medium">{m.categoria_nombre}</td>
-                <td className="p-3.5 text-gray-500 dark:text-gray-400">{m.nota || '—'}</td>
-                <td className={`p-3.5 text-right font-bold ${colorMonto}`}>
-                  {m.monto_formateado}
-                </td>
-                <td className="p-3.5 text-center">
-                  {m.es_corregido && (
-                    <span className="px-2 py-0.5 text-[10px] rounded-md bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 font-bold">
-                      Corregido
+  return (
+    <div className="overflow-hidden rounded-3xl border border-borde bg-superficie shadow-suave">
+      <div className="border-b border-borde px-6 py-4">
+        <h4 className="text-base font-semibold tracking-tight text-texto">Historial de Movimientos</h4>
+        <p className="text-xs text-suave mt-0.5">Operaciones registradas en el libro local de eventos</p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="border-b border-borde bg-superficie-2/50 text-suave">
+              <th className="px-6 py-3 font-semibold">Fecha</th>
+              <th className="px-6 py-3 font-semibold">Categoría</th>
+              <th className="px-6 py-3 font-semibold">Nota</th>
+              <th className="px-6 py-3 font-semibold text-right">Monto</th>
+              <th className="px-6 py-3 font-semibold text-center">Estado</th>
+              <th className="px-6 py-3 font-semibold text-right">Acción</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-borde">
+            {movimientos.map((m) => {
+              const esGasto = m.tipo.toLowerCase() === 'gasto';
+              const montoFormateado = formatearMontoLocal(m.monto, simbolo);
+              const signo = esGasto ? '−' : '+';
+
+              return (
+                <tr key={m.id} className="transition-colors hover:bg-superficie-2/60">
+                  <td className="whitespace-nowrap px-6 py-4 tabular-nums text-suave font-medium">
+                    {m.fecha}
+                  </td>
+                  <td className="px-6 py-4 font-semibold text-texto">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-superficie-2 px-2.5 py-1 text-xs">
+                      {esGasto ? (
+                        <span className="text-peligro"><IconoGasto width={12} height={12} /></span>
+                      ) : (
+                        <span className="text-exito"><IconoIngreso width={12} height={12} /></span>
+                      )}
+                      <span>{m.categoria_nombre}</span>
                     </span>
-                  )}
-                  {m.es_ajuste && (
-                    <span className="px-2 py-0.5 text-[10px] rounded-md bg-blue-200 text-blue-900 dark:bg-blue-900/60 dark:text-blue-200 font-bold">
-                      Ajuste {m.movimiento_referenciado_id ? `(Ref: ${m.movimiento_referenciado_id})` : ''}
-                    </span>
-                  )}
-                  {!m.es_corregido && !m.es_ajuste && (
-                    <span className="text-xs text-gray-400">Normal</span>
-                  )}
-                </td>
-                <td className="p-3.5 text-center">
-                  {!m.es_ajuste && (
-                    <button
-                      onClick={() => onCorregir(m)}
-                      className="px-3 py-1 text-xs bg-[#9333EA] hover:bg-purple-600 text-white font-medium rounded-lg transition"
-                    >
-                      Corregir
-                    </button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  </td>
+                  <td className="max-w-[180px] truncate px-6 py-4 text-suave">
+                    {m.nota || '—'}
+                  </td>
+                  <td
+                    className={`whitespace-nowrap px-6 py-4 text-right font-bold tabular-nums text-sm ${
+                      esGasto ? 'text-peligro' : 'text-exito'
+                    }`}
+                  >
+                    {signo} {montoFormateado}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-center">
+                    {m.estado === 'corregido' ? (
+                      <span className="inline-flex items-center rounded-full border border-aviso-borde bg-aviso-suave px-2.5 py-0.5 text-[11px] font-semibold text-aviso-texto">
+                        Corregido
+                      </span>
+                    ) : m.estado === 'ajuste' ? (
+                      <span className="inline-flex items-center rounded-full border border-info-borde bg-info-suave px-2.5 py-0.5 text-[11px] font-semibold text-info-texto">
+                        Ajuste
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full border border-borde bg-superficie-2 px-2.5 py-0.5 text-[11px] font-medium text-suave">
+                        Normal
+                      </span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-right">
+                    {m.estado !== 'ajuste' ? (
+                      <button
+                        type="button"
+                        onClick={() => onCorregir(m)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-borde px-2.5 py-1 text-xs font-semibold text-acento-texto transition hover:border-acento hover:bg-acento-suave focus-visible:outline-2 focus-visible:outline-acento"
+                      >
+                        <IconoCorregir width={13} height={13} />
+                        Corregir
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-suave/50">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

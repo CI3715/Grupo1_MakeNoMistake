@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { Moneda } from '../types/cuentas';
 
 export interface CuentaDto {
   id: string;
@@ -64,6 +65,10 @@ export interface ErroresDto {
   errores: ErrorCampo[];
 }
 
+export async function listarMonedasCommand(): Promise<Moneda[]> {
+  return await invoke<Moneda[]>('listar_monedas');
+}
+
 export async function listarCuentasCommand(): Promise<ListaCuentasDto> {
   return await invoke<ListaCuentasDto>('listar_cuentas');
 }
@@ -114,4 +119,13 @@ export async function previsualizarMovimientoCommand(payload: {
   nota: string;
 }): Promise<PrevisualizacionDto> {
   return await invoke<PrevisualizacionDto>('previsualizar_movimiento', { datos: payload });
+}
+
+export async function corregirMovimientoCommand(movimientoId: string, montoCorrecto: string): Promise<MovimientoDto> {
+  return await invoke<MovimientoDto>('corregir_movimiento', {
+    datos: {
+      movimiento_id: movimientoId,
+      monto_correcto: montoCorrecto,
+    },
+  });
 }

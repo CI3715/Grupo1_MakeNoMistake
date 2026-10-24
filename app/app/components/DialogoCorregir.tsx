@@ -1,53 +1,126 @@
-'use client';
-
 import React, { useState } from 'react';
 import { Movimiento } from '../types/cuentas';
+import { IconoCorregir, IconoX } from './Iconos';
+import { normalizarSaldo } from '../utils/formato';
 
 interface Props {
-  movimiento: Movimiento | null;
-  onConfirmar: (montoCorrecto: string) => void;
-  onCancelar: () => void;
+  movimiento: Movimiento;
+  simbolo: string;
+  onConfirmar: (movimientoId: string, montoCorrecto: string) => Promise<void>;
+  onCerrar: () => void;
 }
 
-export const DialogoCorregir: React.FC<Props> = ({ movimiento, onConfirmar, onCancelar }) => {
-  const [montoCorrecto, setMontoCorrecto] = useState('');
+export const DialogoCorregir: React.FC<Props> = ({ movimiento, simbolo, onConfirmar, onCerrar }) => {
+  const [monto, setMonto] = useState(movimiento.monto || '');
+  const [error, setError] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
 
-  if (!movimiento) return null;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const normalizado = normalizarSaldo(monto);
+    if (!normalizado) {
+      setError('Escribe un monto válido.');
+      return;
+    }
+
+    setEnviando(true);
+    try {
+      await onConfirmar(movimiento.id, normalizado);
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'errores' in err) {
+        const errObj = err as { errores: Array<{ mensaje: string }> };
+        if (errObj.errores?.[0]?.mensaje) {
+          setError(errObj.errores[0].mensaje);
+          return;
+        }
+      }
+      setError(typeof err === 'string' ? err : 'Ocurrió un error al corregir el movimiento.');
+    } finally {
+      setEnviando(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl max-w-md w-full shadow-xl flex flex-col gap-4">
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white">Corregir Movimiento</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Movimiento original: <strong className="text-gray-800 dark:text-gray-200">{movimiento.categoria_nombre}</strong> ({movimiento.monto_formateado}).
-          El ajuste se calculará sobre la diferencia.
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="titulo-corregir"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in"
+    >
+      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-borde bg-superficie p-6 shadow-2xl">
+        <div className="flex items-center justify-between pb-3 border-b border-borde">
+          <div className="flex items-center gap-2.5 text-texto">
+            <span className="grid size-8 place-items-center rounded-xl bg-info-suave text-info-texto">
+              <IconoCorregir width={18} height={18} />
+            </span>
+            <h3 id="titulo-corregir" className="text-lg font-semibold tracking-tight">
+              Corregir Movimiento
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            className="rounded-lg p-1.5 text-suave transition hover:bg-superficie-2 hover:text-texto"
+          >
+            <IconoX width={18} height={18} />
+          </button>
+        </div>
+
+        <p className="mt-3 text-xs leading-relaxed text-suave">
+          Indica el monto real de esta operación en <strong className="text-texto">{movimiento.categoria_nombre}</strong>.
+          El libro de eventos registrará un movimiento de ajuste por la diferencia sin borrar el historial.
         </p>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Monto Correcto</label>
-          <input
-            type="text"
-            placeholder="Ej: 50,00 (0 para anular efecto)"
-            value={montoCorrecto}
-            onChange={(e) => setMontoCorrecto(e.target.value)}
-            className="p-2.5 text-sm border rounded-xl dark:bg-gray-900 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500"
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-suave uppercase tracking-wider">
+              Monto registrado anteriormente
+            </label>
+            <input
+              type="text"
+              disabled
+              value={`${simbolo} ${movimiento.monto}`}
+              className="w-full rounded-xl border border-borde bg-superficie-2 px-3.5 py-2.5 text-sm font-semibold tabular-nums text-suave cursor-not-allowed"
+            />
+          </div>
 
-        <div className="flex justify-end gap-3 pt-2">
-          <button
-            onClick={onCancelar}
-            className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-600 transition"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={() => onConfirmar(montoCorrecto)}
-            className="px-4 py-2 text-sm bg-[#9333EA] hover:bg-purple-600 text-white rounded-xl font-semibold transition"
-          >
-            Guardar Corrección
-          </button>
-        </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-suave uppercase tracking-wider">
+              Monto correcto real
+            </label>
+            <div className="flex items-center gap-2 rounded-xl border border-borde bg-superficie px-3.5 py-2.5 focus-within:border-acento focus-within:ring-4 focus-within:ring-acento/15">
+              <span className="font-semibold text-suave">{simbolo}</span>
+              <input
+                type="text"
+                autoFocus
+                inputMode="decimal"
+                placeholder="Ej. 50,00 o 0 (para anular)"
+                value={monto}
+                onChange={(e) => setMonto(e.target.value)}
+                className="w-full bg-transparent text-sm font-medium tabular-nums outline-none text-texto"
+              />
+            </div>
+            {error && <p className="mt-1.5 text-xs font-medium text-peligro">{error}</p>}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-borde">
+            <button
+              type="button"
+              onClick={onCerrar}
+              className="rounded-xl border border-borde px-4 py-2 text-xs font-semibold text-suave transition hover:bg-superficie-2 hover:text-texto"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={enviando}
+              className="rounded-xl bg-acento px-5 py-2 text-xs font-semibold text-acento-fg shadow-sm transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
+            >
+              {enviando ? 'Guardando…' : 'Guardar Ajuste'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

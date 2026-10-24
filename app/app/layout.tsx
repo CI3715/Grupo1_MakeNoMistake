@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { SCRIPT_APARIENCIA } from "./utils/apariencia";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,13 +18,20 @@ export const metadata: Metadata = {
   description: "Cuentas Claras: tus cuentas, guardadas en tu dispositivo",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="es"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head>
+        {/* Aplica el tema guardado antes del primer pintado para evitar parpadeos */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_APARIENCIA }} />
+      </head>
+      <body className="min-h-full flex flex-col bg-fondo text-texto selection:bg-acento/20">
+        {children}
+      </body>
     </html>
   );
 }

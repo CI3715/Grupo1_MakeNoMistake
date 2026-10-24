@@ -1,44 +1,60 @@
-'use client';
-
 import React from 'react';
-import { ComposicionSaldoData } from '../types/cuentas';
+import { ComposicionSaldo as ComposicionTipo } from '../types/cuentas';
+import { formatearMontoLocal } from '../utils/formato';
 
 interface Props {
-  composicion: ComposicionSaldoData;
-  moneda: string;
-  modoOscuro?: boolean;
+  composicion: ComposicionTipo;
+  simbolo: string;
+  saldoActual: string;
 }
 
-export const ComposicionSaldo: React.FC<Props> = ({ composicion, moneda, modoOscuro }) => {
-  const cardClass = modoOscuro ? 'bg-[#151c28] border-gray-800 text-gray-100' : 'bg-white border-gray-200 text-gray-800';
-
+export const ComposicionSaldo: React.FC<Props> = ({ composicion, simbolo, saldoActual }) => {
   return (
-    <div className={`p-5 rounded-2xl shadow-sm border ${cardClass} mb-6`}>
-      <h3 className="text-[11px] font-bold text-gray-400 dark:text-gray-400 mb-3 uppercase tracking-wider">
+    <section aria-labelledby="titulo-composicion" className="mb-6">
+      <h3 id="titulo-composicion" className="mb-3 text-xs font-semibold uppercase tracking-wider text-suave">
         Composición del Saldo
       </h3>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
-        <div className="p-3 rounded-xl bg-gray-100/80 dark:bg-gray-800/60">
-          <span className="block text-xs text-gray-500 dark:text-gray-400">Saldo Inicial</span>
-          <span className="font-bold text-sm mt-1 block">{moneda} {composicion.saldo_inicial}</span>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {/* Saldo Inicial */}
+        <div className="rounded-2xl border border-borde bg-superficie p-3.5 shadow-sm">
+          <span className="block text-xs font-medium text-suave">Saldo Inicial</span>
+          <span className="mt-1.5 block text-sm font-semibold tabular-nums text-texto sm:text-base">
+            {formatearMontoLocal(composicion.saldo_inicial, simbolo)}
+          </span>
         </div>
-        <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30">
-          <span className="block text-xs font-medium">Ingresos</span>
-          <span className="font-bold text-sm mt-1 block">+ {moneda} {composicion.total_ingresos}</span>
+
+        {/* Ingresos */}
+        <div className="rounded-2xl border border-exito-borde bg-exito-suave p-3.5 shadow-sm">
+          <span className="block text-xs font-semibold text-exito-texto">Ingresos</span>
+          <span className="mt-1.5 block text-sm font-bold tabular-nums text-exito sm:text-base">
+            + {formatearMontoLocal(composicion.total_ingresos, simbolo)}
+          </span>
         </div>
-        <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30">
-          <span className="block text-xs font-medium">Gastos</span>
-          <span className="font-bold text-sm mt-1 block">− {moneda} {composicion.total_gastos}</span>
+
+        {/* Gastos */}
+        <div className="rounded-2xl border border-peligro-borde bg-peligro-suave p-3.5 shadow-sm">
+          <span className="block text-xs font-semibold text-peligro-texto">Gastos</span>
+          <span className="mt-1.5 block text-sm font-bold tabular-nums text-peligro sm:text-base">
+            − {formatearMontoLocal(composicion.total_gastos, simbolo)}
+          </span>
         </div>
-        <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30">
-          <span className="block text-xs font-medium">Ajustes</span>
-          <span className="font-bold text-sm mt-1 block">{moneda} {composicion.total_ajustes}</span>
+
+        {/* Ajustes */}
+        <div className="rounded-2xl border border-info-borde bg-info-suave p-3.5 shadow-sm">
+          <span className="block text-xs font-semibold text-info-texto">Ajustes</span>
+          <span className="mt-1.5 block text-sm font-bold tabular-nums text-info sm:text-base">
+            {formatearMontoLocal(composicion.total_ajustes, simbolo)}
+          </span>
         </div>
-        <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 text-[#9333EA] dark:text-purple-300 border border-purple-100 dark:border-purple-900/30 font-bold">
-          <span className="block text-xs font-medium">Saldo Actual</span>
-          <span className="text-sm font-extrabold mt-1 block">{moneda} {composicion.saldo_actual}</span>
+
+        {/* Saldo Actual */}
+        <div className="col-span-2 rounded-2xl bg-linear-to-br from-grad-a to-grad-b p-3.5 text-white shadow-md ring-1 ring-white/20 sm:col-span-1">
+          <span className="block text-xs font-medium text-white/80">Saldo Actual</span>
+          <span className="mt-1.5 block text-base font-extrabold tabular-nums tracking-tight sm:text-lg">
+            {formatearMontoLocal(saldoActual, simbolo)}
+          </span>
         </div>
       </div>
-    </div>
+    </section>
   );
 };
