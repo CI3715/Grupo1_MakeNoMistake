@@ -10,6 +10,7 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 
 use crate::casos_de_uso::TIPO_CUENTA_CREADA;
+use crate::categorias::id_categoria_canonico;
 use crate::codec;
 use crate::errores::ErrorAplicacion;
 use crate::puertos::{
@@ -65,7 +66,7 @@ pub fn proyectar_categoria(
     }
     let categoria = codec::deserializar_categoria(&evento.datos)?;
     Ok(Some(CategoriaProyectada {
-        id: categoria.id,
+        id: id_categoria_canonico(&categoria.id),
         nombre: categoria.nombre,
         tipo: categoria.tipo,
         es_fabrica: categoria.es_fabrica,
@@ -116,7 +117,7 @@ pub fn proyectar_movimiento(
         tipo: movimiento.tipo,
         monto: movimiento.monto,
         fecha: movimiento.fecha,
-        categoria_id: movimiento.categoria_id,
+        categoria_id: id_categoria_canonico(&movimiento.categoria_id),
         nota: movimiento.nota,
         estado: "vigente".to_string(),
         reemplaza_a,

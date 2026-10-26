@@ -45,6 +45,7 @@ impl RepositorioEnMemoria {
 
         if let Some(categoria) =
             proyector::proyectar_categoria(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
+            && !self.categorias.iter().any(|c| c.id == categoria.id)
         {
             self.categorias.push(categoria);
         }
@@ -58,6 +59,25 @@ impl RepositorioEnMemoria {
         };
 
         if let Some(movimiento) = mov_proyectado {
+            if !self.cuentas.iter().any(|c| c.id == movimiento.cuenta_id) {
+                return Err(ErrorRepositorio(format!(
+                    "la cuenta {} no existe en la proyección",
+                    movimiento.cuenta_id
+                )));
+            }
+            if !self
+                .categorias
+                .iter()
+                .any(|c| c.id == movimiento.categoria_id)
+                && !dominio::categorias_de_fabrica()
+                    .iter()
+                    .any(|c| c.id == movimiento.categoria_id)
+            {
+                return Err(ErrorRepositorio(format!(
+                    "la categoría {} no existe en la proyección",
+                    movimiento.categoria_id
+                )));
+            }
             if let Some(original) = movimiento.reemplaza_a.clone() {
                 for fila in self
                     .movimientos

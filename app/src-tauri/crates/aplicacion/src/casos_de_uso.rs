@@ -12,6 +12,7 @@ use dominio::{
     registrar_movimiento, saldo_resultante,
 };
 
+use crate::categorias::id_categoria_canonico;
 use crate::codec;
 use crate::errores::{ErrorAplicacion, ErrorValidacion};
 use crate::puertos::{
@@ -693,13 +694,20 @@ impl CasosDeUso {
                     cuentas.push(codec::deserializar(&e.datos)?);
                 }
                 TIPO_CATEGORIA_CREADA => {
-                    let ev = codec::deserializar_evento_categoria(&e.datos)?;
-                    categorias.push(Categoria {
-                        id: ev.id_categoria,
-                        nombre: ev.nombre,
-                        tipo: ev.tipo,
-                        de_fabrica: false,
-                    });
+                    let ev = codec::deserializar_categoria(&e.datos)?;
+                    let id = id_categoria_canonico(&ev.id);
+                    if !categorias.iter().any(|c| c.id == id) {
+                        let tipo = match ev.tipo.as_str() {
+                            "ingreso" => TipoMovimiento::Ingreso,
+                            _ => TipoMovimiento::Gasto,
+                        };
+                        categorias.push(Categoria {
+                            id,
+                            nombre: ev.nombre,
+                            tipo,
+                            de_fabrica: ev.es_fabrica,
+                        });
+                    }
                 }
                 TIPO_MOVIMIENTO_REGISTRADO => {
                     let ev = codec::deserializar_evento_movimiento(&e.datos)?;
@@ -712,7 +720,7 @@ impl CasosDeUso {
                             tipo: ev.tipo,
                             monto,
                             fecha: ev.fecha,
-                            id_categoria: ev.id_categoria,
+                            id_categoria: id_categoria_canonico(&ev.id_categoria),
                             nota: ev.nota,
                             estado: EstadoMovimiento::Vigente,
                         },
@@ -818,7 +826,7 @@ fn calcular_composicion_de_cuenta(
 
 /// Resuelve un identificador o nombre de categoría (incluyendo nombres equivalentes del enunciado).
 fn resolver_id_categoria(entrada: &str, categorias: &[Categoria]) -> String {
-    let limpio = entrada.trim();
+    let limpio = id_categoria_canonico(entrada.trim());
     if limpio.is_empty() {
         return String::new();
     }

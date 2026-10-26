@@ -4,6 +4,7 @@
 //! a través de las interfaces (traits) definidas en el módulo [`puertos`].
 
 pub mod casos_de_uso;
+pub mod categorias;
 pub mod codec;
 pub mod contrato;
 pub mod errores;

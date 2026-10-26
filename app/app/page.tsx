@@ -70,9 +70,8 @@ export default function Home() {
   const [saldoAdvertencia, setSaldoAdvertencia] = useState('');
   const [erroresCat, setErroresCat] = useState<Record<string, string>>({});
 
-  // Carga de cuentas y categorías. La base guarda el catálogo de fábrica como eventos (ids cat-fabrica-*);
-  // el núcleo además devuelve una copia interna (de_fabrica = true) con otros ids que la base no acepta.
-  // Solo se muestran las del catálogo guardado, para no repetirlas ni elegir un id inválido.
+  // Carga de cuentas y categorías. El núcleo devuelve una sola entrada por
+  // categoría, con los IDs canónicos que la base acepta.
   const cargarCuentasYCategorias = async () => {
     try {
       const resLista = await listarCuentasCommand();
@@ -80,9 +79,7 @@ export default function Home() {
 
       const lista = resLista.cuentas || [];
       setCuentas(lista);
-
-      const delCatalogoGuardado = (resCat || []).filter((c) => !c.de_fabrica);
-      setCategorias(delCatalogoGuardado);
+      setCategorias(resCat || []);
 
       if (lista.length > 0 && !cuentaActivaId) {
         setCuentaActivaId(lista[0].id);
@@ -117,7 +114,7 @@ export default function Home() {
     setPantallaActual('detalle-cuenta');
   };
 
-  // Abrir modal seleccionando solo entre tus categorías creadas
+  // Abrir modal seleccionando la primera categoría del tipo elegido
   const abrirModalMovimientoConTipo = (tipo: 'gasto' | 'ingreso') => {
     setTipoMov(tipo);
     setMontoMov('');
@@ -125,7 +122,7 @@ export default function Home() {
     setFechaMov(new Date().toISOString().split('T')[0]);
     setErroresMov({});
 
-    const misCats = categorias.filter((c) => c.tipo === tipo && !c.de_fabrica);
+    const misCats = categorias.filter((c) => c.tipo === tipo);
     setCatMovId(misCats.length > 0 ? misCats[0].id : '');
 
     setMostrarModalMovimiento(true);
@@ -297,8 +294,8 @@ export default function Home() {
   const nombreCuentaReal = cuentaSeleccionada?.nombre || detalleCuenta?.cuenta.nombre || 'Cargando...';
   const monedaCuentaReal = cuentaSeleccionada?.moneda || detalleCuenta?.cuenta.moneda || '';
 
-  // Filtro que excluye explícitamente cualquier categoría predeterminada
-  const misCategoriasFiltradas = categorias.filter((c) => c.tipo === tipoMov && !c.de_fabrica);
+  // Categorías disponibles para el tipo de movimiento seleccionado
+  const misCategoriasFiltradas = categorias.filter((c) => c.tipo === tipoMov);
 
   const bgMain = modoOscuro ? 'bg-[#0B0F19] text-white' : 'bg-[#F6F5FA] text-slate-900';
   const bgCard = modoOscuro ? 'bg-[#151C28] border-gray-800/80 text-white' : 'bg-white border-gray-200 text-slate-900';
@@ -519,7 +516,7 @@ export default function Home() {
                                   <button
                                     onClick={() => {
                                       setMovimientoAEditar(m);
-                                      setMontoCorrectoInput(m.monto || '');
+                                      setMontoCorrectoInput(m.monto_vigente ?? m.monto ?? '');
                                       setErrorCorreccion('');
                                     }}
                                     className="text-[11px] text-purple-400 hover:text-purple-300 font-semibold underline"
@@ -608,7 +605,7 @@ export default function Home() {
                       checked={tipoMov === 'gasto'}
                       onChange={() => {
                         setTipoMov('gasto');
-                        const misCats = categorias.filter((c) => c.tipo === 'gasto' && !c.de_fabrica);
+                        const misCats = categorias.filter((c) => c.tipo === 'gasto');
                         setCatMovId(misCats.length > 0 ? misCats[0].id : '');
                       }}
                       className="accent-[#9333EA]"
@@ -622,7 +619,7 @@ export default function Home() {
                       checked={tipoMov === 'ingreso'}
                       onChange={() => {
                         setTipoMov('ingreso');
-                        const misCats = categorias.filter((c) => c.tipo === 'ingreso' && !c.de_fabrica);
+                        const misCats = categorias.filter((c) => c.tipo === 'ingreso');
                         setCatMovId(misCats.length > 0 ? misCats[0].id : '');
                       }}
                       className="accent-[#9333EA]"
@@ -728,6 +725,18 @@ export default function Home() {
                     className="w-full border px-3 py-2 rounded-xl text-xs bg-gray-800/50 text-gray-400 border-gray-700 cursor-not-allowed"
                   />
                 </div>
+
+                {movimientoAEditar.estado === 'corregido' && movimientoAEditar.monto_vigente && (
+                  <div>
+                    <label className={`block text-xs font-semibold mb-1 ${textMuted}`}>Monto Vigente Actual</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={movimientoAEditar.monto_vigente}
+                      className="w-full border px-3 py-2 rounded-xl text-xs bg-gray-800/50 text-gray-400 border-gray-700 cursor-not-allowed"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className={`block text-xs font-semibold mb-1 ${textMuted}`}>Monto Correcto Real</label>

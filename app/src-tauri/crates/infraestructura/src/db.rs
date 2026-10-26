@@ -1,4 +1,7 @@
+use aplicacion::codec;
+use dominio::{TipoMovimiento, categorias_de_fabrica};
 use rusqlite::{Connection, Result, params};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -230,40 +233,44 @@ pub fn desproteger_proyecciones(conn: &Connection) -> Result<()> {
 }
 
 /// Categorías de fábrica: siete de gasto (egreso) y cuatro de ingreso.
-const CATEGORIAS_FABRICA: &[(&str, &str)] = &[
-    ("egreso", "Alimentación"),
-    ("egreso", "Transporte"),
-    ("egreso", "Servicios"),
-    ("egreso", "Salud"),
-    ("egreso", "Educación"),
-    ("egreso", "Entretenimiento"),
-    ("egreso", "Otros gastos"),
-    ("ingreso", "Salario"),
-    ("ingreso", "Ventas"),
-    ("ingreso", "Regalos"),
-    ("ingreso", "Otros ingresos"),
-];
+///
+/// Se toman del catálogo del dominio para que exista una sola identidad
+/// canónica (`gasto:alimentacion`, `ingreso:salario`, ...). La siembra histórica
+/// usaba IDs `cat-fabrica-<tipo>-<slug>`; `aplicacion::categorias` se encarga de
+/// traducirlos al proyectar.
+fn tipo_categoria_texto(tipo: TipoMovimiento) -> &'static str {
+    match tipo {
+        TipoMovimiento::Gasto => "egreso",
+        TipoMovimiento::Ingreso => "ingreso",
+    }
+}
 
-/// Convierte el nombre de una categoría en un fragmento de identificador estable.
-fn slug(texto: &str) -> String {
-    texto
-        .to_lowercase()
-        .replace('á', "a")
-        .replace('é', "e")
-        .replace('í', "i")
-        .replace('ó', "o")
-        .replace('ú', "u")
-        .replace('ñ', "n")
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
+/// Claves lógicas `(tipo, nombre en minúsculas)` de las categorías de fábrica
+/// que ya existen en el libro de eventos.
+///
+/// La comprobación es por nombre y tipo, no por ID, para no volver a sembrar el
+/// catálogo en bases que todavía tienen los IDs históricos `cat-fabrica-*`.
+fn categorias_fabrica_existentes(conn: &Connection) -> Result<HashSet<(String, String)>> {
+    let mut existentes = HashSet::new();
+    for evento in listar_eventos(conn)?
+        .into_iter()
+        .filter(|e| e.tipo == TIPO_CATEGORIA_CREADA)
+    {
+        let Ok(datos) = codec::deserializar_categoria(&evento.datos) else {
+            continue;
+        };
+        if datos.es_fabrica {
+            existentes.insert((datos.tipo, datos.nombre.trim().to_lowercase()));
+        }
+    }
+    Ok(existentes)
 }
 
 /// Siembra las categorías de fábrica como eventos `CategoriaCreada` y sus filas
-/// de proyección. Es idempotente: `INSERT OR IGNORE` permite ejecutarla en cada
-/// arranque sin duplicar nada.
+/// de proyección, usando los IDs canónicos del dominio.
+///
+/// Es idempotente: si una categoría de fábrica ya existe en el libro (aunque sea
+/// con un ID histórico), no se inserta de nuevo.
 ///
 /// Se registran como eventos (y no solo en la proyección) para que `reconstruir`
 /// reproduzca exactamente el mismo catálogo de categorías.
@@ -272,10 +279,20 @@ pub fn sembrar_categorias_fabrica(conn: &Connection) -> Result<()> {
     const DISPOSITIVO: &str = "fabrica";
 
     let tx = conn.unchecked_transaction()?;
-    for &(tipo, nombre) in CATEGORIAS_FABRICA {
-        let id = format!("cat-fabrica-{tipo}-{}", slug(nombre));
-        let datos =
-            format!(r#"{{"id":"{id}","nombre":"{nombre}","tipo":"{tipo}","es_fabrica":true}}"#);
+    let existentes = categorias_fabrica_existentes(&tx)?;
+
+    for categoria in categorias_de_fabrica() {
+        let tipo = tipo_categoria_texto(categoria.tipo);
+        let clave = (tipo.to_string(), categoria.nombre.trim().to_lowercase());
+        if existentes.contains(&clave) {
+            continue;
+        }
+
+        let id = categoria.id;
+        let datos = format!(
+            r#"{{"id":"{id}","id_categoria":"{id}","nombre":"{}","tipo":"{tipo}","es_fabrica":true}}"#,
+            categoria.nombre
+        );
 
         tx.execute(
             "INSERT OR IGNORE INTO eventos (id, tipo, momento_registro, dispositivo_origen, datos)
@@ -283,9 +300,10 @@ pub fn sembrar_categorias_fabrica(conn: &Connection) -> Result<()> {
             params![id, TIPO_CATEGORIA_CREADA, MOMENTO, DISPOSITIVO, datos],
         )?;
         tx.execute(
-            "INSERT OR IGNORE INTO categorias (id, nombre, tipo, es_fabrica, evento_origen, actualizado_en)
-             VALUES (?1, ?2, ?3, 1, ?1, ?4)",
-            params![id, nombre, tipo, MOMENTO],
+            "INSERT INTO categorias (id, nombre, tipo, es_fabrica, evento_origen, actualizado_en)
+             VALUES (?1, ?2, ?3, 1, ?1, ?4)
+             ON CONFLICT(id) DO NOTHING",
+            params![id, categoria.nombre, tipo, MOMENTO],
         )?;
     }
     tx.commit()?;
@@ -303,12 +321,18 @@ pub struct BaseDatos {
 }
 
 impl BaseDatos {
-    /// Abre (o crea) la base en `ruta`, garantiza el esquema y siembra las
-    /// categorías de fábrica que falten.
-    pub fn persistente<P: AsRef<Path>>(ruta: P) -> Result<Self> {
-        let conn = abrir(ruta)?;
-        inicializar(&conn)?;
-        sembrar_categorias_fabrica(&conn)?;
+    /// Abre (o crea) la base en `ruta`, garantiza el esquema, siembra las
+    /// categorías de fábrica que falten y reconstruye las proyecciones desde el
+    /// libro de eventos.
+    ///
+    /// La reconstrucción es la migración: traduce los IDs históricos de
+    /// categoría a los IDs canónicos del dominio sin modificar los eventos.
+    pub fn persistente<P: AsRef<Path>>(ruta: P) -> Result<Self, aplicacion::ErrorRepositorio> {
+        let conn = abrir(ruta).map_err(|e| aplicacion::ErrorRepositorio(e.to_string()))?;
+        inicializar(&conn).map_err(|e| aplicacion::ErrorRepositorio(e.to_string()))?;
+        sembrar_categorias_fabrica(&conn)
+            .map_err(|e| aplicacion::ErrorRepositorio(e.to_string()))?;
+        crate::repositorios::reconstruir_proyecciones(&conn)?;
         Ok(Self {
             conexion: Arc::new(Mutex::new(conn)),
         })
@@ -461,7 +485,8 @@ pub struct CategoriaRow {
 pub fn insertar_categoria(conn: &Connection, c: &CategoriaRow) -> Result<()> {
     conn.execute(
         "INSERT INTO categorias (id, nombre, tipo, es_fabrica, estado, evento_origen, actualizado_en)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(id) DO NOTHING",
         params![
             c.id,
             c.nombre,
@@ -748,6 +773,68 @@ mod pruebas {
     }
 
     #[test]
+    fn siembra_con_ids_canonicos_del_dominio() {
+        let conn = conexion_vacia();
+        sembrar_categorias_fabrica(&conn).expect("sembrar");
+
+        let mut stmt = conn.prepare("SELECT id FROM categorias").unwrap();
+        let ids: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|id| id.unwrap())
+            .collect();
+
+        for categoria in dominio::categorias_de_fabrica() {
+            assert!(
+                ids.contains(&categoria.id),
+                "falta la categoría canónica {}",
+                categoria.id
+            );
+        }
+        assert_eq!(ids.len(), 11, "no debe haber IDs duplicados");
+        assert!(
+            !ids.iter().any(|id| id.starts_with("cat-fabrica-")),
+            "la siembra nueva no debe usar IDs históricos"
+        );
+    }
+
+    #[test]
+    fn siembra_no_duplica_categorias_historicas() {
+        let conn = conexion_vacia();
+        // Simula una base anterior: la categoría existe con su ID histórico.
+        conn.execute(
+            "INSERT INTO eventos (id, tipo, momento_registro, dispositivo_origen, datos)
+             VALUES ('cat-fabrica-egreso-alimentacion', 'CategoriaCreada', '2026-01-01T00:00:00Z', 'fabrica',
+                     '{\"id\":\"cat-fabrica-egreso-alimentacion\",\"nombre\":\"Alimentación\",\"tipo\":\"egreso\",\"es_fabrica\":true}')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO categorias (id, nombre, tipo, es_fabrica, evento_origen, actualizado_en)
+             VALUES ('cat-fabrica-egreso-alimentacion', 'Alimentación', 'egreso', 1,
+                     'cat-fabrica-egreso-alimentacion', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        sembrar_categorias_fabrica(&conn).expect("segunda siembra");
+
+        assert_eq!(
+            contar_por(
+                &conn,
+                "SELECT COUNT(*) FROM eventos WHERE tipo = 'CategoriaCreada'"
+            ),
+            11,
+            "no debe agregar un evento canónico si ya existe la categoría lógica"
+        );
+        assert_eq!(
+            contar_por(&conn, "SELECT COUNT(*) FROM categorias"),
+            11,
+            "no debe duplicar la categoría histórica"
+        );
+    }
+
+    #[test]
     fn siembra_once_categorias_de_fabrica() {
         let conn = conexion_vacia();
         sembrar_categorias_fabrica(&conn).expect("sembrar");
@@ -878,7 +965,7 @@ mod pruebas {
         sembrar_categorias_fabrica(&conn).expect("sembrar");
         let err = conn.execute(
             "INSERT INTO categorias (id, nombre, tipo, es_fabrica, evento_origen, actualizado_en)
-             VALUES ('otra', 'alimentación', 'egreso', 0, 'cat-fabrica-egreso-alimentacion', '2026-01-01T00:00:00Z')",
+             VALUES ('otra', 'alimentación', 'egreso', 0, 'gasto:alimentacion', '2026-01-01T00:00:00Z')",
             [],
         );
         assert!(
@@ -893,7 +980,7 @@ mod pruebas {
         sembrar_categorias_fabrica(&conn).expect("sembrar");
         let resultado = conn.execute(
             "INSERT INTO categorias (id, nombre, tipo, es_fabrica, evento_origen, actualizado_en)
-             VALUES ('otra', 'Alimentación', 'ingreso', 0, 'cat-fabrica-egreso-alimentacion', '2026-01-01T00:00:00Z')",
+             VALUES ('otra', 'Alimentación', 'ingreso', 0, 'gasto:alimentacion', '2026-01-01T00:00:00Z')",
             [],
         );
         assert!(resultado.is_ok(), "el nombre puede repetirse en otro tipo");
@@ -902,14 +989,7 @@ mod pruebas {
     #[test]
     fn movimiento_valido_se_inserta() {
         let conn = base_con_cuenta();
-        insertar_movimiento(
-            &conn,
-            "m1",
-            "ingreso",
-            "10.50",
-            "cat-fabrica-ingreso-salario",
-            None,
-        );
+        insertar_movimiento(&conn, "m1", "ingreso", "10.50", "ingreso:salario", None);
         let (tipo, monto, estado): (String, String, String) = conn
             .query_row(
                 "SELECT tipo, monto, estado FROM movimientos WHERE id = 'm1'",
@@ -927,7 +1007,7 @@ mod pruebas {
         let conn = base_con_cuenta();
         let err = conn.execute(
             "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-             VALUES ('m', 'no-existe', 'ingreso', '1.00', '2026-10-19', 'cat-fabrica-ingreso-salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+             VALUES ('m', 'no-existe', 'ingreso', '1.00', '2026-10-19', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
             [],
         );
         assert!(err.is_err(), "la cuenta debe existir (FK)");
@@ -939,7 +1019,7 @@ mod pruebas {
         for monto in ["0.00", "-5.00", "abc"] {
             let err = conn.execute(
                 "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-                 VALUES (?1, 'c1', 'ingreso', ?2, '2026-10-19', 'cat-fabrica-ingreso-salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+                 VALUES (?1, 'c1', 'ingreso', ?2, '2026-10-19', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
                 params![format!("m-{monto}"), monto],
             );
             assert!(err.is_err(), "el monto {monto} debía rechazarse");
@@ -951,7 +1031,7 @@ mod pruebas {
         let conn = base_con_cuenta();
         let err = conn.execute(
             "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-             VALUES ('m', 'c1', 'transferencia', '1.00', '2026-10-19', 'cat-fabrica-ingreso-salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+             VALUES ('m', 'c1', 'transferencia', '1.00', '2026-10-19', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
             [],
         );
         assert!(err.is_err(), "el tipo debe ser ingreso o egreso");
@@ -962,7 +1042,7 @@ mod pruebas {
         let conn = base_con_cuenta();
         let err = conn.execute(
             "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-             VALUES ('m', 'c1', 'ingreso', '1.00', '19/10/2026', 'cat-fabrica-ingreso-salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+             VALUES ('m', 'c1', 'ingreso', '1.00', '19/10/2026', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
             [],
         );
         assert!(err.is_err(), "la fecha debe tener formato AAAA-MM-DD");
@@ -971,14 +1051,7 @@ mod pruebas {
     #[test]
     fn correccion_marca_original_y_referencia() {
         let conn = base_con_cuenta();
-        insertar_movimiento(
-            &conn,
-            "m1",
-            "egreso",
-            "10.00",
-            "cat-fabrica-egreso-alimentacion",
-            None,
-        );
+        insertar_movimiento(&conn, "m1", "egreso", "10.00", "gasto:alimentacion", None);
         conn.execute(
             "INSERT INTO eventos (id, tipo, momento_registro, dispositivo_origen, datos)
              VALUES ('ev-corr', 'MovimientoCorregido', '2026-10-19T01:00:00Z', 'd1', '{}')",
@@ -998,7 +1071,7 @@ mod pruebas {
             "m2",
             "egreso",
             "12.00",
-            "cat-fabrica-egreso-alimentacion",
+            "gasto:alimentacion",
             Some("m1"),
         );
 
@@ -1025,14 +1098,7 @@ mod pruebas {
     #[test]
     fn un_movimiento_solo_se_corrige_una_vez() {
         let conn = base_con_cuenta();
-        insertar_movimiento(
-            &conn,
-            "m1",
-            "egreso",
-            "10.00",
-            "cat-fabrica-egreso-alimentacion",
-            None,
-        );
+        insertar_movimiento(&conn, "m1", "egreso", "10.00", "gasto:alimentacion", None);
         conn.execute(
             "UPDATE movimientos SET estado = 'corregido' WHERE id = 'm1'",
             [],
@@ -1043,7 +1109,7 @@ mod pruebas {
             "m2",
             "egreso",
             "12.00",
-            "cat-fabrica-egreso-alimentacion",
+            "gasto:alimentacion",
             Some("m1"),
         );
         conn.execute(
@@ -1054,7 +1120,7 @@ mod pruebas {
         .unwrap();
         let err = conn.execute(
             "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, reemplaza_a, evento_origen, actualizado_en)
-             VALUES ('m3', 'c1', 'egreso', '1.00', '2026-10-19', 'cat-fabrica-egreso-alimentacion', 'm1', 'ev-m3', '2026-10-19T02:00:00Z')",
+             VALUES ('m3', 'c1', 'egreso', '1.00', '2026-10-19', 'gasto:alimentacion', 'm1', 'ev-m3', '2026-10-19T02:00:00Z')",
             [],
         );
         assert!(
@@ -1066,14 +1132,7 @@ mod pruebas {
     #[test]
     fn movimientos_no_se_borran_ni_se_modifican() {
         let conn = base_con_cuenta();
-        insertar_movimiento(
-            &conn,
-            "m1",
-            "egreso",
-            "10.00",
-            "cat-fabrica-egreso-alimentacion",
-            None,
-        );
+        insertar_movimiento(&conn, "m1", "egreso", "10.00", "gasto:alimentacion", None);
 
         assert!(
             conn.execute("UPDATE movimientos SET monto = '99.00' WHERE id = 'm1'", [])
@@ -1129,11 +1188,8 @@ mod pruebas {
     fn categorias_de_fabrica_no_se_borran() {
         let conn = base_con_cuenta();
         assert!(
-            conn.execute(
-                "DELETE FROM categorias WHERE id = 'cat-fabrica-egreso-alimentacion'",
-                []
-            )
-            .is_err(),
+            conn.execute("DELETE FROM categorias WHERE id = 'gasto:alimentacion'", [])
+                .is_err(),
             "las categorías de fábrica se desactivan, no se borran"
         );
     }
@@ -1141,30 +1197,9 @@ mod pruebas {
     #[test]
     fn vista_composicion_saldo_muestra_solo_vigentes() {
         let conn = base_con_cuenta();
-        insertar_movimiento(
-            &conn,
-            "m1",
-            "ingreso",
-            "10.00",
-            "cat-fabrica-ingreso-salario",
-            None,
-        );
-        insertar_movimiento(
-            &conn,
-            "m2",
-            "egreso",
-            "4.00",
-            "cat-fabrica-egreso-alimentacion",
-            None,
-        );
-        insertar_movimiento(
-            &conn,
-            "m3",
-            "egreso",
-            "9.00",
-            "cat-fabrica-egreso-transporte",
-            None,
-        );
+        insertar_movimiento(&conn, "m1", "ingreso", "10.00", "ingreso:salario", None);
+        insertar_movimiento(&conn, "m2", "egreso", "4.00", "gasto:alimentacion", None);
+        insertar_movimiento(&conn, "m3", "egreso", "9.00", "gasto:transporte", None);
         conn.execute(
             "UPDATE movimientos SET estado = 'corregido' WHERE id = 'm3'",
             [],
@@ -1175,7 +1210,7 @@ mod pruebas {
             "m4",
             "egreso",
             "8.00",
-            "cat-fabrica-egreso-transporte",
+            "gasto:transporte",
             Some("m3"),
         );
 
