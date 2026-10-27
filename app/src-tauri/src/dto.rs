@@ -371,6 +371,134 @@ impl From<NuevaCategoriaDto> for aplicacion::NuevaCategoria {
     }
 }
 
+// ---------- Entrega 4: tasas de cambio, moneda base y patrimonio ----------
+//
+// Convenciones (las mismas de las entregas anteriores):
+// - Montos y tasas viajan como texto con punto decimal ("887.00"); la interfaz solo
+//   les da formato. Una tasa admite hasta 8 decimales.
+// - Las fechas viajan como texto AAAA-MM-DD.
+// - Los errores usan `ErroresDto` con el campo que falla (`moneda_origen`,
+//   `moneda_destino`, `valor`, `fecha`, `fuente`, `moneda`, `codigo`, `nombre`,
+//   `simbolo`, `decimales`).
+// - Los campos de entrada tienen valor por defecto para que un dato ausente se
+//   rechace con un mensaje por campo y no con un error técnico.
+
+/// Datos para registrar una tasa: 1 `moneda_origen` = `valor` `moneda_destino`.
+#[derive(Deserialize)]
+pub struct NuevaTasaDto {
+    #[serde(default)]
+    pub moneda_origen: String,
+    #[serde(default)]
+    pub moneda_destino: String,
+    #[serde(default)]
+    pub valor: String,
+    #[serde(default)]
+    pub fecha: String,
+    #[serde(default)]
+    pub fuente: String,
+}
+
+/// Una tasa registrada.
+#[derive(Serialize, Clone)]
+pub struct TasaDto {
+    pub id: String,
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: String,
+    pub fecha: String,
+    pub fuente: String,
+}
+
+/// Historial de un par de monedas, de la tasa más reciente a la más antigua.
+#[derive(Serialize)]
+pub struct HistorialParDto {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub tasas: Vec<TasaDto>,
+}
+
+/// Moneda base elegida.
+#[derive(Deserialize)]
+pub struct CambioMonedaBaseDto {
+    #[serde(default)]
+    pub moneda: String,
+}
+
+/// Respuesta al cambiar la moneda base.
+#[derive(Serialize)]
+pub struct MonedaBaseDto {
+    pub moneda: String,
+}
+
+/// Datos de una moneda propia. `decimales` viaja como texto (de 0 a 8).
+#[derive(Deserialize)]
+pub struct NuevaMonedaDto {
+    #[serde(default)]
+    pub codigo: String,
+    #[serde(default)]
+    pub nombre: String,
+    #[serde(default)]
+    pub simbolo: String,
+    #[serde(default)]
+    pub decimales: String,
+}
+
+/// Fecha de consulta del patrimonio (AAAA-MM-DD); vacía significa hoy.
+#[derive(Deserialize)]
+pub struct ConsultaPatrimonioDto {
+    #[serde(default)]
+    pub fecha: String,
+}
+
+/// Saldo de una cuenta en su moneda y, si hay tasa, en la moneda base.
+#[derive(Serialize)]
+pub struct SaldoCuentaDto {
+    pub id: String,
+    pub nombre: String,
+    pub moneda: String,
+    pub saldo: String,
+    pub en_moneda_base: Option<String>,
+}
+
+/// Subtotal de una moneda (nunca se suman monedas distintas sin una tasa).
+#[derive(Serialize)]
+pub struct SubtotalMonedaDto {
+    pub moneda: String,
+    pub total: String,
+}
+
+/// Tasa que se usó en el total. `inversa` es verdadero si se usó 1 ÷ valor de la
+/// tasa de sentido contrario (la tasa mostrada es la registrada).
+#[derive(Serialize)]
+pub struct TasaUsadaDto {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: String,
+    pub fecha: String,
+    pub fuente: String,
+    pub inversa: bool,
+}
+
+/// Par de monedas cuya tasa falta para consolidar.
+#[derive(Serialize)]
+pub struct ParFaltanteDto {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+}
+
+/// Patrimonio a una fecha. Si falta alguna tasa, `total` es `None` y `faltantes`
+/// nombra cada par; nunca se muestra un total incorrecto.
+#[derive(Serialize)]
+pub struct PatrimonioDto {
+    pub moneda_base: String,
+    pub fecha_consulta: String,
+    pub cuentas: Vec<SaldoCuentaDto>,
+    pub subtotales: Vec<SubtotalMonedaDto>,
+    pub total: Option<String>,
+    pub tasas_usadas: Vec<TasaUsadaDto>,
+    pub faltantes: Vec<ParFaltanteDto>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
