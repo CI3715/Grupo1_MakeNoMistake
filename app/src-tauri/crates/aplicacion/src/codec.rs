@@ -1,8 +1,8 @@
-//! Funciones de codificación y decodificación JSON para eventos de dominio.
+//! Funciones de codificaciÃ³n y decodificaciÃ³n JSON para eventos de dominio.
 //!
-//! Aísla los detalles del formato de serialización (`serde_json`) dentro de la
-//! capa de aplicación para mantener el dominio libre de dependencias de formato
-//! y permitir que la capa de persistencia opere únicamente con cadenas de texto.
+//! AÃ­sla los detalles del formato de serializaciÃ³n (`serde_json`) dentro de la
+//! capa de aplicaciÃ³n para mantener el dominio libre de dependencias de formato
+//! y permitir que la capa de persistencia opere Ãºnicamente con cadenas de texto.
 
 use dominio::{
     CategoriaCreada, CuentaCreada, DECIMALES_MAXIMOS, Moneda, MonedaCreada, MovimientoCorregido,
@@ -54,8 +54,8 @@ pub fn texto_a_tipo_movimiento(texto: &str) -> Result<TipoMovimiento, ErrorAplic
     }
 }
 
-/// Busca una moneda en el catálogo o devuelve un error interno: un evento ya
-/// guardado nunca debería nombrar una moneda desconocida.
+/// Busca una moneda en el catÃ¡logo o devuelve un error interno: un evento ya
+/// guardado nunca deberÃ­a nombrar una moneda desconocida.
 fn buscar_moneda(codigo: &str, catalogo: &[Moneda]) -> Result<Moneda, ErrorAplicacion> {
     Moneda::por_codigo_en(codigo, catalogo)
         .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {codigo}")))
@@ -85,7 +85,7 @@ fn texto_alternativo(
 }
 
 /// Serializa un evento [`CuentaCreada`] en una cadena JSON con el saldo formateado
-/// al número exacto de decimales de la moneda.
+/// al nÃºmero exacto de decimales de la moneda.
 pub fn serializar(evento: &CuentaCreada) -> String {
     let saldo_formateado = format!(
         "{:.prec$}",
@@ -104,18 +104,18 @@ pub fn serializar(evento: &CuentaCreada) -> String {
 
 /// Deserializa una cadena JSON para reconstruir la estructura [`CuentaCreada`] original.
 ///
-/// `catalogo` son las monedas conocidas en ese punto del libro (fábrica más las
+/// `catalogo` son las monedas conocidas en ese punto del libro (fÃ¡brica mÃ¡s las
 /// propias creadas antes): la cuenta puede usar una moneda propia.
 pub fn deserializar(datos: &str, catalogo: &[Moneda]) -> Result<CuentaCreada, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let tipo_texto = texto(&valor, "tipo")?;
     let tipo = texto_a_tipo(&tipo_texto)?;
 
     let saldo_texto = texto(&valor, "saldo_inicial")?;
     let saldo = Decimal::from_str(&saldo_texto)
-        .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto invÃ¡lido: {e}")))?;
 
     let moneda_str = texto(&valor, "moneda")?;
     let moneda = buscar_moneda(&moneda_str, catalogo)?;
@@ -129,7 +129,7 @@ pub fn deserializar(datos: &str, catalogo: &[Moneda]) -> Result<CuentaCreada, Er
     })
 }
 
-/// Contenido de un evento `CategoriaCreada`, ya validado para la proyección.
+/// Contenido de un evento `CategoriaCreada`, ya validado para la proyecciÃ³n.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CategoriaDatos {
     pub id: String,
@@ -138,10 +138,10 @@ pub struct CategoriaDatos {
     pub es_fabrica: bool,
 }
 
-/// Deserializa y valida la carga de un evento `CategoriaCreada` para la proyección.
+/// Deserializa y valida la carga de un evento `CategoriaCreada` para la proyecciÃ³n.
 pub fn deserializar_categoria(datos: &str) -> Result<CategoriaDatos, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let tipo_raw = texto(&valor, "tipo")?;
     let tipo = match tipo_raw.as_str() {
@@ -149,7 +149,7 @@ pub fn deserializar_categoria(datos: &str) -> Result<CategoriaDatos, ErrorAplica
         "egreso" | "gasto" => "egreso".to_string(),
         otro => {
             return Err(ErrorAplicacion::Interno(format!(
-                "tipo de categoría desconocido: {otro}"
+                "tipo de categorÃ­a desconocido: {otro}"
             )));
         }
     };
@@ -167,7 +167,7 @@ pub fn deserializar_categoria(datos: &str) -> Result<CategoriaDatos, ErrorAplica
 }
 
 /// Contenido de un evento de movimiento (`MovimientoRegistrado` o
-/// `MovimientoCorregido`), ya validado para la proyección.
+/// `MovimientoCorregido`), ya validado para la proyecciÃ³n.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MovimientoDatos {
     pub id: String,
@@ -181,10 +181,10 @@ pub struct MovimientoDatos {
     pub movimiento_original_id: Option<String>,
 }
 
-/// Deserializa y valida la carga de un evento de movimiento para la proyección.
+/// Deserializa y valida la carga de un evento de movimiento para la proyecciÃ³n.
 pub fn deserializar_movimiento(datos: &str) -> Result<MovimientoDatos, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let tipo_raw = texto(&valor, "tipo")?;
     let tipo = match tipo_raw.as_str() {
@@ -199,7 +199,7 @@ pub fn deserializar_movimiento(datos: &str) -> Result<MovimientoDatos, ErrorApli
 
     let monto = texto_alternativo(&valor, "monto", "monto_correcto")?;
     let decimal = Decimal::from_str(&monto)
-        .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto invÃ¡lido: {e}")))?;
 
     let orig_id = valor
         .get("movimiento_original_id")
@@ -276,7 +276,7 @@ pub fn deserializar_evento_movimiento(
     catalogo: &[Moneda],
 ) -> Result<MovimientoRegistrado, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let tipo_str = valor
         .get("tipo_dominio")
@@ -293,7 +293,7 @@ pub fn deserializar_evento_movimiento(
 
     let monto_str = texto(&valor, "monto")?;
     let mut monto = Decimal::from_str(&monto_str)
-        .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto invÃ¡lido: {e}")))?;
     monto.rescale(moneda.decimales);
 
     let nota = valor
@@ -335,7 +335,7 @@ pub fn deserializar_correccion(
     catalogo: &[Moneda],
 ) -> Result<MovimientoCorregido, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let moneda_str = valor
         .get("moneda")
@@ -345,7 +345,7 @@ pub fn deserializar_correccion(
 
     let monto_str = texto_alternativo(&valor, "monto_correcto", "monto")?;
     let mut monto_correcto = Decimal::from_str(&monto_str)
-        .map_err(|e| ErrorAplicacion::Interno(format!("monto_correcto inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto_correcto invÃ¡lido: {e}")))?;
     monto_correcto.rescale(moneda.decimales);
 
     let efecto_str = valor
@@ -353,7 +353,7 @@ pub fn deserializar_correccion(
         .and_then(|v| v.as_str())
         .unwrap_or("0.00");
     let mut efecto = Decimal::from_str(efecto_str.trim().trim_start_matches('+'))
-        .map_err(|e| ErrorAplicacion::Interno(format!("efecto inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("efecto invÃ¡lido: {e}")))?;
     efecto.rescale(moneda.decimales);
 
     Ok(MovimientoCorregido {
@@ -370,7 +370,7 @@ pub fn deserializar_correccion(
 }
 
 /// Serializa un evento [`CategoriaCreada`] en una cadena JSON compatible con el
-/// dominio y con la proyección de almacenamiento.
+/// dominio y con la proyecciÃ³n de almacenamiento.
 pub fn serializar_categoria(evento: &CategoriaCreada) -> String {
     let tipo_proy = match evento.tipo {
         TipoMovimiento::Ingreso => "ingreso",
@@ -389,7 +389,7 @@ pub fn serializar_categoria(evento: &CategoriaCreada) -> String {
 /// Deserializa una cadena JSON para reconstruir una [`CategoriaCreada`] de dominio.
 pub fn deserializar_evento_categoria(datos: &str) -> Result<CategoriaCreada, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let tipo = texto_a_tipo_movimiento(&texto(&valor, "tipo")?)?;
     Ok(CategoriaCreada {
@@ -413,14 +413,14 @@ pub fn serializar_moneda_creada(evento: &MonedaCreada) -> String {
 /// Deserializa y valida la carga de un evento `MonedaCreada`.
 pub fn deserializar_moneda_creada(datos: &str) -> Result<MonedaCreada, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let codigo = texto(&valor, "codigo")?;
     let formato_ok =
         (3..=5).contains(&codigo.len()) && codigo.chars().all(|c| c.is_ascii_uppercase());
     if !formato_ok {
         return Err(ErrorAplicacion::Interno(format!(
-            "código de moneda inválido: {codigo}"
+            "cÃ³digo de moneda invÃ¡lido: {codigo}"
         )));
     }
     let decimales = valor
@@ -428,7 +428,7 @@ pub fn deserializar_moneda_creada(datos: &str) -> Result<MonedaCreada, ErrorApli
         .and_then(|v| v.as_u64())
         .filter(|d| *d <= u64::from(DECIMALES_MAXIMOS))
         .ok_or_else(|| {
-            ErrorAplicacion::Interno(format!("decimales inválidos en la moneda {codigo}"))
+            ErrorAplicacion::Interno(format!("decimales invÃ¡lidos en la moneda {codigo}"))
         })?;
 
     Ok(MonedaCreada {
@@ -451,7 +451,7 @@ pub struct TasaRegistradaDatos {
     pub fuente: String,
 }
 
-/// Serializa un evento `TasaRegistrada`; el valor viaja como texto canónico.
+/// Serializa un evento `TasaRegistrada`; el valor viaja como texto canÃ³nico.
 pub fn serializar_tasa_registrada(tasa: &TasaRegistradaDatos) -> String {
     json!({
         "id": tasa.id,
@@ -466,13 +466,13 @@ pub fn serializar_tasa_registrada(tasa: &TasaRegistradaDatos) -> String {
 
 /// Deserializa y valida la carga de un evento `TasaRegistrada`.
 ///
-/// Comprueba lo que toda proyección necesita para ser coherente: monedas
+/// Comprueba lo que toda proyecciÃ³n necesita para ser coherente: monedas
 /// distintas, valor positivo con hasta 8 decimales, fecha y fuente presentes.
-/// Las reglas que dependen del contexto (fecha futura, monedas del catálogo)
+/// Las reglas que dependen del contexto (fecha futura, monedas del catÃ¡logo)
 /// son del dominio y del adaptador.
 pub fn deserializar_tasa_registrada(datos: &str) -> Result<TasaRegistradaDatos, ErrorAplicacion> {
     let valor_json: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
 
     let moneda_origen = texto(&valor_json, "moneda_origen")?.trim().to_uppercase();
     let moneda_destino = texto(&valor_json, "moneda_destino")?.trim().to_uppercase();
@@ -484,16 +484,16 @@ pub fn deserializar_tasa_registrada(datos: &str) -> Result<TasaRegistradaDatos, 
 
     let valor_texto = texto(&valor_json, "valor")?;
     let valor = Decimal::from_str(valor_texto.trim())
-        .map_err(|e| ErrorAplicacion::Interno(format!("valor de tasa inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("valor de tasa invÃ¡lido: {e}")))?;
     if valor <= Decimal::ZERO || valor.normalize().scale() > DECIMALES_MAXIMOS {
         return Err(ErrorAplicacion::Interno(format!(
-            "valor de tasa inválido: {valor_texto}"
+            "valor de tasa invÃ¡lido: {valor_texto}"
         )));
     }
 
     let fecha = texto(&valor_json, "fecha")?;
     dominio::validar_fecha(&fecha)
-        .map_err(|e| ErrorAplicacion::Interno(format!("fecha de tasa inválida: {}", e.mensaje)))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("fecha de tasa invÃ¡lida: {}", e.mensaje)))?;
 
     let fuente = texto(&valor_json, "fuente")?.trim().to_string();
     if fuente.is_empty() {
@@ -520,7 +520,7 @@ pub fn serializar_tasa_eliminada(tasa_id: &str) -> String {
 /// Deserializa un evento `TasaEliminada` y devuelve el identificador de la tasa.
 pub fn deserializar_tasa_eliminada(datos: &str) -> Result<String, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
     texto(&valor, "tasa_id")
 }
 
@@ -529,12 +529,41 @@ pub fn serializar_moneda_base_cambiada(moneda: &str) -> String {
     json!({ "moneda": moneda }).to_string()
 }
 
-/// Deserializa un evento `MonedaBaseCambiada` y devuelve el código de la nueva base.
+/// Deserializa un evento `MonedaBaseCambiada` y devuelve el cÃ³digo de la nueva base.
 pub fn deserializar_moneda_base_cambiada(datos: &str) -> Result<String, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
     Ok(texto(&valor, "moneda")?.trim().to_uppercase())
 }
+
+
+impl From<dominio::TasaRegistrada> for TasaRegistradaDatos {
+    fn from(t: dominio::TasaRegistrada) -> Self {
+        TasaRegistradaDatos {
+            id: t.id,
+            moneda_origen: t.moneda_origen,
+            moneda_destino: t.moneda_destino,
+            valor: t.valor,
+            fecha: t.fecha,
+            fuente: t.fuente,
+        }
+    }
+}
+
+pub fn serializar_tasa(t: &dominio::TasaRegistrada) -> String {
+    serializar_tasa_registrada(&TasaRegistradaDatos {
+        id: t.id.clone(),
+        moneda_origen: t.moneda_origen.clone(),
+        moneda_destino: t.moneda_destino.clone(),
+        valor: t.valor,
+        fecha: t.fecha.clone(),
+        fuente: t.fuente.clone(),
+    })
+}
+
+pub use deserializar as deserializar_con_catalogo;
+pub use deserializar_evento_movimiento as deserializar_evento_movimiento_con_catalogo;
+pub use deserializar_correccion as deserializar_correccion_con_catalogo;
 
 #[cfg(test)]
 mod pruebas {
@@ -651,11 +680,11 @@ mod pruebas {
 
     #[test]
     fn una_cuenta_puede_usar_una_moneda_propia_del_catalogo() {
-        let datos = r#"{"id":"c1","nombre":"Fría","tipo":"billetera_digital","moneda":"BTC","saldo_inicial":"0.00012345"}"#;
+        let datos = r#"{"id":"c1","nombre":"FrÃ­a","tipo":"billetera_digital","moneda":"BTC","saldo_inicial":"0.00012345"}"#;
         assert!(deserializar(datos, &Moneda::catalogo()).is_err());
 
         let mut catalogo = Moneda::catalogo();
-        catalogo.push(Moneda::nueva_propia("BTC", "Bitcoin", "₿", 8));
+        catalogo.push(Moneda::nueva_propia("BTC", "Bitcoin", "â‚¿", 8));
         let cuenta = deserializar(datos, &catalogo).unwrap();
         assert_eq!(cuenta.moneda.decimales, 8);
         assert_eq!(
@@ -669,7 +698,7 @@ mod pruebas {
         let moneda = MonedaCreada {
             codigo: "BTC".into(),
             nombre: "Bitcoin".into(),
-            simbolo: "₿".into(),
+            simbolo: "â‚¿".into(),
             decimales: 8,
         };
         assert_eq!(

@@ -445,6 +445,7 @@ fn crear_moneda_fija(estado: &EstadoFijo, e: &NuevaMonedaDto) -> Result<MonedaDt
                     nombre: nombre.to_string(),
                     simbolo: simbolo.to_string(),
                     decimales,
+                    de_fabrica: false,
                 })
             }
             _ => Err(ErroresDto {

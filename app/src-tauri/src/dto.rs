@@ -6,6 +6,7 @@ pub struct MonedaDto {
     pub nombre: String,
     pub simbolo: String,
     pub decimales: u8,
+    pub de_fabrica: bool,
 }
 
 #[derive(Serialize)]
@@ -189,6 +190,7 @@ impl From<aplicacion::MonedaDto> for MonedaDto {
             nombre: m.nombre,
             simbolo: m.simbolo,
             decimales: m.decimales,
+            de_fabrica: m.de_fabrica,
         }
     }
 }
