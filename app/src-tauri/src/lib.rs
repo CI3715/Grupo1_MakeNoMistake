@@ -2,6 +2,7 @@ mod cuentas;
 mod dto;
 mod movimientos;
 mod ping;
+mod tasas;
 
 use std::sync::{Arc, Mutex};
 
@@ -52,7 +53,13 @@ pub fn run() {
             movimientos::previsualizar_movimiento,
             movimientos::listar_categorias,
             movimientos::crear_categoria,
-            movimientos::detalle_cuenta
+            movimientos::detalle_cuenta,
+            tasas::registrar_tasa,
+            tasas::eliminar_tasa,
+            tasas::listar_tasas,
+            tasas::cambiar_moneda_base,
+            tasas::crear_moneda,
+            tasas::consultar_patrimonio
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
