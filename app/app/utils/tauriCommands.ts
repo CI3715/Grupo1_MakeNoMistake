@@ -115,3 +115,107 @@ export async function previsualizarMovimientoCommand(payload: {
 }): Promise<PrevisualizacionDto> {
   return await invoke<PrevisualizacionDto>('previsualizar_movimiento', { datos: payload });
 }
+
+export interface MonedaDto {
+  codigo: string;
+  nombre: string;
+  simbolo: string;
+  decimales: number;
+}
+
+// ---------- Entrega 4: tasas de cambio, moneda base y patrimonio ----------
+
+export interface TasaDto {
+  id: string;
+  moneda_origen: string;
+  moneda_destino: string;
+  valor: string;
+  fecha: string;
+  fuente: string;
+}
+
+export interface HistorialParDto {
+  moneda_origen: string;
+  moneda_destino: string;
+  tasas: TasaDto[];
+}
+
+export interface MonedaBaseDto {
+  moneda: string;
+}
+
+export interface SaldoCuentaDto {
+  id: string;
+  nombre: string;
+  moneda: string;
+  saldo: string;
+  en_moneda_base: string | null;
+}
+
+export interface SubtotalMonedaDto {
+  moneda: string;
+  total: string;
+}
+
+export interface TasaUsadaDto {
+  moneda_origen: string;
+  moneda_destino: string;
+  valor: string;
+  fecha: string;
+  fuente: string;
+  inversa: boolean;
+}
+
+export interface ParFaltanteDto {
+  moneda_origen: string;
+  moneda_destino: string;
+}
+
+export interface PatrimonioDto {
+  moneda_base: string;
+  fecha_consulta: string;
+  cuentas: SaldoCuentaDto[];
+  subtotales: SubtotalMonedaDto[];
+  total: string | null;
+  tasas_usadas: TasaUsadaDto[];
+  faltantes: ParFaltanteDto[];
+}
+
+export async function registrarTasaCommand(payload: {
+  moneda_origen: string;
+  moneda_destino: string;
+  valor: string;
+  fecha: string;
+  fuente: string;
+}): Promise<TasaDto> {
+  return await invoke<TasaDto>('registrar_tasa', { datos: payload });
+}
+
+export async function eliminarTasaCommand(tasaId: string): Promise<void> {
+  await invoke<void>('eliminar_tasa', { tasa_id: tasaId });
+}
+
+export async function listarTasasCommand(): Promise<HistorialParDto[]> {
+  return await invoke<HistorialParDto[]>('listar_tasas');
+}
+
+export async function cambiarMonedaBaseCommand(moneda: string): Promise<MonedaBaseDto> {
+  return await invoke<MonedaBaseDto>('cambiar_moneda_base', { datos: { moneda } });
+}
+
+export async function crearMonedaCommand(payload: {
+  codigo: string;
+  nombre: string;
+  simbolo: string;
+  decimales: string;
+}): Promise<MonedaDto> {
+  return await invoke<MonedaDto>('crear_moneda', { datos: payload });
+}
+
+export async function consultarPatrimonioCommand(fecha = ''): Promise<PatrimonioDto> {
+  return await invoke<PatrimonioDto>('consultar_patrimonio', { datos: { fecha } });
+}
+
+export async function listarMonedasCommand(): Promise<MonedaDto[]> {
+  return await invoke<MonedaDto[]>('listar_monedas');
+}

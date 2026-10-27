@@ -6,7 +6,7 @@ export function formatearMontoTexto(
   if (!montoTexto) return `${simboloMoneda} 0,00`;
 
   let limpio = montoTexto.trim();
-  let esNegativo = limpio.startsWith('-') || limpio.startsWith('−');
+  const esNegativo = limpio.startsWith('-') || limpio.startsWith('−');
 
   if (esNegativo) {
     limpio = limpio.substring(1).trim();

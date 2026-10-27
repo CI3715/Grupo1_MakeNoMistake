@@ -31,3 +31,4 @@ dominio = { path = "crates/dominio" }
 aplicacion = { path = "crates/aplicacion" }
 infraestructura = { path = "crates/infraestructura" }
 uuid = { version = "1.28.0", features = ["v4"] }
+tauri-plugin-dialog = "2.8.3"
