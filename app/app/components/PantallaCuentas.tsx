@@ -89,8 +89,7 @@ export function PantallaCuentas({
       const lista = resLista.cuentas || [];
       setCuentas(lista);
 
-      const delCatalogoGuardado = (resCat || []).filter((c) => !c.de_fabrica);
-      setCategorias(delCatalogoGuardado);
+      setCategorias(resCat || []);
 
       if (lista.length > 0 && !cuentaActivaId) {
         setCuentaActivaId(lista[0].id);
