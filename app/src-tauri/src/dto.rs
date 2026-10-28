@@ -270,20 +270,13 @@ impl From<aplicacion::CategoriaListada> for CategoriaDto {
 /// los positivos viajan sin «+», así que solo se quita ese carácter (no se calcula nada).
 impl From<aplicacion::MovimientoListado> for MovimientoDto {
     fn from(m: aplicacion::MovimientoListado) -> Self {
-        // Mientras el núcleo no entregue el valor vigente, solo se conoce con
-        // certeza cuando el movimiento no tiene ajustes: es su propio monto.
-        let monto_vigente = if m.estado == "vigente" {
-            Some(m.monto.clone())
-        } else {
-            None
-        };
         MovimientoDto {
             id: m.id,
             cuenta_id: m.cuenta_id,
             tipo: m.tipo,
             monto: m.monto,
             monto_con_signo: m.monto_con_signo.trim_start_matches('+').to_string(),
-            monto_vigente,
+            monto_vigente: m.monto_vigente,
             fecha: m.fecha,
             categoria_id: m.categoria.id,
             categoria_nombre: m.categoria.nombre,
