@@ -11,18 +11,23 @@ pub mod errores;
 pub mod memoria;
 pub mod proyector;
 pub mod puertos;
+pub mod unidades;
 pub mod vistas;
 
 pub use casos_de_uso::{
     CasosDeUso, DatosCorregirMovimiento, DatosPrevisualizarMovimiento, NuevaCategoria, NuevaCuenta,
-    NuevoMovimiento, TIPO_CATEGORIA_CREADA, TIPO_CUENTA_CREADA, TIPO_MOVIMIENTO_CORREGIDO,
-    TIPO_MOVIMIENTO_REGISTRADO,
+    NuevaMoneda, NuevoMovimiento, TIPO_CATEGORIA_CREADA, TIPO_CUENTA_CREADA,
+    TIPO_MOVIMIENTO_CORREGIDO, TIPO_MOVIMIENTO_REGISTRADO,
 };
 pub use errores::{ErrorAplicacion, ErrorValidacion};
 pub use memoria::{DispositivoFijo, GeneradorSecuencial, RelojFijo, RepositorioEnMemoria};
+pub use proyector::{
+    TIPO_MONEDA_BASE_CAMBIADA, TIPO_MONEDA_CREADA, TIPO_TASA_ELIMINADA, TIPO_TASA_REGISTRADA,
+};
 pub use puertos::{
     CategoriaProyectada, CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
-    GeneradorIdentificadores, MovimientoProyectado, Reloj, RepositorioEventos, ResultadoGuardado,
+    GeneradorIdentificadores, MonedaProyectada, MovimientoProyectado, Reloj, RepositorioEventos,
+    ResultadoGuardado, TasaProyectada,
 };
 pub use vistas::{
     CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, DetalleCuentaVista,

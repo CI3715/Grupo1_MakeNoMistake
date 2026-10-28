@@ -6,8 +6,8 @@
 //! con el libro de eventos, incluido el saldo inicial separado del actual (D-11).
 
 use crate::puertos::{
-    CategoriaProyectada, CuentaProyectada, EventoRegistrado, MovimientoProyectado,
-    RepositorioEventos, ResultadoGuardado,
+    CategoriaProyectada, CuentaProyectada, EventoRegistrado, MonedaProyectada,
+    MovimientoProyectado, RepositorioEventos, ResultadoGuardado, TasaProyectada,
 };
 
 /// Construye un [`EventoRegistrado`] de tipo `CuentaCreada` con el identificador y
@@ -75,6 +75,27 @@ pub fn datos_corregido(
     )
 }
 
+/// Construye una carga JSON válida de un evento `MonedaCreada`.
+pub fn datos_moneda(codigo: &str, decimales: u32) -> String {
+    format!(
+        r#"{{"codigo":"{codigo}","nombre":"Moneda {codigo}","simbolo":"{codigo}","decimales":{decimales}}}"#
+    )
+}
+
+/// Construye una carga JSON válida de un evento `TasaRegistrada`.
+pub fn datos_tasa(
+    id: &str,
+    origen: &str,
+    destino: &str,
+    valor: &str,
+    fecha: &str,
+    fuente: &str,
+) -> String {
+    format!(
+        r#"{{"id":"{id}","moneda_origen":"{origen}","moneda_destino":"{destino}","valor":"{valor}","fecha":"{fecha}","fuente":"{fuente}"}}"#
+    )
+}
+
 /// Construye la fila esperada en la proyección `cuentas` para una cuenta de prueba.
 fn cuenta_proyectada(id: &str, nombre: &str) -> CuentaProyectada {
     CuentaProyectada {
@@ -121,6 +142,23 @@ where
             .expect("listar movimientos de un repositorio vacío")
             .is_empty(),
         "un repositorio nuevo no debe tener movimientos proyectados"
+    );
+    assert!(
+        repo.listar_monedas_propias()
+            .expect("listar monedas de un repositorio vacío")
+            .is_empty(),
+        "un repositorio nuevo no debe tener monedas propias"
+    );
+    assert!(
+        repo.listar_tasas()
+            .expect("listar tasas de un repositorio vacío")
+            .is_empty(),
+        "un repositorio nuevo no debe tener tasas"
+    );
+    assert_eq!(
+        repo.moneda_base().expect("leer la moneda base"),
+        None,
+        "sin MonedaBaseCambiada no hay moneda base elegida"
     );
 
     // 2. Guardar un evento nuevo lo lista igual y lo proyecta en `cuentas`.
@@ -328,5 +366,272 @@ where
     assert_eq!(
         repo.listar_movimientos().expect("listar movimientos"),
         movimientos_antes
+    );
+
+    bateria_monedas_y_tasas(&fabrica);
+}
+
+/// Comprobaciones de contrato de la Entrega 4: monedas propias, historial de
+/// tasas y moneda base.
+fn bateria_monedas_y_tasas<R, F>(fabrica: &F)
+where
+    R: RepositorioEventos,
+    F: Fn() -> R,
+{
+    // 11. Una moneda propia se proyecta y una cuenta puede usarla con sus decimales.
+    let mut repo = fabrica();
+    repo.guardar(&evento_de_tipo(
+        "e-btc",
+        "MonedaCreada",
+        &datos_moneda("BTC", 8),
+    ))
+    .expect("crear BTC");
+    repo.guardar(&evento_de_tipo(
+        "e-jpy",
+        "MonedaCreada",
+        &datos_moneda("YEN", 0),
+    ))
+    .expect("crear YEN");
+    assert_eq!(
+        repo.listar_monedas_propias().expect("listar monedas"),
+        vec![
+            MonedaProyectada {
+                codigo: "BTC".into(),
+                nombre: "Moneda BTC".into(),
+                simbolo: "BTC".into(),
+                decimales: 8,
+            },
+            MonedaProyectada {
+                codigo: "YEN".into(),
+                nombre: "Moneda YEN".into(),
+                simbolo: "YEN".into(),
+                decimales: 0,
+            },
+        ]
+    );
+
+    repo.guardar(&evento_de_tipo(
+        "e-c-btc",
+        "CuentaCreada",
+        r#"{"id":"c-btc","nombre":"Fría","tipo":"billetera_digital","moneda":"BTC","saldo_inicial":"0.00012345"}"#,
+    ))
+    .expect("cuenta en BTC");
+    repo.guardar(&evento_de_tipo(
+        "e-c-yen",
+        "CuentaCreada",
+        r#"{"id":"c-yen","nombre":"Yenes","tipo":"efectivo","moneda":"YEN","saldo_inicial":"1500"}"#,
+    ))
+    .expect("cuenta en YEN");
+    repo.guardar(&evento_de_tipo(
+        "e-cat",
+        "CategoriaCreada",
+        &datos_categoria("cat-i", "Regalos", "ingreso", false),
+    ))
+    .expect("categoría");
+    repo.guardar(&evento_de_tipo(
+        "e-m-btc",
+        "MovimientoRegistrado",
+        &datos_movimiento(
+            "m-btc",
+            "c-btc",
+            "ingreso",
+            "0.00000005",
+            "2026-10-14",
+            "cat-i",
+        ),
+    ))
+    .expect("movimiento en BTC");
+    repo.guardar(&evento_de_tipo(
+        "e-m-yen",
+        "MovimientoRegistrado",
+        &datos_movimiento("m-yen", "c-yen", "ingreso", "250", "2026-10-14", "cat-i"),
+    ))
+    .expect("movimiento en YEN");
+
+    let cuentas = repo.listar_cuentas().expect("listar cuentas");
+    assert_eq!(cuentas[0].saldo_inicial, "0.00012345");
+    assert_eq!(cuentas[0].saldo_actual, "0.00012350", "8 decimales exactos");
+    assert_eq!(cuentas[1].saldo_inicial, "1500");
+    assert_eq!(cuentas[1].saldo_actual, "1750", "moneda sin decimales");
+    let movimientos = repo.listar_movimientos().expect("listar movimientos");
+    assert_eq!(movimientos[0].monto, "0.00000005");
+    assert_eq!(movimientos[1].monto, "250");
+
+    // 12. Una moneda repetida o de fábrica se rechaza sin tocar la proyección.
+    assert!(
+        repo.guardar(&evento_de_tipo(
+            "e-btc-2",
+            "MonedaCreada",
+            &datos_moneda("BTC", 2)
+        ))
+        .is_err(),
+        "BTC ya existe"
+    );
+    assert!(
+        repo.guardar(&evento_de_tipo(
+            "e-usd",
+            "MonedaCreada",
+            &datos_moneda("USD", 2)
+        ))
+        .is_err(),
+        "USD es de fábrica"
+    );
+    assert_eq!(repo.listar_monedas_propias().unwrap().len(), 2);
+
+    // 13. Las tasas se acumulan en orden de registro (varias por par y fecha) y
+    //     su valor se proyecta en texto canónico.
+    let tasas = [
+        ("t1", "USD", "VES", "887.00", "2026-10-20", "BCV"),
+        ("t2", "USDT", "VES", "1000", "2026-10-21", "casa de cambio"),
+        (
+            "t3",
+            "USD",
+            "VES",
+            "890.50",
+            "2026-10-20",
+            "estimación propia",
+        ),
+        (
+            "t4",
+            "BTC",
+            "USD",
+            "65000.12345678",
+            "2026-10-21",
+            "exchange",
+        ),
+    ];
+    for (id, origen, destino, valor, fecha, fuente) in tasas {
+        repo.guardar(&evento_de_tipo(
+            &format!("e-{id}"),
+            "TasaRegistrada",
+            &datos_tasa(id, origen, destino, valor, fecha, fuente),
+        ))
+        .expect("registrar tasa");
+    }
+    let historial = repo.listar_tasas().expect("listar tasas");
+    let resumen: Vec<(&str, &str, &str)> = historial
+        .iter()
+        .map(|t| (t.id.as_str(), t.valor.as_str(), t.estado.as_str()))
+        .collect();
+    assert_eq!(
+        resumen,
+        vec![
+            ("t1", "887", "vigente"),
+            ("t2", "1000", "vigente"),
+            ("t3", "890.5", "vigente"),
+            ("t4", "65000.12345678", "vigente"),
+        ]
+    );
+    assert_eq!(
+        historial[0],
+        TasaProyectada {
+            id: "t1".into(),
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: "887".into(),
+            fecha: "2026-10-20".into(),
+            fuente: "BCV".into(),
+            estado: "vigente".into(),
+        }
+    );
+
+    // 14. Una tasa con una moneda desconocida o un id repetido se rechaza.
+    assert!(
+        repo.guardar(&evento_de_tipo(
+            "e-t-xyz",
+            "TasaRegistrada",
+            &datos_tasa("t-xyz", "XYZ", "USD", "2", "2026-10-21", "BCV"),
+        ))
+        .is_err(),
+        "XYZ no está en el catálogo"
+    );
+    assert!(
+        repo.guardar(&evento_de_tipo(
+            "e-t1-bis",
+            "TasaRegistrada",
+            &datos_tasa("t1", "USD", "VES", "1", "2026-10-21", "BCV"),
+        ))
+        .is_err(),
+        "el id t1 ya existe"
+    );
+    assert_eq!(repo.listar_tasas().unwrap().len(), 4);
+
+    // 15. Eliminar una tasa es un evento nuevo: la tasa queda marcada, no se borra.
+    repo.guardar(&evento_de_tipo(
+        "e-del-t3",
+        "TasaEliminada",
+        r#"{"tasa_id":"t3"}"#,
+    ))
+    .expect("eliminar t3");
+    let historial = repo.listar_tasas().unwrap();
+    assert_eq!(
+        historial.len(),
+        4,
+        "la tasa eliminada sigue en el historial"
+    );
+    assert_eq!(historial[2].estado, "eliminada");
+    assert!(
+        repo.guardar(&evento_de_tipo(
+            "e-del-t3-bis",
+            "TasaEliminada",
+            r#"{"tasa_id":"t3"}"#,
+        ))
+        .is_err(),
+        "no se elimina dos veces"
+    );
+    assert!(
+        repo.guardar(&evento_de_tipo(
+            "e-del-nada",
+            "TasaEliminada",
+            r#"{"tasa_id":"no-existe"}"#,
+        ))
+        .is_err(),
+        "no se elimina una tasa inexistente"
+    );
+
+    // 16. La moneda base es la del último MonedaBaseCambiada y debe existir.
+    repo.guardar(&evento_de_tipo(
+        "e-base-ves",
+        "MonedaBaseCambiada",
+        r#"{"moneda":"VES"}"#,
+    ))
+    .expect("base VES");
+    repo.guardar(&evento_de_tipo(
+        "e-base-btc",
+        "MonedaBaseCambiada",
+        r#"{"moneda":"BTC"}"#,
+    ))
+    .expect("base BTC (moneda propia)");
+    assert_eq!(repo.moneda_base().unwrap().as_deref(), Some("BTC"));
+    assert!(
+        repo.guardar(&evento_de_tipo(
+            "e-base-xyz",
+            "MonedaBaseCambiada",
+            r#"{"moneda":"XYZ"}"#,
+        ))
+        .is_err()
+    );
+    assert_eq!(repo.moneda_base().unwrap().as_deref(), Some("BTC"));
+
+    // 17. Cambiar la base no toca saldos ni movimientos, y `reconstruir` deja
+    //     todo idéntico.
+    let antes = (
+        repo.listar_cuentas().unwrap(),
+        repo.listar_movimientos().unwrap(),
+        repo.listar_monedas_propias().unwrap(),
+        repo.listar_tasas().unwrap(),
+        repo.moneda_base().unwrap(),
+    );
+    assert_eq!(antes.0, cuentas, "la moneda base no cambia ningún saldo");
+    repo.reconstruir().expect("reconstruir");
+    assert_eq!(
+        (
+            repo.listar_cuentas().unwrap(),
+            repo.listar_movimientos().unwrap(),
+            repo.listar_monedas_propias().unwrap(),
+            repo.listar_tasas().unwrap(),
+            repo.moneda_base().unwrap(),
+        ),
+        antes
     );
 }

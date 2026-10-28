@@ -1,4 +1,4 @@
-use aplicacion::codec;
+use aplicacion::{codec, unidades};
 use dominio::{TipoMovimiento, categorias_de_fabrica};
 use rusqlite::{Connection, Result, params};
 use std::collections::HashSet;
@@ -9,8 +9,14 @@ fn fecha_a_dia_mes(fecha: &str) -> (i64, i64) {
     // Espera formato YYYY-MM-DD
     let mut partes = fecha.split('-');
     let _anio = partes.next().and_then(|s| s.parse::<i64>().ok());
-    let mes = partes.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
-    let dia = partes.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+    let mes = partes
+        .next()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let dia = partes
+        .next()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
     (dia, mes)
 }
 
@@ -18,53 +24,12 @@ pub fn fecha_a_dia_mes_pub(fecha: &str) -> (i64, i64) {
     fecha_a_dia_mes(fecha)
 }
 
-fn decimal_a_centavos(s: &str) -> i64 {
-    let limpio = s.trim();
-    if limpio.is_empty() {
-        return 0;
-    }
-    let negativo = limpio.starts_with('-');
-    let sin_signo = if negativo { &limpio[1..] } else { limpio };
-    if let Some((ent, dec)) = sin_signo.split_once('.') {
-        let ent: i64 = ent.parse().unwrap_or(0);
-        let mut dec2 = dec.to_string();
-        while dec2.len() < 2 {
-            dec2.push('0');
-        }
-        if dec2.len() > 2 {
-            dec2.truncate(2);
-        }
-        let decv: i64 = dec2.parse().unwrap_or(0);
-        let res = ent * 100 + decv;
-        if negativo { -res } else { res }
-    } else {
-        let ent: i64 = sin_signo.parse().unwrap_or(0);
-        if negativo { -(ent * 100) } else { ent * 100 }
-    }
-}
-
-pub fn decimal_a_centavos_pub(s: &str) -> i64 {
-    decimal_a_centavos(s)
-}
-
-#[allow(dead_code)]
-fn centavos_a_decimal(s_cents: i64) -> String {
-    let negativo = s_cents < 0;
-    let abs = s_cents.abs();
-    let ent = abs / 100;
-    let dec = abs % 100;
-    let dec_str = format!("{:02}", dec);
-    let out = format!("{}.{dec_str}", ent);
-    if negativo {
-        format!("-{out}")
-    } else {
-        out
-    }
-}
-
-#[allow(dead_code)]
-pub fn centavos_a_decimal_pub(s_cents: i64) -> String {
-    centavos_a_decimal(s_cents)
+/// Montos guardados antes de la Entrega 4 como texto: todas las monedas tenían
+/// 2 decimales, así que su escala en unidades mínimas es 10^2. Un texto que no
+/// se pueda convertir queda en 0; la proyección se reconstruye desde los
+/// eventos justo después de migrar.
+fn texto_legado_a_unidades(s: &str) -> i64 {
+    unidades::a_unidades(s, 2).unwrap_or(0)
 }
 
 /// Abre una conexión SQLite en la ruta indicada y activa claves foráneas.
@@ -81,41 +46,77 @@ pub fn abrir<P: AsRef<Path>>(ruta: P) -> Result<Connection> {
 pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
 pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
 pub const TIPO_MOVIMIENTO_CORREGIDO: &str = "MovimientoCorregido";
+pub const TIPO_TASA_REGISTRADA: &str = "TasaRegistrada";
+pub const TIPO_TASA_ELIMINADA: &str = "TasaEliminada";
+pub const TIPO_MONEDA_BASE_CAMBIADA: &str = "MonedaBaseCambiada";
+pub const TIPO_MONEDA_CREADA: &str = "MonedaCreada";
 
-/// Migra una base existente a la nueva estructura con montos en centavos y columnas dia/mes.
+/// Tipo declarado de una columna (`"TEXT"`, `"INTEGER"`, ...), o `None` si no existe.
+fn tipo_de_columna(conn: &Connection, tabla: &str, columna: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({tabla})"))?;
+    let columnas = stmt.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
+    for fila in columnas {
+        let (nombre, tipo) = fila?;
+        if nombre == columna {
+            return Ok(Some(tipo));
+        }
+    }
+    Ok(None)
+}
+
+/// Fila de `cuentas` con los saldos todavía en texto (antes de la migración).
+type FilaCuentaLegada = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+);
+
+/// Fila de `movimientos` con el monto todavía en texto (antes de la migración).
+type FilaMovimientoLegada = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+);
+
+/// Migra una base existente a la estructura con montos enteros en unidades
+/// mínimas y columnas dia/mes.
 fn migrar_si_necesario(conn: &Connection) -> Result<()> {
     // Desactivar FKs durante migración para poder recrear tablas
     conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
     // Limpiar tablas temporales si quedaron de migraciones fallidas
-    let _ = conn.execute_batch("DROP TABLE IF EXISTS cuentas_new; DROP TABLE IF EXISTS movimientos_new;");
+    let _ = conn
+        .execute_batch("DROP TABLE IF EXISTS cuentas_new; DROP TABLE IF EXISTS movimientos_new;");
 
     // Si no existe la tabla movimientos (base nueva aún sin inicializar), no migrar
-    let existe_movimientos: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='movimientos'",
-        [],
-        |r| r.get(0),
-    ).unwrap_or(0);
+    let existe_movimientos: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='movimientos'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
     if existe_movimientos == 0 {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         return Ok(());
     }
 
     // Comprobar si movimientos tiene la columna dia
-    let mut tiene_dia_mes = false;
-    let mut stmt = conn.prepare("PRAGMA table_info(movimientos)")?;
-    let rows = stmt.query_map([], |r| {
-        let name: String = r.get(1)?;
-        Ok(name)
-    })?;
-    for name in rows {
-        if let Ok(n) = name {
-            if n == "dia" {
-                tiene_dia_mes = true;
-                break;
-            }
-        }
-    }
-    if !tiene_dia_mes {
+    if tipo_de_columna(conn, "movimientos", "dia")?.is_none() {
         // Añadir columnas si no existen
         let _ = conn.execute_batch(
             "ALTER TABLE movimientos ADD COLUMN dia INTEGER NOT NULL DEFAULT 0;
@@ -136,21 +137,7 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
     }
 
     // Migrar cuentas de TEXT a INTEGER si es necesario
-    let mut tipo_saldo_inicial = String::new();
-    let mut stmt = conn.prepare("PRAGMA table_info(cuentas)")?;
-    let rows = stmt.query_map([], |r| {
-        let name: String = r.get(1)?;
-        let tipo: String = r.get(2)?;
-        Ok((name, tipo))
-    })?;
-    for row in rows {
-        if let Ok((name, tipo)) = row {
-            if name == "saldo_inicial" {
-                tipo_saldo_inicial = tipo;
-                break;
-            }
-        }
-    }
+    let tipo_saldo_inicial = tipo_de_columna(conn, "cuentas", "saldo_inicial")?.unwrap_or_default();
     if tipo_saldo_inicial.to_uppercase().contains("TEXT") {
         // Crear tabla nueva, copiar datos convirtiendo a centavos
         conn.execute_batch(
@@ -167,7 +154,7 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
             );",
         )?;
         let mut stmt = conn.prepare("SELECT id, nombre, tipo, moneda, saldo_inicial, saldo_actual, estado, evento_origen, actualizado_en FROM cuentas")?;
-        let cuentas: Vec<(String, String, String, String, String, String, String, String, String)> = stmt
+        let cuentas: Vec<FilaCuentaLegada> = stmt
             .query_map([], |r| {
                 Ok((
                     r.get(0)?,
@@ -183,8 +170,8 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         for c in cuentas {
-            let si = decimal_a_centavos(&c.4);
-            let sa = decimal_a_centavos(&c.5);
+            let si = texto_legado_a_unidades(&c.4);
+            let sa = texto_legado_a_unidades(&c.5);
             let _ = conn.execute(
                 "INSERT INTO cuentas_new (id, nombre, tipo, moneda, saldo_inicial, saldo_actual, estado, evento_origen, actualizado_en) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![c.0, c.1, c.2, c.3, si, sa, c.6, c.7, c.8],
@@ -194,21 +181,7 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
     }
 
     // Migrar movimientos de TEXT monto a INTEGER centavos si es necesario
-    let mut tipo_monto = String::new();
-    let mut stmt = conn.prepare("PRAGMA table_info(movimientos)")?;
-    let rows = stmt.query_map([], |r| {
-        let name: String = r.get(1)?;
-        let tipo: String = r.get(2)?;
-        Ok((name, tipo))
-    })?;
-    for row in rows {
-        if let Ok((name, tipo)) = row {
-            if name == "monto" {
-                tipo_monto = tipo;
-                break;
-            }
-        }
-    }
+    let tipo_monto = tipo_de_columna(conn, "movimientos", "monto")?.unwrap_or_default();
     if tipo_monto.to_uppercase().contains("TEXT") {
         // Asegurar columnas dia/mes
         let _ = conn.execute_batch(
@@ -220,7 +193,7 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
                 id                   TEXT PRIMARY KEY,
                 cuenta_id            TEXT NOT NULL,
                 tipo                 TEXT NOT NULL CHECK (tipo IN ('ingreso','egreso')),
-                monto                INTEGER NOT NULL CHECK (monto > 0),
+                monto                INTEGER NOT NULL CHECK (typeof(monto) = 'integer' AND monto > 0),
                 fecha                TEXT NOT NULL
                                       CHECK (fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
                 dia                  INTEGER NOT NULL,
@@ -236,7 +209,7 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
             );",
         )?;
         let mut stmt = conn.prepare("SELECT id, cuenta_id, tipo, monto, fecha, categoria_id, nota, estado, reemplaza_a, corregido_por_evento, evento_origen, actualizado_en FROM movimientos")?;
-        let movimientos: Vec<(String, String, String, String, String, String, Option<String>, String, Option<String>, Option<String>, String, String)> = stmt
+        let movimientos: Vec<FilaMovimientoLegada> = stmt
             .query_map([], |r| {
                 Ok((
                     r.get(0)?,
@@ -255,7 +228,7 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         for m in movimientos {
-            let monto_cents = decimal_a_centavos(&m.3);
+            let monto_cents = texto_legado_a_unidades(&m.3);
             if monto_cents <= 0 {
                 continue;
             }
@@ -272,7 +245,8 @@ fn migrar_si_necesario(conn: &Connection) -> Result<()> {
             "ALTER TABLE movimientos ADD COLUMN dia INTEGER NOT NULL DEFAULT 0;
              ALTER TABLE movimientos ADD COLUMN mes INTEGER NOT NULL DEFAULT 0;",
         );
-        let mut stmt = conn.prepare("SELECT id, fecha FROM movimientos WHERE dia = 0 OR mes = 0")?;
+        let mut stmt =
+            conn.prepare("SELECT id, fecha FROM movimientos WHERE dia = 0 OR mes = 0")?;
         let movimientos: Vec<(String, String)> = stmt
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -348,7 +322,8 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             ON categorias (tipo, lower(nombre));
 
         -- 5) Proyección: movimientos de cada cuenta.
-        --    - `monto` se guarda en centavos (INTEGER).
+        --    - `monto` se guarda como entero en unidades mínimas de la moneda de la
+        --      cuenta: monto × 10^decimales (centavos para las de fábrica).
         --    - `dia` y `mes` se derivan de `fecha` (YYYY-MM-DD) para búsquedas rápidas.
         --    - `estado` distingue el movimiento vigente del corregido.
         --    - `reemplaza_a` apunta al movimiento original cuando esta fila es una
@@ -357,7 +332,7 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             id                   TEXT PRIMARY KEY,
             cuenta_id            TEXT NOT NULL REFERENCES cuentas(id),
             tipo                 TEXT NOT NULL CHECK (tipo IN ('ingreso','egreso')),
-            monto                INTEGER NOT NULL CHECK (monto > 0),
+            monto                INTEGER NOT NULL CHECK (typeof(monto) = 'integer' AND monto > 0),
             fecha                TEXT NOT NULL
                                   CHECK (fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
             dia                  INTEGER NOT NULL,
@@ -465,6 +440,76 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             WHERE m.estado = 'vigente'
         )
         ORDER BY cuenta_id, orden, fecha, movimiento_id;
+
+        -- 9) Proyección: monedas propias (RF-CAM-01). Las cuatro de fábrica viven
+        --    en el dominio y no se guardan aquí. `decimales` fija la escala con
+        --    la que se guardan los montos de las cuentas en esa moneda, por eso
+        --    una moneda nunca se modifica.
+        CREATE TABLE IF NOT EXISTS monedas_propias (
+            codigo         TEXT PRIMARY KEY
+                                CHECK (length(codigo) BETWEEN 3 AND 5
+                                       AND codigo NOT GLOB '*[^A-Z]*'),
+            nombre         TEXT NOT NULL CHECK (trim(nombre) <> ''),
+            simbolo        TEXT NOT NULL CHECK (trim(simbolo) <> ''),
+            decimales      INTEGER NOT NULL CHECK (decimales BETWEEN 0 AND 8),
+            evento_origen  TEXT NOT NULL REFERENCES eventos(id),
+            actualizado_en TEXT NOT NULL
+        );
+        CREATE TRIGGER IF NOT EXISTS monedas_propias_inmutables
+        BEFORE UPDATE ON monedas_propias
+        BEGIN
+            SELECT RAISE(ABORT, 'monedas_propias: una moneda no se modifica');
+        END;
+
+        -- 10) Proyección: historial de tasas de cambio (RF-CAM-03, RF-CAM-06).
+        --     1 moneda_origen = valor / 10^8 moneda_destino: el valor es un entero
+        --     con escala fija de 8 decimales. Eliminar una tasa es un evento
+        --     `TasaEliminada`; aquí solo cambia su estado.
+        CREATE TABLE IF NOT EXISTS tasas (
+            id                   TEXT PRIMARY KEY,
+            moneda_origen        TEXT NOT NULL,
+            moneda_destino       TEXT NOT NULL,
+            valor                INTEGER NOT NULL CHECK (typeof(valor) = 'integer' AND valor > 0),
+            fecha                TEXT NOT NULL
+                                  CHECK (fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+            fuente               TEXT NOT NULL CHECK (trim(fuente) <> ''),
+            estado               TEXT NOT NULL DEFAULT 'vigente'
+                                  CHECK (estado IN ('vigente','eliminada')),
+            eliminada_por_evento TEXT REFERENCES eventos(id),
+            evento_origen        TEXT NOT NULL REFERENCES eventos(id),
+            actualizado_en       TEXT NOT NULL,
+            CHECK (moneda_origen <> moneda_destino)
+        );
+        -- Búsqueda de la tasa vigente de un par en una fecha de consulta.
+        CREATE INDEX IF NOT EXISTS idx_tasas_par_fecha
+            ON tasas (moneda_origen, moneda_destino, estado, fecha);
+        CREATE TRIGGER IF NOT EXISTS tasas_campos_inmutables
+        BEFORE UPDATE ON tasas
+        WHEN OLD.id             IS NOT NEW.id
+          OR OLD.moneda_origen  IS NOT NEW.moneda_origen
+          OR OLD.moneda_destino IS NOT NEW.moneda_destino
+          OR OLD.valor          IS NOT NEW.valor
+          OR OLD.fecha          IS NOT NEW.fecha
+          OR OLD.fuente         IS NOT NEW.fuente
+          OR OLD.evento_origen  IS NOT NEW.evento_origen
+        BEGIN
+            SELECT RAISE(ABORT, 'tasas: los datos son inmutables; elimina y registra otra');
+        END;
+        CREATE TRIGGER IF NOT EXISTS tasas_eliminada_no_vuelve
+        BEFORE UPDATE OF estado ON tasas
+        WHEN OLD.estado = 'eliminada'
+        BEGIN
+            SELECT RAISE(ABORT, 'una tasa eliminada no vuelve a cambiar');
+        END;
+
+        -- 11) Proyección: moneda base (RF-CAM-02). Una sola fila; sin fila, la
+        --     aplicación usa la moneda por defecto.
+        CREATE TABLE IF NOT EXISTS moneda_base (
+            id             INTEGER PRIMARY KEY CHECK (id = 1),
+            moneda         TEXT NOT NULL,
+            evento_origen  TEXT NOT NULL REFERENCES eventos(id),
+            actualizado_en TEXT NOT NULL
+        );
         ",
     )?;
     proteger_proyecciones(conn)?;
@@ -472,8 +517,9 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
 }
 
 /// Crea los triggers que protegen las proyecciones en operación normal: los
-/// movimientos no se borran (se corrigen) y las categorías de fábrica tampoco
-/// (se desactivan).
+/// movimientos no se borran (se corrigen), las categorías de fábrica tampoco
+/// (se desactivan), las tasas se marcan como eliminadas y las monedas propias
+/// no desaparecen.
 ///
 /// Están separados del bloque principal de [`inicializar`] para que `reconstruir`
 /// pueda retirarlos temporalmente, limpiar las proyecciones y volver a crearlos
@@ -492,6 +538,16 @@ pub fn proteger_proyecciones(conn: &Connection) -> Result<()> {
         BEGIN
             SELECT RAISE(ABORT, 'categorias de fábrica: desactívalas, no las borres');
         END;
+        CREATE TRIGGER IF NOT EXISTS tasas_no_delete
+        BEFORE DELETE ON tasas
+        BEGIN
+            SELECT RAISE(ABORT, 'tasas no se borran: registra un evento TasaEliminada');
+        END;
+        CREATE TRIGGER IF NOT EXISTS monedas_propias_no_delete
+        BEFORE DELETE ON monedas_propias
+        BEGIN
+            SELECT RAISE(ABORT, 'monedas_propias no se borran');
+        END;
         ",
     )?;
     Ok(())
@@ -504,6 +560,8 @@ pub fn desproteger_proyecciones(conn: &Connection) -> Result<()> {
         "
         DROP TRIGGER IF EXISTS movimientos_no_delete;
         DROP TRIGGER IF EXISTS categorias_fabrica_no_delete;
+        DROP TRIGGER IF EXISTS tasas_no_delete;
+        DROP TRIGGER IF EXISTS monedas_propias_no_delete;
         ",
     )?;
     Ok(())
@@ -905,10 +963,7 @@ pub fn marcar_movimiento_corregido(
 }
 
 /// Devuelve `(saldo_inicial, moneda)` de una cuenta, o `None` si no existe.
-pub fn saldo_inicial_y_moneda(
-    conn: &Connection,
-    cuenta_id: &str,
-) -> Result<Option<(i64, String)>> {
+pub fn saldo_inicial_y_moneda(conn: &Connection, cuenta_id: &str) -> Result<Option<(i64, String)>> {
     let mut stmt = conn.prepare("SELECT saldo_inicial, moneda FROM cuentas WHERE id = ?1")?;
     let mut rows = stmt.query(params![cuenta_id])?;
     match rows.next()? {
@@ -943,6 +998,186 @@ pub fn actualizar_saldo_cuenta(
         params![cuenta_id, saldo_actual_cents],
     )?;
     Ok(())
+}
+
+/// Fila cruda de la proyección `monedas_propias`.
+#[derive(Debug, Clone)]
+pub struct MonedaPropiaRow {
+    pub codigo: String,
+    pub nombre: String,
+    pub simbolo: String,
+    pub decimales: i64,
+    pub evento_origen: String,
+    pub actualizado_en: String,
+}
+
+/// Inserta una moneda propia. Un código repetido viola la clave primaria.
+pub fn insertar_moneda_propia(conn: &Connection, m: &MonedaPropiaRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO monedas_propias (codigo, nombre, simbolo, decimales, evento_origen, actualizado_en)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            m.codigo,
+            m.nombre,
+            m.simbolo,
+            m.decimales,
+            m.evento_origen,
+            m.actualizado_en
+        ],
+    )?;
+    Ok(())
+}
+
+/// Lista las monedas propias en orden de creación (por `rowid`).
+pub fn listar_monedas_propias(conn: &Connection) -> Result<Vec<MonedaPropiaRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT codigo, nombre, simbolo, decimales, evento_origen, actualizado_en
+         FROM monedas_propias ORDER BY rowid ASC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(MonedaPropiaRow {
+            codigo: r.get(0)?,
+            nombre: r.get(1)?,
+            simbolo: r.get(2)?,
+            decimales: r.get(3)?,
+            evento_origen: r.get(4)?,
+            actualizado_en: r.get(5)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Elimina todas las filas de la proyección `monedas_propias` (solo al reconstruir).
+pub fn borrar_monedas_propias(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM monedas_propias", [])?;
+    Ok(())
+}
+
+/// Fila cruda de la proyección `tasas`. `valor` es el valor × 10^8.
+#[derive(Debug, Clone)]
+pub struct TasaRow {
+    pub id: String,
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: i64,
+    pub fecha: String,
+    pub fuente: String,
+    pub estado: String,
+    pub eliminada_por_evento: Option<String>,
+    pub evento_origen: String,
+    pub actualizado_en: String,
+}
+
+/// Inserta una tasa en el historial. Un `id` repetido viola la clave primaria.
+pub fn insertar_tasa(conn: &Connection, t: &TasaRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO tasas (id, moneda_origen, moneda_destino, valor, fecha, fuente, estado, eliminada_por_evento, evento_origen, actualizado_en)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            t.id,
+            t.moneda_origen,
+            t.moneda_destino,
+            t.valor,
+            t.fecha,
+            t.fuente,
+            t.estado,
+            t.eliminada_por_evento,
+            t.evento_origen,
+            t.actualizado_en,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Lista el historial de tasas en orden de registro (por `rowid`).
+pub fn listar_tasas(conn: &Connection) -> Result<Vec<TasaRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, moneda_origen, moneda_destino, valor, fecha, fuente, estado, eliminada_por_evento, evento_origen, actualizado_en
+         FROM tasas ORDER BY rowid ASC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(TasaRow {
+            id: r.get(0)?,
+            moneda_origen: r.get(1)?,
+            moneda_destino: r.get(2)?,
+            valor: r.get(3)?,
+            fecha: r.get(4)?,
+            fuente: r.get(5)?,
+            estado: r.get(6)?,
+            eliminada_por_evento: r.get(7)?,
+            evento_origen: r.get(8)?,
+            actualizado_en: r.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Marca una tasa vigente como eliminada por el evento indicado.
+///
+/// Devuelve cuántas filas cambió: 0 si la tasa no existe o ya estaba eliminada.
+pub fn marcar_tasa_eliminada(
+    conn: &Connection,
+    tasa_id: &str,
+    evento_id: &str,
+    momento: &str,
+) -> Result<usize> {
+    conn.execute(
+        "UPDATE tasas
+            SET estado = 'eliminada', eliminada_por_evento = ?2, actualizado_en = ?3
+          WHERE id = ?1 AND estado = 'vigente'",
+        params![tasa_id, evento_id, momento],
+    )
+}
+
+/// Elimina todas las filas de la proyección `tasas` (solo al reconstruir).
+pub fn borrar_tasas(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM tasas", [])?;
+    Ok(())
+}
+
+/// Fija la moneda base (fila única de la proyección `moneda_base`).
+pub fn fijar_moneda_base(
+    conn: &Connection,
+    moneda: &str,
+    evento_id: &str,
+    momento: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO moneda_base (id, moneda, evento_origen, actualizado_en)
+         VALUES (1, ?1, ?2, ?3)
+         ON CONFLICT(id) DO UPDATE
+            SET moneda = excluded.moneda,
+                evento_origen = excluded.evento_origen,
+                actualizado_en = excluded.actualizado_en",
+        params![moneda, evento_id, momento],
+    )?;
+    Ok(())
+}
+
+/// Moneda base elegida, o `None` si nunca se cambió.
+pub fn leer_moneda_base(conn: &Connection) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT moneda FROM moneda_base WHERE id = 1")?;
+    let mut rows = stmt.query([])?;
+    match rows.next()? {
+        Some(fila) => Ok(Some(fila.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+/// Elimina la moneda base proyectada (solo al reconstruir).
+pub fn borrar_moneda_base(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM moneda_base", [])?;
+    Ok(())
+}
+
+/// Moneda de una cuenta proyectada, o `None` si la cuenta no existe.
+pub fn moneda_de_cuenta(conn: &Connection, cuenta_id: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT moneda FROM cuentas WHERE id = ?1")?;
+    let mut rows = stmt.query(params![cuenta_id])?;
+    match rows.next()? {
+        Some(fila) => Ok(Some(fila.get(0)?)),
+        None => Ok(None),
+    }
 }
 
 #[cfg(test)]
@@ -980,7 +1215,8 @@ mod pruebas {
     }
 
     /// Conexión con el esquema inicializado, las categorías de fábrica sembradas
-    /// y una cuenta `c1` (USD, saldo 100.00) lista para recibir movimientos.
+    /// y una cuenta `c1` (USD, saldo 100.00 = 10000 centavos) lista para recibir
+    /// movimientos.
     fn base_con_cuenta() -> Connection {
         let conn = conexion_vacia();
         sembrar_categorias_fabrica(&conn).expect("sembrar categorías de fábrica");
@@ -992,7 +1228,7 @@ mod pruebas {
         .unwrap();
         conn.execute(
             "INSERT INTO cuentas (id, nombre, tipo, moneda, saldo_inicial, saldo_actual, evento_origen, actualizado_en)
-             VALUES ('c1', 'Cartera', 'efectivo', 'USD', '100.00', '100.00', 'ev-cuenta', '2026-01-01T00:00:00Z')",
+             VALUES ('c1', 'Cartera', 'efectivo', 'USD', 10000, 10000, 'ev-cuenta', '2026-01-01T00:00:00Z')",
             [],
         )
         .unwrap();
@@ -1016,9 +1252,16 @@ mod pruebas {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, reemplaza_a, evento_origen, actualizado_en)
-             VALUES (?1, 'c1', ?2, ?3, '2026-10-19', ?4, ?5, ?6, '2026-10-19T00:00:00Z')",
-            params![id, tipo, monto, categoria, reemplaza_a, evento_id],
+            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, reemplaza_a, evento_origen, actualizado_en)
+             VALUES (?1, 'c1', ?2, ?3, '2026-10-19', 19, 10, ?4, ?5, ?6, '2026-10-19T00:00:00Z')",
+            params![
+                id,
+                tipo,
+                unidades::a_unidades(monto, 2).expect("monto USD válido"),
+                categoria,
+                reemplaza_a,
+                evento_id
+            ],
         )
         .unwrap();
     }
@@ -1273,7 +1516,7 @@ mod pruebas {
     fn movimiento_valido_se_inserta() {
         let conn = base_con_cuenta();
         insertar_movimiento(&conn, "m1", "ingreso", "10.50", "ingreso:salario", None);
-        let (tipo, monto, estado): (String, String, String) = conn
+        let (tipo, monto, estado): (String, i64, String) = conn
             .query_row(
                 "SELECT tipo, monto, estado FROM movimientos WHERE id = 'm1'",
                 [],
@@ -1281,7 +1524,7 @@ mod pruebas {
             )
             .unwrap();
         assert_eq!(tipo, "ingreso");
-        assert_eq!(monto, "10.50");
+        assert_eq!(monto, 1050, "10.50 USD se guarda como 1050 centavos");
         assert_eq!(estado, "vigente");
     }
 
@@ -1289,8 +1532,8 @@ mod pruebas {
     fn movimiento_con_cuenta_inexistente_falla() {
         let conn = base_con_cuenta();
         let err = conn.execute(
-            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-             VALUES ('m', 'no-existe', 'ingreso', '1.00', '2026-10-19', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, evento_origen, actualizado_en)
+             VALUES ('m', 'no-existe', 'ingreso', '1.00', '2026-10-19', 19, 10, 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
             [],
         );
         assert!(err.is_err(), "la cuenta debe existir (FK)");
@@ -1299,10 +1542,12 @@ mod pruebas {
     #[test]
     fn movimiento_con_monto_no_positivo_falla() {
         let conn = base_con_cuenta();
-        for monto in ["0.00", "-5.00", "abc"] {
+        // Enteros no positivos, y cualquier valor que no sea un entero: un
+        // decimal o un texto nunca entran a la columna de unidades mínimas.
+        for monto in ["0", "-500", "10.5", "abc"] {
             let err = conn.execute(
-                "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-                 VALUES (?1, 'c1', 'ingreso', ?2, '2026-10-19', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+                "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, evento_origen, actualizado_en)
+                 VALUES (?1, 'c1', 'ingreso', ?2, '2026-10-19', 19, 10, 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
                 params![format!("m-{monto}"), monto],
             );
             assert!(err.is_err(), "el monto {monto} debía rechazarse");
@@ -1313,8 +1558,8 @@ mod pruebas {
     fn movimiento_con_tipo_invalido_falla() {
         let conn = base_con_cuenta();
         let err = conn.execute(
-            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-             VALUES ('m', 'c1', 'transferencia', '1.00', '2026-10-19', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, evento_origen, actualizado_en)
+             VALUES ('m', 'c1', 'transferencia', '1.00', '2026-10-19', 19, 10, 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
             [],
         );
         assert!(err.is_err(), "el tipo debe ser ingreso o egreso");
@@ -1324,8 +1569,8 @@ mod pruebas {
     fn movimiento_con_fecha_invalida_falla() {
         let conn = base_con_cuenta();
         let err = conn.execute(
-            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, evento_origen, actualizado_en)
-             VALUES ('m', 'c1', 'ingreso', '1.00', '19/10/2026', 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
+            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, evento_origen, actualizado_en)
+             VALUES ('m', 'c1', 'ingreso', '1.00', '19/10/2026', 19, 10, 'ingreso:salario', 'ev-cuenta', '2026-10-19T00:00:00Z')",
             [],
         );
         assert!(err.is_err(), "la fecha debe tener formato AAAA-MM-DD");
@@ -1402,8 +1647,8 @@ mod pruebas {
         )
         .unwrap();
         let err = conn.execute(
-            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, reemplaza_a, evento_origen, actualizado_en)
-             VALUES ('m3', 'c1', 'egreso', '1.00', '2026-10-19', 'gasto:alimentacion', 'm1', 'ev-m3', '2026-10-19T02:00:00Z')",
+            "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, reemplaza_a, evento_origen, actualizado_en)
+             VALUES ('m3', 'c1', 'egreso', '1.00', '2026-10-19', 19, 10, 'gasto:alimentacion', 'm1', 'ev-m3', '2026-10-19T02:00:00Z')",
             [],
         );
         assert!(
@@ -1503,14 +1748,14 @@ mod pruebas {
         );
         assert_eq!(vigentes, 3, "deben verse m1, m2 y m4 (m3 quedó corregido)");
 
-        let inicial: String = conn
+        let inicial: i64 = conn
             .query_row(
                 "SELECT monto FROM vista_composicion_saldo WHERE cuenta_id = 'c1' AND tipo = 'inicial'",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(inicial, "100.00");
+        assert_eq!(inicial, 10000);
     }
 
     #[test]
@@ -1599,5 +1844,83 @@ mod pruebas {
         let eventos = listar_eventos(&conn).unwrap();
         assert_eq!(eventos.len(), 1);
         assert_eq!(eventos[0].tipo, "CuentaCreada");
+    }
+
+    #[test]
+    fn tasas_y_monedas_propias_no_se_borran_ni_se_modifican() {
+        let conn = conexion_vacia();
+        conn.execute_batch(
+            "INSERT INTO eventos (id, tipo, momento_registro, dispositivo_origen, datos)
+             VALUES ('ev-btc', 'MonedaCreada', '2026-10-20T00:00:00Z', 'd1', '{}'),
+                    ('ev-t1', 'TasaRegistrada', '2026-10-20T00:00:00Z', 'd1', '{}'),
+                    ('ev-del', 'TasaEliminada', '2026-10-21T00:00:00Z', 'd1', '{}');
+             INSERT INTO monedas_propias (codigo, nombre, simbolo, decimales, evento_origen, actualizado_en)
+             VALUES ('BTC', 'Bitcoin', 'B', 8, 'ev-btc', '2026-10-20T00:00:00Z');
+             INSERT INTO tasas (id, moneda_origen, moneda_destino, valor, fecha, fuente, evento_origen, actualizado_en)
+             VALUES ('t1', 'USD', 'VES', 88700000000, '2026-10-20', 'BCV', 'ev-t1', '2026-10-20T00:00:00Z');",
+        )
+        .unwrap();
+
+        assert!(conn.execute("DELETE FROM tasas", []).is_err());
+        assert!(conn.execute("UPDATE tasas SET valor = 1", []).is_err());
+        assert!(conn.execute("DELETE FROM monedas_propias", []).is_err());
+        assert!(
+            conn.execute("UPDATE monedas_propias SET decimales = 2", [])
+                .is_err(),
+            "cambiar los decimales invalidaría los montos guardados"
+        );
+
+        assert_eq!(
+            marcar_tasa_eliminada(&conn, "t1", "ev-del", "2026-10-21T00:00:00Z").unwrap(),
+            1
+        );
+        assert_eq!(
+            marcar_tasa_eliminada(&conn, "t1", "ev-del", "2026-10-21T00:00:00Z").unwrap(),
+            0,
+            "una tasa eliminada no se vuelve a eliminar"
+        );
+        assert!(
+            conn.execute("UPDATE tasas SET estado = 'vigente'", [])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn las_restricciones_de_tasas_y_monedas_propias_se_cumplen() {
+        let conn = conexion_vacia();
+        conn.execute(
+            "INSERT INTO eventos (id, tipo, momento_registro, dispositivo_origen, datos)
+             VALUES ('ev', 'x', '2026-10-20T00:00:00Z', 'd1', '{}')",
+            [],
+        )
+        .unwrap();
+        let tasa = |origen: &str, destino: &str, valor: &str, fuente: &str| {
+            conn.execute(
+                &format!(
+                    "INSERT INTO tasas (id, moneda_origen, moneda_destino, valor, fecha, fuente, evento_origen, actualizado_en)
+                     VALUES ('t-{origen}{destino}{valor}', '{origen}', '{destino}', {valor}, '2026-10-20', '{fuente}', 'ev', 'x')"
+                ),
+                [],
+            )
+        };
+        assert!(tasa("USD", "VES", "1", "BCV").is_ok());
+        assert!(tasa("USD", "USD", "1", "BCV").is_err(), "monedas iguales");
+        assert!(tasa("USD", "EUR", "0", "BCV").is_err(), "valor cero");
+        assert!(tasa("USD", "EUR", "1.5", "BCV").is_err(), "valor no entero");
+        assert!(tasa("USD", "EUR", "1", " ").is_err(), "sin fuente");
+
+        let moneda = |codigo: &str, decimales: i64| {
+            conn.execute(
+                "INSERT INTO monedas_propias (codigo, nombre, simbolo, decimales, evento_origen, actualizado_en)
+                 VALUES (?1, 'X', 'X', ?2, 'ev', 'x')",
+                params![codigo, decimales],
+            )
+        };
+        assert!(moneda("BTC", 8).is_ok());
+        assert!(moneda("BTC", 2).is_err(), "código repetido");
+        assert!(moneda("btc", 2).is_err(), "minúsculas");
+        assert!(moneda("AB", 2).is_err(), "muy corto");
+        assert!(moneda("ABCDEF", 2).is_err(), "muy largo");
+        assert!(moneda("ABC", 9).is_err(), "más de 8 decimales");
     }
 }

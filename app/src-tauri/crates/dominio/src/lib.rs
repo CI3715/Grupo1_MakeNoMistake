@@ -22,12 +22,18 @@ pub enum Campo {
     Fecha,
     Categoria,
     Nota,
+    Codigo,
+    Simbolo,
+    Decimales,
 }
 
 impl Campo {
     /// Devuelve el identificador textual del campo en formato snake_case.
     pub fn a_texto(&self) -> &'static str {
         match self {
+            Campo::Codigo => "codigo",
+            Campo::Simbolo => "simbolo",
+            Campo::Decimales => "decimales",
             Campo::Nombre => "nombre",
             Campo::Moneda => "moneda",
             Campo::SaldoInicial => "saldo_inicial",
@@ -60,9 +66,16 @@ impl ErrorDominio {
 
 // ──────────────────────────── Moneda ─────────────────────────────
 
+/// Máximo de decimales que admite una moneda propia (y una tasa de cambio).
+pub const DECIMALES_MAXIMOS: u32 = 8;
+
 /// Moneda soportada por la aplicación.
 ///
-/// El catálogo fijo contiene VES, USD, EUR y USDT, todas con 2 decimales.
+/// El catálogo se compone de las cuatro monedas de fábrica (VES, USD, EUR y
+/// USDT, todas con 2 decimales) más las monedas propias que cree la persona
+/// (RF-CAM-01). Los decimales de una moneda nunca cambian después de creada:
+/// de eso depende que los montos guardados en unidades mínimas sigan siendo
+/// correctos.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Moneda {
     pub codigo: String,
@@ -72,8 +85,8 @@ pub struct Moneda {
 }
 
 impl Moneda {
-    /// Devuelve el catálogo completo de monedas soportadas.
-    pub fn catalogo() -> Vec<Moneda> {
+    /// Devuelve las cuatro monedas de fábrica, que no se pueden modificar ni eliminar.
+    pub fn de_fabrica() -> Vec<Moneda> {
         vec![
             Moneda {
                 codigo: "VES".into(),
@@ -102,13 +115,130 @@ impl Moneda {
         ]
     }
 
-    /// Busca una moneda por código (insensible a mayúsculas/minúsculas).
+    /// Busca una moneda **de fábrica** por código (insensible a mayúsculas/minúsculas).
+    ///
+    /// No conoce las monedas propias: para validar datos de la persona se usa
+    /// [`Moneda::buscar`] con el catálogo completo.
     pub fn por_codigo(codigo: &str) -> Option<Moneda> {
-        let codigo_upper = codigo.trim().to_uppercase();
-        Self::catalogo()
-            .into_iter()
-            .find(|m| m.codigo == codigo_upper)
+        Self::buscar(codigo, &Self::de_fabrica())
     }
+
+    /// Indica si el código pertenece a una de las cuatro monedas de fábrica.
+    pub fn es_de_fabrica(codigo: &str) -> bool {
+        Self::por_codigo(codigo).is_some()
+    }
+
+    /// Busca una moneda por código (insensible a mayúsculas/minúsculas) en el
+    /// catálogo indicado (fábrica más monedas propias).
+    pub fn buscar(codigo: &str, catalogo: &[Moneda]) -> Option<Moneda> {
+        let codigo_upper = codigo.trim().to_uppercase();
+        catalogo.iter().find(|m| m.codigo == codigo_upper).cloned()
+    }
+
+    /// Valida y crea una moneda propia (RF-CAM-01).
+    ///
+    /// Reglas: código de 3 a 5 letras mayúsculas que no exista en `catalogo`
+    /// (las de fábrica no se pueden redefinir), nombre y símbolo no vacíos y
+    /// entre 0 y [`DECIMALES_MAXIMOS`] decimales. Acumula **todos** los errores.
+    pub fn crear_propia(
+        codigo: &str,
+        nombre: &str,
+        simbolo: &str,
+        decimales: &str,
+        catalogo: &[Moneda],
+    ) -> Result<(Moneda, MonedaCreada), Vec<ErrorDominio>> {
+        let mut errores = Vec::new();
+        let codigo = codigo.trim();
+        let nombre = nombre.trim();
+        let simbolo = simbolo.trim();
+        let decimales = decimales.trim();
+
+        let formato_ok =
+            (3..=5).contains(&codigo.len()) && codigo.chars().all(|c| c.is_ascii_uppercase());
+        if !formato_ok {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Codigo,
+                "El código debe tener de 3 a 5 letras mayúsculas.",
+            ));
+        } else if Moneda::es_de_fabrica(codigo) {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Codigo,
+                format!("{codigo} es una moneda de fábrica y no se puede modificar."),
+            ));
+        } else if Moneda::buscar(codigo, catalogo).is_some() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Codigo,
+                format!("Ya existe una moneda con el código {codigo}."),
+            ));
+        }
+
+        if nombre.is_empty() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Nombre,
+                "Escribe el nombre de la moneda.",
+            ));
+        }
+        if simbolo.is_empty() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Simbolo,
+                "Escribe el símbolo de la moneda.",
+            ));
+        }
+
+        let decimales = match decimales.parse::<u32>() {
+            Ok(n) if n <= DECIMALES_MAXIMOS => Some(n),
+            _ if decimales.is_empty() => {
+                errores.push(ErrorDominio::nuevo(
+                    Campo::Decimales,
+                    "Indica cuántos decimales usa la moneda.",
+                ));
+                None
+            }
+            _ => {
+                errores.push(ErrorDominio::nuevo(
+                    Campo::Decimales,
+                    format!("Los decimales deben ser un número entero de 0 a {DECIMALES_MAXIMOS}."),
+                ));
+                None
+            }
+        };
+
+        if !errores.is_empty() {
+            return Err(errores);
+        }
+
+        let moneda = Moneda {
+            codigo: codigo.to_string(),
+            nombre: nombre.to_string(),
+            simbolo: simbolo.to_string(),
+            decimales: decimales.expect("decimales validados"),
+        };
+        let evento = MonedaCreada {
+            codigo: moneda.codigo.clone(),
+            nombre: moneda.nombre.clone(),
+            simbolo: moneda.simbolo.clone(),
+            decimales: moneda.decimales,
+        };
+        Ok((moneda, evento))
+    }
+}
+
+/// Lista los códigos del catálogo separados por comas, para los mensajes de error.
+fn codigos_de(catalogo: &[Moneda]) -> String {
+    catalogo
+        .iter()
+        .map(|m| m.codigo.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Evento de dominio emitido cuando se crea una moneda propia.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonedaCreada {
+    pub codigo: String,
+    pub nombre: String,
+    pub simbolo: String,
+    pub decimales: u32,
 }
 
 // ──────────────────────────── Monto ──────────────────────────────
@@ -243,6 +373,7 @@ impl Cuenta {
         moneda_codigo: &str,
         saldo_inicial: &str,
         nombres_existentes: &[String],
+        catalogo: &[Moneda],
     ) -> Result<(Cuenta, CuentaCreada), Vec<ErrorDominio>> {
         let mut errores: Vec<ErrorDominio> = Vec::new();
 
@@ -270,13 +401,14 @@ impl Cuenta {
         }
 
         // ── 3. Moneda fuera del catálogo ──
-        let moneda = Moneda::por_codigo(moneda_codigo);
+        let moneda = Moneda::buscar(moneda_codigo, catalogo);
         if moneda.is_none() {
             errores.push(ErrorDominio::nuevo(
                 Campo::Moneda,
                 format!(
-                    "La moneda '{}' no está en el catálogo. Opciones: VES, USD, EUR, USDT",
-                    moneda_codigo
+                    "La moneda '{}' no está en el catálogo. Opciones: {}",
+                    moneda_codigo,
+                    codigos_de(catalogo)
                 ),
             ));
         }
@@ -566,6 +698,7 @@ pub fn registrar_movimiento(
     id_categoria: &str,
     nota: Option<String>,
     categorias_existentes: &[Categoria],
+    catalogo: &[Moneda],
 ) -> Result<(Movimiento, MovimientoRegistrado), Vec<ErrorDominio>> {
     let mut errores: Vec<ErrorDominio> = Vec::new();
 
@@ -579,13 +712,14 @@ pub fn registrar_movimiento(
     }
 
     // ── 2. Validación de moneda ──
-    let moneda = Moneda::por_codigo(moneda_codigo);
+    let moneda = Moneda::buscar(moneda_codigo, catalogo);
     if moneda.is_none() {
         errores.push(ErrorDominio::nuevo(
             Campo::Moneda,
             format!(
-                "La moneda '{}' no está en el catálogo. Opciones: VES, USD, EUR, USDT",
-                moneda_codigo
+                "La moneda '{}' no está en el catálogo. Opciones: {}",
+                moneda_codigo,
+                codigos_de(catalogo)
             ),
         ));
     }
@@ -1055,7 +1189,7 @@ mod tests {
 
     #[test]
     fn catalogo_tiene_cuatro_monedas() {
-        let catalogo = Moneda::catalogo();
+        let catalogo = Moneda::de_fabrica();
         assert_eq!(catalogo.len(), 4);
         let codigos: Vec<&str> = catalogo.iter().map(|m| m.codigo.as_str()).collect();
         assert!(codigos.contains(&"VES"));
@@ -1066,7 +1200,7 @@ mod tests {
 
     #[test]
     fn todas_las_monedas_tienen_dos_decimales() {
-        for m in Moneda::catalogo() {
+        for m in Moneda::de_fabrica() {
             assert_eq!(
                 m.decimales, 2,
                 "La moneda {} no tiene 2 decimales",
@@ -1083,7 +1217,7 @@ mod tests {
             ("EUR", "Euro", "€"),
             ("USDT", "Tether (dólar digital)", "USDT"),
         ];
-        let catalogo = Moneda::catalogo();
+        let catalogo = Moneda::de_fabrica();
         for (codigo, nombre, simbolo) in esperado {
             let m = catalogo
                 .iter()
@@ -1157,6 +1291,7 @@ mod tests {
             "VES",
             "1250.50",
             &[],
+            &Moneda::de_fabrica(),
         )
         .expect("debe crear sin errores");
 
@@ -1173,7 +1308,15 @@ mod tests {
 
     #[test]
     fn crear_cuenta_con_saldo_cero() {
-        let resultado = Cuenta::crear("id-2".into(), "Banco", TipoCuenta::Banco, "USD", "0", &[]);
+        let resultado = Cuenta::crear(
+            "id-2".into(),
+            "Banco",
+            TipoCuenta::Banco,
+            "USD",
+            "0",
+            &[],
+            &Moneda::de_fabrica(),
+        );
         assert!(resultado.is_ok());
     }
 
@@ -1181,8 +1324,16 @@ mod tests {
 
     #[test]
     fn nombre_vacio_falla() {
-        let err = Cuenta::crear("id-3".into(), "", TipoCuenta::Efectivo, "USD", "100", &[])
-            .expect_err("nombre vacío debe fallar");
+        let err = Cuenta::crear(
+            "id-3".into(),
+            "",
+            TipoCuenta::Efectivo,
+            "USD",
+            "100",
+            &[],
+            &Moneda::de_fabrica(),
+        )
+        .expect_err("nombre vacío debe fallar");
 
         assert!(err.iter().any(|e| e.campo == Campo::Nombre));
     }
@@ -1196,6 +1347,7 @@ mod tests {
             "USD",
             "100",
             &[],
+            &Moneda::de_fabrica(),
         )
         .expect_err("nombre de espacios debe fallar");
 
@@ -1214,6 +1366,7 @@ mod tests {
             "EUR",
             "50",
             &existentes,
+            &Moneda::de_fabrica(),
         )
         .expect_err("nombre repetido debe fallar");
 
@@ -1234,6 +1387,7 @@ mod tests {
             "BTC",
             "1.00",
             &[],
+            &Moneda::de_fabrica(),
         )
         .expect_err("moneda inválida debe fallar");
 
@@ -1251,6 +1405,7 @@ mod tests {
             "USD",
             "-10.00",
             &[],
+            &Moneda::de_fabrica(),
         )
         .expect_err("saldo negativo debe fallar");
 
@@ -1271,6 +1426,7 @@ mod tests {
             "EUR",
             "100.123",
             &[],
+            &Moneda::de_fabrica(),
         )
         .expect_err("demasiados decimales debe fallar");
 
@@ -1291,6 +1447,7 @@ mod tests {
             "USD",
             "abc",
             &[],
+            &Moneda::de_fabrica(),
         )
         .expect_err("saldo no numérico debe fallar");
 
@@ -1308,6 +1465,7 @@ mod tests {
             "BTC",    // moneda inválida
             "-5.999", // negativo + demasiados decimales (pero moneda inválida, no se chequea decimales)
             &[],
+            &Moneda::de_fabrica(),
         )
         .expect_err("múltiples errores deben acumularse");
 
@@ -1382,6 +1540,7 @@ mod tests {
             "USD",
             "0",
             &[],
+            &Moneda::de_fabrica(),
         )
         .unwrap();
         let copia = cuenta.clone();
@@ -1405,8 +1564,16 @@ mod tests {
 
     #[test]
     fn monto_de_cuenta_conserva_su_moneda_en_las_operaciones() {
-        let (cuenta, evento) =
-            Cuenta::crear("id-m".into(), "Dólares", TipoCuenta::Banco, "usd", "5", &[]).unwrap();
+        let (cuenta, evento) = Cuenta::crear(
+            "id-m".into(),
+            "Dólares",
+            TipoCuenta::Banco,
+            "usd",
+            "5",
+            &[],
+            &Moneda::de_fabrica(),
+        )
+        .unwrap();
         assert_eq!(cuenta.saldo().moneda(), &evento.moneda);
         let suma = cuenta.saldo().sumar(cuenta.saldo()).unwrap();
         assert_eq!(suma.moneda().codigo, "USD");
@@ -1429,6 +1596,7 @@ mod tests {
             "USD",
             "10.500",
             &[],
+            &Moneda::de_fabrica(),
         )
         .unwrap();
         assert_eq!(cuenta.saldo().cantidad(), dec!(10.50));
@@ -1444,6 +1612,7 @@ mod tests {
             "VES",
             "300",
             &[],
+            &Moneda::de_fabrica(),
         )
         .unwrap();
         assert_eq!(evento.saldo_inicial.to_string(), "300.00");
@@ -1458,6 +1627,7 @@ mod tests {
             "VES",
             "-0.00",
             &[],
+            &Moneda::de_fabrica(),
         )
         .unwrap();
         assert_eq!(evento.saldo_inicial.to_string(), "0.00");
@@ -1472,6 +1642,7 @@ mod tests {
             "USD",
             "10.555",
             &[],
+            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::SaldoInicial));
@@ -1569,6 +1740,7 @@ mod tests {
             "gasto:alimentacion",
             Some("Almuerzo".into()),
             &cats,
+            &Moneda::de_fabrica(),
         )
         .expect("debe registrar movimiento");
 
@@ -1599,6 +1771,7 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_cero.iter().any(|e| e.campo == Campo::Monto));
@@ -1614,6 +1787,7 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_neg.iter().any(|e| e.campo == Campo::Monto));
@@ -1633,6 +1807,7 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Monto));
@@ -1652,6 +1827,7 @@ mod tests {
             "categoria_fantasma",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_inex.iter().any(|e| e.campo == Campo::Categoria));
@@ -1667,6 +1843,7 @@ mod tests {
             "ingreso:salario",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_incomp.iter().any(|e| e.campo == Campo::Categoria));
@@ -1686,6 +1863,7 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(
@@ -1711,6 +1889,7 @@ mod tests {
             "ingreso:salario",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1778,6 +1957,7 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1804,6 +1984,7 @@ mod tests {
             "gasto:transporte",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1828,6 +2009,7 @@ mod tests {
             "gasto:transporte",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1848,6 +2030,7 @@ mod tests {
             "USD",
             "1000.00",
             &[],
+            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1863,6 +2046,7 @@ mod tests {
             "ingreso:salario",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1877,6 +2061,7 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
+            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1961,6 +2146,7 @@ mod tests {
                 "USD",
                 &saldo_inicial.to_string(),
                 &[],
+                &Moneda::de_fabrica(),
             )
             .unwrap();
 
@@ -2064,6 +2250,7 @@ mod tests {
                 "USD",
                 &saldo_inicial.to_string(),
                 &[],
+                &Moneda::de_fabrica(),
             )
             .unwrap();
 
@@ -2179,5 +2366,128 @@ mod tests {
                 "El saldo derivado de los eventos/efectos debe coincidir exactamente con el saldo calculado con los montos vigentes"
             );
         }
+    }
+
+    // ── Monedas propias (RF-CAM-01) ──
+
+    fn bitcoin() -> Moneda {
+        Moneda::crear_propia("BTC", "Bitcoin", "₿", "8", &Moneda::de_fabrica())
+            .expect("BTC es válida")
+            .0
+    }
+
+    #[test]
+    fn crear_moneda_propia_valida_devuelve_evento() {
+        let (moneda, evento) =
+            Moneda::crear_propia(" BTC ", " Bitcoin ", "₿", "8", &Moneda::de_fabrica())
+                .expect("debe crearse");
+        assert_eq!(moneda.codigo, "BTC");
+        assert_eq!(moneda.nombre, "Bitcoin");
+        assert_eq!(moneda.decimales, 8);
+        assert_eq!(evento.codigo, "BTC");
+        assert_eq!(evento.decimales, 8);
+    }
+
+    #[test]
+    fn crear_moneda_propia_acumula_errores_por_campo() {
+        let err = Moneda::crear_propia("bt", "", " ", "9", &Moneda::de_fabrica())
+            .expect_err("todo es inválido");
+        let campos: Vec<Campo> = err.iter().map(|e| e.campo).collect();
+        assert_eq!(
+            campos,
+            vec![
+                Campo::Codigo,
+                Campo::Nombre,
+                Campo::Simbolo,
+                Campo::Decimales
+            ]
+        );
+    }
+
+    #[test]
+    fn codigo_de_moneda_propia_respeta_formato() {
+        for codigo in ["BT", "BITCOI", "btc", "B1C", "BT C"] {
+            let err = Moneda::crear_propia(codigo, "X", "X", "2", &Moneda::de_fabrica())
+                .expect_err(codigo);
+            assert_eq!(err[0].campo, Campo::Codigo, "{codigo}");
+        }
+        for codigo in ["ABC", "ABCD", "ABCDE"] {
+            assert!(
+                Moneda::crear_propia(codigo, "X", "X", "2", &Moneda::de_fabrica()).is_ok(),
+                "{codigo}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_se_redefine_una_moneda_de_fabrica_ni_una_propia_repetida() {
+        let err = Moneda::crear_propia("USD", "Otro dólar", "$", "2", &Moneda::de_fabrica())
+            .expect_err("USD es de fábrica");
+        assert!(err[0].mensaje.contains("de fábrica"));
+
+        let mut catalogo = Moneda::de_fabrica();
+        catalogo.push(bitcoin());
+        let err =
+            Moneda::crear_propia("BTC", "Otro", "B", "2", &catalogo).expect_err("BTC ya existe");
+        assert_eq!(err[0].campo, Campo::Codigo);
+        assert!(err[0].mensaje.contains("Ya existe"));
+    }
+
+    #[test]
+    fn decimales_de_moneda_propia_entre_cero_y_ocho() {
+        for (texto, valido) in [
+            ("0", true),
+            ("8", true),
+            ("9", false),
+            ("-1", false),
+            ("2.5", false),
+            ("", false),
+        ] {
+            let res = Moneda::crear_propia("ABC", "X", "X", texto, &Moneda::de_fabrica());
+            assert_eq!(res.is_ok(), valido, "decimales {texto:?}");
+        }
+    }
+
+    #[test]
+    fn una_cuenta_puede_usar_una_moneda_propia_del_catalogo() {
+        let mut catalogo = Moneda::de_fabrica();
+        catalogo.push(bitcoin());
+
+        let (cuenta, _) = Cuenta::crear(
+            "c-btc".into(),
+            "Billetera fría",
+            TipoCuenta::BilleteraDigital,
+            "btc",
+            "0.00012345",
+            &[],
+            &catalogo,
+        )
+        .expect("BTC está en el catálogo");
+        assert_eq!(cuenta.saldo().moneda().codigo, "BTC");
+        assert_eq!(cuenta.saldo().cantidad().to_string(), "0.00012345");
+
+        let err = Cuenta::crear(
+            "c-btc".into(),
+            "Billetera fría",
+            TipoCuenta::BilleteraDigital,
+            "BTC",
+            "0.000000001",
+            &[],
+            &catalogo,
+        )
+        .expect_err("BTC admite 8 decimales, no 9");
+        assert_eq!(err[0].campo, Campo::SaldoInicial);
+
+        let err = Cuenta::crear(
+            "c-btc".into(),
+            "Billetera fría",
+            TipoCuenta::BilleteraDigital,
+            "BTC",
+            "1",
+            &[],
+            &Moneda::de_fabrica(),
+        )
+        .expect_err("sin la moneda propia en el catálogo no se puede usar");
+        assert!(err[0].mensaje.contains("Opciones: VES, USD, EUR, USDT"));
     }
 }

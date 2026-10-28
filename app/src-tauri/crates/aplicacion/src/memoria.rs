@@ -7,40 +7,84 @@
 use crate::proyector;
 use crate::puertos::{
     CategoriaProyectada, CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
-    GeneradorIdentificadores, MovimientoProyectado, Reloj, RepositorioEventos, ResultadoGuardado,
+    GeneradorIdentificadores, MonedaProyectada, MovimientoProyectado, Reloj, RepositorioEventos,
+    ResultadoGuardado, TasaProyectada,
 };
+
+/// Convierte un error de la capa de aplicación en un error de repositorio.
+fn error_repo(e: crate::errores::ErrorAplicacion) -> ErrorRepositorio {
+    ErrorRepositorio(e.to_string())
+}
 
 /// Almacén de eventos volátil respaldado por vectores en memoria.
 ///
-/// Mantiene el libro de eventos y sus proyecciones `cuentas`, `categorias` y
-/// `movimientos` sincronizados igual que el adaptador de SQLite: al guardar un
-/// evento nuevo, las proyecciones se actualizan acto seguido.
+/// Mantiene el libro de eventos y sus proyecciones (`cuentas`, `categorias`,
+/// `movimientos`, `monedas_propias`, `tasas` y moneda base) sincronizados igual
+/// que el adaptador de SQLite: al guardar un evento nuevo, las proyecciones se
+/// actualizan acto seguido.
 #[derive(Debug, Default)]
 pub struct RepositorioEnMemoria {
     eventos: Vec<EventoRegistrado>,
     cuentas: Vec<CuentaProyectada>,
     categorias: Vec<CategoriaProyectada>,
     movimientos: Vec<MovimientoProyectado>,
+    monedas: Vec<MonedaProyectada>,
+    tasas: Vec<TasaProyectada>,
+    moneda_base: Option<String>,
 }
 
 impl RepositorioEnMemoria {
     /// Crea un repositorio en memoria inicialmente vacío.
     pub fn nuevo() -> RepositorioEnMemoria {
-        RepositorioEnMemoria {
-            eventos: Vec::new(),
-            cuentas: Vec::new(),
-            categorias: Vec::new(),
-            movimientos: Vec::new(),
-        }
+        RepositorioEnMemoria::default()
     }
 
     /// Aplica los efectos de un evento sobre las proyecciones, en el orden en que
     /// las comparte con el adaptador de SQLite.
+    ///
+    /// Si el evento se rechaza, ninguna proyección cambia: todas las
+    /// comprobaciones ocurren antes de escribir.
     fn aplicar(&mut self, evento: &EventoRegistrado) -> Result<(), ErrorRepositorio> {
-        if let Some(cuenta) =
-            proyector::proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
-        {
+        if let Some(moneda) = proyector::proyectar_moneda(evento).map_err(error_repo)? {
+            if self.monedas.iter().any(|m| m.codigo == moneda.codigo) {
+                return Err(ErrorRepositorio(format!(
+                    "ya existe la moneda {}",
+                    moneda.codigo
+                )));
+            }
+            self.monedas.push(moneda);
+        }
+
+        let catalogo = proyector::catalogo_completo(&self.monedas);
+
+        if let Some(cuenta) = proyector::proyectar_cuenta(evento, &catalogo).map_err(error_repo)? {
             self.cuentas.push(cuenta);
+        }
+
+        if let Some(tasa) = proyector::proyectar_tasa(evento, &catalogo).map_err(error_repo)? {
+            if self.tasas.iter().any(|t| t.id == tasa.id) {
+                return Err(ErrorRepositorio(format!("ya existe la tasa {}", tasa.id)));
+            }
+            self.tasas.push(tasa);
+        }
+
+        if let Some(tasa_id) = proyector::tasa_eliminada(evento).map_err(error_repo)? {
+            let Some(tasa) = self
+                .tasas
+                .iter_mut()
+                .find(|t| t.id == tasa_id && t.estado == "vigente")
+            else {
+                return Err(ErrorRepositorio(format!(
+                    "la tasa {tasa_id} no existe o ya fue eliminada"
+                )));
+            };
+            tasa.estado = "eliminada".to_string();
+        }
+
+        if let Some(moneda) =
+            proyector::moneda_base_cambiada(evento, &catalogo).map_err(error_repo)?
+        {
+            self.moneda_base = Some(moneda);
         }
 
         if let Some(categoria) =
@@ -54,8 +98,10 @@ impl RepositorioEnMemoria {
             .map_err(|e| ErrorRepositorio(e.to_string()))?
         {
             Some(m) => Some(m),
-            None => proyector::proyectar_correccion_con_original(evento, &self.movimientos)
-                .map_err(|e| ErrorRepositorio(e.to_string()))?,
+            None => {
+                proyector::proyectar_correccion_con_original(evento, &self.movimientos, &catalogo)
+                    .map_err(error_repo)?
+            }
         };
 
         if let Some(movimiento) = mov_proyectado {
@@ -108,12 +154,14 @@ impl RepositorioEnMemoria {
             .map(|m| (m.tipo.clone(), m.monto.clone()))
             .collect();
 
+        let catalogo = proyector::catalogo_completo(&self.monedas);
         let Some(cuenta) = self.cuentas.iter_mut().find(|c| c.id == cuenta_id) else {
             return Ok(());
         };
+        let decimales = proyector::decimales_de(&cuenta.moneda, &catalogo).map_err(error_repo)?;
         cuenta.saldo_actual =
-            proyector::calcular_saldo_actual(&cuenta.saldo_inicial, &cuenta.moneda, &vigentes)
-                .map_err(|e| ErrorRepositorio(e.to_string()))?;
+            proyector::calcular_saldo_actual(&cuenta.saldo_inicial, decimales, &vigentes)
+                .map_err(error_repo)?;
         Ok(())
     }
 }
@@ -147,10 +195,25 @@ impl RepositorioEventos for RepositorioEnMemoria {
         Ok(self.movimientos.clone())
     }
 
+    fn listar_monedas_propias(&self) -> Result<Vec<MonedaProyectada>, ErrorRepositorio> {
+        Ok(self.monedas.clone())
+    }
+
+    fn listar_tasas(&self) -> Result<Vec<TasaProyectada>, ErrorRepositorio> {
+        Ok(self.tasas.clone())
+    }
+
+    fn moneda_base(&self) -> Result<Option<String>, ErrorRepositorio> {
+        Ok(self.moneda_base.clone())
+    }
+
     fn reconstruir(&mut self) -> Result<(), ErrorRepositorio> {
         self.cuentas.clear();
         self.categorias.clear();
         self.movimientos.clear();
+        self.monedas.clear();
+        self.tasas.clear();
+        self.moneda_base = None;
 
         let eventos = self.eventos.clone();
         for evento in &eventos {
