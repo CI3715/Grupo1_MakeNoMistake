@@ -635,4 +635,21 @@ fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
         }
     }
     assert_eq!(app.listar_monedas().unwrap().len(), 5);
+
+    // Decimales que no son un número: se informa ese campo junto con los demás.
+    let err = app
+        .crear_moneda(NuevaMoneda {
+            codigo: "x".to_string(),
+            nombre: "Otra".to_string(),
+            simbolo: "O".to_string(),
+            decimales: "dos".to_string(),
+        })
+        .unwrap_err();
+    match err {
+        ErrorAplicacion::Validacion(lista) => {
+            let campos: Vec<_> = lista.iter().filter_map(|e| e.campo.as_deref()).collect();
+            assert_eq!(campos, vec!["codigo", "decimales"]);
+        }
+        otro => panic!("se esperaba validación, llegó {otro:?}"),
+    }
 }

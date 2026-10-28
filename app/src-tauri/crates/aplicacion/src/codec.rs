@@ -57,7 +57,7 @@ pub fn texto_a_tipo_movimiento(texto: &str) -> Result<TipoMovimiento, ErrorAplic
 /// Busca una moneda en el catálogo o devuelve un error interno: un evento ya
 /// guardado nunca debería nombrar una moneda desconocida.
 fn buscar_moneda(codigo: &str, catalogo: &[Moneda]) -> Result<Moneda, ErrorAplicacion> {
-    Moneda::buscar(codigo, catalogo)
+    Moneda::por_codigo_en(codigo, catalogo)
         .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {codigo}")))
 }
 
@@ -554,7 +554,7 @@ mod pruebas {
     #[test]
     fn ida_y_vuelta_conserva_el_evento() {
         let original = evento_ejemplo();
-        let recuperado = deserializar(&serializar(&original), &Moneda::de_fabrica()).unwrap();
+        let recuperado = deserializar(&serializar(&original), &Moneda::catalogo()).unwrap();
         assert_eq!(recuperado, original);
     }
 
@@ -580,7 +580,7 @@ mod pruebas {
         };
         let json_mov = serializar_movimiento(&mov);
         assert_eq!(
-            deserializar_evento_movimiento(&json_mov, &Moneda::de_fabrica()).unwrap(),
+            deserializar_evento_movimiento(&json_mov, &Moneda::catalogo()).unwrap(),
             mov
         );
         assert_eq!(deserializar_movimiento(&json_mov).unwrap().id, "m-1");
@@ -593,7 +593,7 @@ mod pruebas {
             moneda: usd,
         };
         assert_eq!(
-            deserializar_correccion(&serializar_correccion(&corr), &Moneda::de_fabrica()).unwrap(),
+            deserializar_correccion(&serializar_correccion(&corr), &Moneda::catalogo()).unwrap(),
             corr
         );
 
@@ -610,29 +610,29 @@ mod pruebas {
     #[test]
     fn errores_de_deserializacion_son_internos() {
         assert!(matches!(
-            deserializar("no es json", &Moneda::de_fabrica()),
+            deserializar("no es json", &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
-            deserializar("{}", &Moneda::de_fabrica()),
+            deserializar("{}", &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         let tipo_malo =
             r#"{"id":"1","nombre":"A","tipo":"tarjeta","moneda":"VES","saldo_inicial":"1.00"}"#;
         assert!(matches!(
-            deserializar(tipo_malo, &Moneda::de_fabrica()),
+            deserializar(tipo_malo, &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         let monto_malo =
             r#"{"id":"1","nombre":"A","tipo":"banco","moneda":"VES","saldo_inicial":"abc"}"#;
         assert!(matches!(
-            deserializar(monto_malo, &Moneda::de_fabrica()),
+            deserializar(monto_malo, &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         let moneda_mala =
             r#"{"id":"1","nombre":"A","tipo":"banco","moneda":"XYZ","saldo_inicial":"1.00"}"#;
         assert!(matches!(
-            deserializar(moneda_mala, &Moneda::de_fabrica()),
+            deserializar(moneda_mala, &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
@@ -640,7 +640,7 @@ mod pruebas {
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
-            deserializar_correccion("no es json", &Moneda::de_fabrica()),
+            deserializar_correccion("no es json", &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
@@ -652,15 +652,10 @@ mod pruebas {
     #[test]
     fn una_cuenta_puede_usar_una_moneda_propia_del_catalogo() {
         let datos = r#"{"id":"c1","nombre":"Fría","tipo":"billetera_digital","moneda":"BTC","saldo_inicial":"0.00012345"}"#;
-        assert!(deserializar(datos, &Moneda::de_fabrica()).is_err());
+        assert!(deserializar(datos, &Moneda::catalogo()).is_err());
 
-        let mut catalogo = Moneda::de_fabrica();
-        catalogo.push(Moneda {
-            codigo: "BTC".into(),
-            nombre: "Bitcoin".into(),
-            simbolo: "₿".into(),
-            decimales: 8,
-        });
+        let mut catalogo = Moneda::catalogo();
+        catalogo.push(Moneda::nueva_propia("BTC", "Bitcoin", "₿", 8));
         let cuenta = deserializar(datos, &catalogo).unwrap();
         assert_eq!(cuenta.moneda.decimales, 8);
         assert_eq!(

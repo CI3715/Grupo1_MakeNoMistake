@@ -6,10 +6,11 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use dominio::{
-    Ajuste, Campo, Categoria, Cuenta, CuentaCreada, ErrorDominio, EstadoMovimiento, Moneda, Monto,
-    Movimiento, MovimientoCorregido, MovimientoRegistrado, TipoCuenta, TipoMovimiento,
-    calcular_saldo_y_composicion, categorias_de_fabrica, corregir_movimiento, crear_categoria,
-    registrar_movimiento, saldo_resultante,
+    Ajuste, Campo, Categoria, Cuenta, CuentaCreada, DECIMALES_MAXIMOS, ErrorDominio,
+    EstadoMovimiento, Moneda, Monto, Movimiento, MovimientoCorregido, MovimientoRegistrado,
+    TipoCuenta, TipoMovimiento, calcular_saldo_y_composicion, categorias_de_fabrica,
+    corregir_movimiento, crear_categoria, crear_moneda, registrar_movimiento_con_monedas,
+    saldo_resultante,
 };
 
 use crate::categorias::id_categoria_canonico;
@@ -171,14 +172,33 @@ impl CasosDeUso {
     /// Valida y crea una moneda propia (RF-CAM-01) registrando el evento
     /// `MonedaCreada`. Desde ese momento puede usarse en una cuenta nueva.
     pub fn crear_moneda(&mut self, entrada: NuevaMoneda) -> Result<MonedaDto, ErrorAplicacion> {
-        let (moneda, evento_dominio) = Moneda::crear_propia(
+        // Los decimales llegan como texto: si no son un número entero, el
+        // dominio valida el resto con 0 y se añade el error del campo.
+        let texto_decimales = entrada.decimales.trim();
+        let decimales = texto_decimales.parse::<u32>();
+        let resultado = crear_moneda(
             &entrada.codigo,
             &entrada.nombre,
             &entrada.simbolo,
-            &entrada.decimales,
+            *decimales.as_ref().unwrap_or(&0),
             &self.catalogo()?,
-        )
-        .map_err(|errs| ErrorAplicacion::Validacion(convertir_errores(errs)))?;
+        );
+        let error_decimales = decimales.is_err().then(|| ErrorValidacion {
+            campo: Some(Campo::Decimales.a_texto().to_string()),
+            mensaje: if texto_decimales.is_empty() {
+                "Indica cuántos decimales usa la moneda.".to_string()
+            } else {
+                format!("Los decimales deben ser un número entero de 0 a {DECIMALES_MAXIMOS}.")
+            },
+        });
+        let (moneda, evento_dominio) = match (resultado, error_decimales) {
+            (Ok(creada), None) => creada,
+            (resultado, error_decimales) => {
+                let mut errores = resultado.err().map(convertir_errores).unwrap_or_default();
+                errores.extend(error_decimales);
+                return Err(ErrorAplicacion::Validacion(errores));
+            }
+        };
 
         let evento = EventoRegistrado {
             id: self.ids.nuevo_id(),
@@ -234,7 +254,7 @@ impl CasosDeUso {
         let saldo_normalizado = normalizar_separador_decimal(&entrada.saldo_inicial);
 
         // Una sola llamada a Cuenta::crear (D-10).
-        let resultado_dominio = Cuenta::crear(
+        let resultado_dominio = Cuenta::crear_con_monedas(
             String::new(),
             &entrada.nombre,
             tipo_para_validar,
@@ -387,7 +407,7 @@ impl CasosDeUso {
         };
         let hoy = self.reloj.hoy();
 
-        let res_dominio = registrar_movimiento(
+        let res_dominio = registrar_movimiento_con_monedas(
             String::new(),
             entrada.cuenta_id.clone(),
             tipo_val,
@@ -585,7 +605,7 @@ impl CasosDeUso {
         cantidad.rescale(cuenta_ev.moneda.decimales);
 
         let comp = calcular_composicion_de_cuenta(cuenta_ev, &estado)?;
-        let (_, mov_hipotetico) = registrar_movimiento(
+        let (_, mov_hipotetico) = registrar_movimiento_con_monedas(
             "prev".to_string(),
             cuenta_ev.id.clone(),
             TipoMovimiento::Gasto,
@@ -723,7 +743,7 @@ impl CasosDeUso {
     fn proyectar_libro(&self) -> Result<EstadoLibro, ErrorAplicacion> {
         let eventos = self.repositorio.listar()?;
         let mut vistos = HashSet::new();
-        let mut monedas = Moneda::de_fabrica();
+        let mut monedas = Moneda::catalogo();
         let mut cuentas = Vec::new();
         let mut categorias = categorias_de_fabrica();
         let mut movimientos: Vec<MovimientoProyectado> = Vec::new();
@@ -736,13 +756,13 @@ impl CasosDeUso {
             match e.tipo.as_str() {
                 TIPO_MONEDA_CREADA => {
                     let ev = codec::deserializar_moneda_creada(&e.datos)?;
-                    if Moneda::buscar(&ev.codigo, &monedas).is_none() {
-                        monedas.push(Moneda {
-                            codigo: ev.codigo,
-                            nombre: ev.nombre,
-                            simbolo: ev.simbolo,
-                            decimales: ev.decimales,
-                        });
+                    if Moneda::por_codigo_en(&ev.codigo, &monedas).is_none() {
+                        monedas.push(Moneda::nueva_propia(
+                            &ev.codigo,
+                            &ev.nombre,
+                            &ev.simbolo,
+                            ev.decimales,
+                        ));
                     }
                 }
                 TIPO_CUENTA_CREADA => {
@@ -832,7 +852,7 @@ trait MontoDesdeEvento {
 
 impl MontoDesdeEvento for Monto {
     fn from_evento_interno(ev: &MovimientoRegistrado, moneda: &Moneda) -> Monto {
-        let (cuenta_base, _) = Cuenta::crear(
+        let (cuenta_base, _) = Cuenta::crear_con_monedas(
             "tmp".to_string(),
             "Tmp",
             TipoCuenta::Efectivo,
@@ -851,7 +871,7 @@ fn calcular_composicion_de_cuenta(
     cuenta_ev: &CuentaCreada,
     estado: &EstadoLibro,
 ) -> Result<dominio::ComposicionSaldo, ErrorAplicacion> {
-    let (cuenta_dom, _) = Cuenta::crear(
+    let (cuenta_dom, _) = Cuenta::crear_con_monedas(
         cuenta_ev.id.clone(),
         &cuenta_ev.nombre,
         cuenta_ev.tipo,

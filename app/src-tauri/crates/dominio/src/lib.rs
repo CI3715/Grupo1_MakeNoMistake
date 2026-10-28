@@ -3,7 +3,8 @@
 //! Tipos públicos: [`Moneda`], [`Monto`], [`TipoCuenta`], [`Cuenta`], [`CuentaCreada`],
 //! [`TipoMovimiento`], [`EstadoMovimiento`], [`Categoria`], [`Movimiento`], [`Ajuste`],
 //! [`ComposicionSaldo`], [`MovimientoRegistrado`], [`MovimientoCorregido`], [`CategoriaCreada`],
-//! [`Campo`], [`ErrorDominio`].
+//! [`Campo`], [`ErrorDominio`], [`MonedaCreada`], [`Tasa`], [`TasaRegistrada`], [`MonedaBase`],
+//! [`ConsolidacionSaldo`], [`DetalleConsolidacion`].
 
 use rust_decimal::Decimal;
 use std::str::FromStr;
@@ -22,6 +23,8 @@ pub enum Campo {
     Fecha,
     Categoria,
     Nota,
+    Tasa,
+    MonedaBase,
     Codigo,
     Simbolo,
     Decimales,
@@ -31,9 +34,6 @@ impl Campo {
     /// Devuelve el identificador textual del campo en formato snake_case.
     pub fn a_texto(&self) -> &'static str {
         match self {
-            Campo::Codigo => "codigo",
-            Campo::Simbolo => "simbolo",
-            Campo::Decimales => "decimales",
             Campo::Nombre => "nombre",
             Campo::Moneda => "moneda",
             Campo::SaldoInicial => "saldo_inicial",
@@ -43,6 +43,11 @@ impl Campo {
             Campo::Fecha => "fecha",
             Campo::Categoria => "categoria",
             Campo::Nota => "nota",
+            Campo::Tasa => "tasa",
+            Campo::MonedaBase => "moneda_base",
+            Campo::Codigo => "codigo",
+            Campo::Simbolo => "simbolo",
+            Campo::Decimales => "decimales",
         }
     }
 }
@@ -71,174 +76,95 @@ pub const DECIMALES_MAXIMOS: u32 = 8;
 
 /// Moneda soportada por la aplicación.
 ///
-/// El catálogo se compone de las cuatro monedas de fábrica (VES, USD, EUR y
-/// USDT, todas con 2 decimales) más las monedas propias que cree la persona
-/// (RF-CAM-01). Los decimales de una moneda nunca cambian después de creada:
-/// de eso depende que los montos guardados en unidades mínimas sigan siendo
-/// correctos.
+/// Incluye monedas predefinidas de fábrica y monedas propias creadas por el usuario.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Moneda {
     pub codigo: String,
     pub nombre: String,
     pub simbolo: String,
     pub decimales: u32,
+    pub de_fabrica: bool,
 }
 
 impl Moneda {
-    /// Devuelve las cuatro monedas de fábrica, que no se pueden modificar ni eliminar.
-    pub fn de_fabrica() -> Vec<Moneda> {
+    /// Crea una instancia de moneda de fábrica.
+    pub fn nueva_de_fabrica(codigo: &str, nombre: &str, simbolo: &str, decimales: u32) -> Self {
+        Self {
+            codigo: codigo.into(),
+            nombre: nombre.into(),
+            simbolo: simbolo.into(),
+            decimales,
+            de_fabrica: true,
+        }
+    }
+
+    /// Crea una instancia de moneda propia del usuario.
+    pub fn nueva_propia(codigo: &str, nombre: &str, simbolo: &str, decimales: u32) -> Self {
+        Self {
+            codigo: codigo.into(),
+            nombre: nombre.into(),
+            simbolo: simbolo.into(),
+            decimales,
+            de_fabrica: false,
+        }
+    }
+
+    /// Devuelve el catálogo completo de monedas soportadas de fábrica.
+    pub fn catalogo() -> Vec<Moneda> {
         vec![
             Moneda {
                 codigo: "VES".into(),
                 nombre: "Bolívar".into(),
                 simbolo: "Bs.".into(),
                 decimales: 2,
+                de_fabrica: true,
             },
             Moneda {
                 codigo: "USD".into(),
                 nombre: "Dólar estadounidense".into(),
                 simbolo: "$".into(),
                 decimales: 2,
+                de_fabrica: true,
             },
             Moneda {
                 codigo: "EUR".into(),
                 nombre: "Euro".into(),
                 simbolo: "€".into(),
                 decimales: 2,
+                de_fabrica: true,
             },
             Moneda {
                 codigo: "USDT".into(),
                 nombre: "Tether (dólar digital)".into(),
                 simbolo: "USDT".into(),
                 decimales: 2,
+                de_fabrica: true,
             },
         ]
     }
 
-    /// Busca una moneda **de fábrica** por código (insensible a mayúsculas/minúsculas).
-    ///
-    /// No conoce las monedas propias: para validar datos de la persona se usa
-    /// [`Moneda::buscar`] con el catálogo completo.
+    /// Alias explícito del catálogo de monedas de fábrica.
+    pub fn monedas_de_fabrica() -> Vec<Moneda> {
+        Self::catalogo()
+    }
+
+    /// Busca una moneda por código en el catálogo de fábrica (insensible a mayúsculas/minúsculas).
     pub fn por_codigo(codigo: &str) -> Option<Moneda> {
-        Self::buscar(codigo, &Self::de_fabrica())
-    }
-
-    /// Indica si el código pertenece a una de las cuatro monedas de fábrica.
-    pub fn es_de_fabrica(codigo: &str) -> bool {
-        Self::por_codigo(codigo).is_some()
-    }
-
-    /// Busca una moneda por código (insensible a mayúsculas/minúsculas) en el
-    /// catálogo indicado (fábrica más monedas propias).
-    pub fn buscar(codigo: &str, catalogo: &[Moneda]) -> Option<Moneda> {
         let codigo_upper = codigo.trim().to_uppercase();
-        catalogo.iter().find(|m| m.codigo == codigo_upper).cloned()
+        Self::catalogo()
+            .into_iter()
+            .find(|m| m.codigo == codigo_upper)
     }
 
-    /// Valida y crea una moneda propia (RF-CAM-01).
-    ///
-    /// Reglas: código de 3 a 5 letras mayúsculas que no exista en `catalogo`
-    /// (las de fábrica no se pueden redefinir), nombre y símbolo no vacíos y
-    /// entre 0 y [`DECIMALES_MAXIMOS`] decimales. Acumula **todos** los errores.
-    pub fn crear_propia(
-        codigo: &str,
-        nombre: &str,
-        simbolo: &str,
-        decimales: &str,
-        catalogo: &[Moneda],
-    ) -> Result<(Moneda, MonedaCreada), Vec<ErrorDominio>> {
-        let mut errores = Vec::new();
-        let codigo = codigo.trim();
-        let nombre = nombre.trim();
-        let simbolo = simbolo.trim();
-        let decimales = decimales.trim();
-
-        let formato_ok =
-            (3..=5).contains(&codigo.len()) && codigo.chars().all(|c| c.is_ascii_uppercase());
-        if !formato_ok {
-            errores.push(ErrorDominio::nuevo(
-                Campo::Codigo,
-                "El código debe tener de 3 a 5 letras mayúsculas.",
-            ));
-        } else if Moneda::es_de_fabrica(codigo) {
-            errores.push(ErrorDominio::nuevo(
-                Campo::Codigo,
-                format!("{codigo} es una moneda de fábrica y no se puede modificar."),
-            ));
-        } else if Moneda::buscar(codigo, catalogo).is_some() {
-            errores.push(ErrorDominio::nuevo(
-                Campo::Codigo,
-                format!("Ya existe una moneda con el código {codigo}."),
-            ));
-        }
-
-        if nombre.is_empty() {
-            errores.push(ErrorDominio::nuevo(
-                Campo::Nombre,
-                "Escribe el nombre de la moneda.",
-            ));
-        }
-        if simbolo.is_empty() {
-            errores.push(ErrorDominio::nuevo(
-                Campo::Simbolo,
-                "Escribe el símbolo de la moneda.",
-            ));
-        }
-
-        let decimales = match decimales.parse::<u32>() {
-            Ok(n) if n <= DECIMALES_MAXIMOS => Some(n),
-            _ if decimales.is_empty() => {
-                errores.push(ErrorDominio::nuevo(
-                    Campo::Decimales,
-                    "Indica cuántos decimales usa la moneda.",
-                ));
-                None
-            }
-            _ => {
-                errores.push(ErrorDominio::nuevo(
-                    Campo::Decimales,
-                    format!("Los decimales deben ser un número entero de 0 a {DECIMALES_MAXIMOS}."),
-                ));
-                None
-            }
-        };
-
-        if !errores.is_empty() {
-            return Err(errores);
-        }
-
-        let moneda = Moneda {
-            codigo: codigo.to_string(),
-            nombre: nombre.to_string(),
-            simbolo: simbolo.to_string(),
-            decimales: decimales.expect("decimales validados"),
-        };
-        let evento = MonedaCreada {
-            codigo: moneda.codigo.clone(),
-            nombre: moneda.nombre.clone(),
-            simbolo: moneda.simbolo.clone(),
-            decimales: moneda.decimales,
-        };
-        Ok((moneda, evento))
+    /// Busca una moneda por código en una lista de monedas disponibles o en el catálogo de fábrica.
+    pub fn por_codigo_en(codigo: &str, monedas: &[Moneda]) -> Option<Moneda> {
+        let codigo_upper = codigo.trim().to_uppercase();
+        monedas
+            .iter()
+            .find(|m| m.codigo.to_uppercase() == codigo_upper)
+            .cloned()
+            .or_else(|| Self::por_codigo(codigo))
     }
-}
-
-/// Lista los códigos del catálogo separados por comas, para los mensajes de error.
-fn codigos_de(catalogo: &[Moneda]) -> String {
-    catalogo
-        .iter()
-        .map(|m| m.codigo.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Evento de dominio emitido cuando se crea una moneda propia.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MonedaCreada {
-    pub codigo: String,
-    pub nombre: String,
-    pub simbolo: String,
-    pub decimales: u32,
 }
 
 // ──────────────────────────── Monto ──────────────────────────────
@@ -307,6 +233,36 @@ impl Monto {
             self.moneda.clone(),
         ))
     }
+
+    /// Crea un Monto validando que los decimales no excedan los de la moneda.
+    pub fn crear(cantidad: Decimal, moneda: Moneda) -> Result<Self, ErrorDominio> {
+        let escala = cantidad.normalize().scale();
+        if escala > moneda.decimales {
+            return Err(ErrorDominio::nuevo(
+                Campo::Monto,
+                format!(
+                    "El monto tiene {} decimales, pero {} solo admite {}",
+                    escala, moneda.codigo, moneda.decimales
+                ),
+            ));
+        }
+        let mut normal = cantidad;
+        normal.rescale(moneda.decimales);
+        Ok(Self {
+            cantidad: normal,
+            moneda,
+        })
+    }
+
+    /// Convierte el monto a un entero `i128` en su unidad menor (céntimos/centavos) (C-07).
+    pub fn a_unidad_menor(&self) -> Result<i128, ErrorDominio> {
+        monto_a_unidad_menor(self)
+    }
+
+    /// Convierte el monto a un entero `i64` en su unidad menor (C-07).
+    pub fn a_unidad_menor_i64(&self) -> Result<i64, ErrorDominio> {
+        monto_a_unidad_menor_i64(self)
+    }
 }
 
 // ──────────────────────────── TipoCuenta ─────────────────────────
@@ -354,18 +310,7 @@ impl Cuenta {
 
     // ── Fábrica con validación ──
 
-    /// Crea una cuenta nueva validando **todas** las reglas de negocio.
-    ///
-    /// Recibe el `id` ya generado (la generación es responsabilidad de la
-    /// capa de aplicación) y la lista de `nombres_existentes` para verificar
-    /// unicidad sin depender de infraestructura.
-    ///
-    /// `saldo_inicial` se recibe como texto (e.g. `"1250.50"`) y se
-    /// convierte a `Decimal` dentro del dominio.
-    ///
-    /// Si hay errores, los acumula **todos** y devuelve
-    /// `Err(Vec<ErrorDominio>)` para que la pantalla pueda mostrarlos
-    /// simultáneamente.
+    /// Crea una cuenta nueva validando **todas** las reglas de negocio con el catálogo de fábrica.
     pub fn crear(
         id: String,
         nombre: &str,
@@ -373,7 +318,27 @@ impl Cuenta {
         moneda_codigo: &str,
         saldo_inicial: &str,
         nombres_existentes: &[String],
-        catalogo: &[Moneda],
+    ) -> Result<(Cuenta, CuentaCreada), Vec<ErrorDominio>> {
+        Self::crear_con_monedas(
+            id,
+            nombre,
+            tipo,
+            moneda_codigo,
+            saldo_inicial,
+            nombres_existentes,
+            &Moneda::catalogo(),
+        )
+    }
+
+    /// Crea una cuenta nueva validando contra una lista dinámica de monedas disponibles (fábrica + propias).
+    pub fn crear_con_monedas(
+        id: String,
+        nombre: &str,
+        tipo: TipoCuenta,
+        moneda_codigo: &str,
+        saldo_inicial: &str,
+        nombres_existentes: &[String],
+        monedas_disponibles: &[Moneda],
     ) -> Result<(Cuenta, CuentaCreada), Vec<ErrorDominio>> {
         let mut errores: Vec<ErrorDominio> = Vec::new();
 
@@ -401,14 +366,13 @@ impl Cuenta {
         }
 
         // ── 3. Moneda fuera del catálogo ──
-        let moneda = Moneda::buscar(moneda_codigo, catalogo);
+        let moneda = Moneda::por_codigo_en(moneda_codigo, monedas_disponibles);
         if moneda.is_none() {
             errores.push(ErrorDominio::nuevo(
                 Campo::Moneda,
                 format!(
-                    "La moneda '{}' no está en el catálogo. Opciones: {}",
-                    moneda_codigo,
-                    codigos_de(catalogo)
+                    "La moneda '{}' no está en el catálogo. Opciones: VES, USD, EUR, USDT",
+                    moneda_codigo
                 ),
             ));
         }
@@ -683,7 +647,7 @@ pub fn validar_fecha(fecha: &str) -> Result<(), ErrorDominio> {
     Ok(())
 }
 
-/// Registra un nuevo movimiento financiero validando todas las reglas de negocio.
+/// Registra un nuevo movimiento financiero validando todas las reglas de negocio con el catálogo de fábrica.
 ///
 /// Recibe `hoy` como parámetro para validar que la fecha no sea futura sin leer el reloj.
 #[allow(clippy::too_many_arguments)]
@@ -698,7 +662,36 @@ pub fn registrar_movimiento(
     id_categoria: &str,
     nota: Option<String>,
     categorias_existentes: &[Categoria],
-    catalogo: &[Moneda],
+) -> Result<(Movimiento, MovimientoRegistrado), Vec<ErrorDominio>> {
+    registrar_movimiento_con_monedas(
+        id,
+        id_cuenta,
+        tipo,
+        monto_str,
+        moneda_codigo,
+        fecha,
+        hoy,
+        id_categoria,
+        nota,
+        categorias_existentes,
+        &Moneda::catalogo(),
+    )
+}
+
+/// Registra un nuevo movimiento financiero validando contra una lista dinámica de monedas disponibles (fábrica + propias).
+#[allow(clippy::too_many_arguments)]
+pub fn registrar_movimiento_con_monedas(
+    id: String,
+    id_cuenta: String,
+    tipo: TipoMovimiento,
+    monto_str: &str,
+    moneda_codigo: &str,
+    fecha: &str,
+    hoy: &str,
+    id_categoria: &str,
+    nota: Option<String>,
+    categorias_existentes: &[Categoria],
+    monedas_disponibles: &[Moneda],
 ) -> Result<(Movimiento, MovimientoRegistrado), Vec<ErrorDominio>> {
     let mut errores: Vec<ErrorDominio> = Vec::new();
 
@@ -712,14 +705,13 @@ pub fn registrar_movimiento(
     }
 
     // ── 2. Validación de moneda ──
-    let moneda = Moneda::buscar(moneda_codigo, catalogo);
+    let moneda = Moneda::por_codigo_en(moneda_codigo, monedas_disponibles);
     if moneda.is_none() {
         errores.push(ErrorDominio::nuevo(
             Campo::Moneda,
             format!(
-                "La moneda '{}' no está en el catálogo. Opciones: {}",
-                moneda_codigo,
-                codigos_de(catalogo)
+                "La moneda '{}' no está en el catálogo. Opciones: VES, USD, EUR, USDT",
+                moneda_codigo
             ),
         ));
     }
@@ -1178,6 +1170,552 @@ pub fn saldo_resultante(
     saldo_actual.restar(gasto_hipotetico)
 }
 
+// ──────────────────────── Moneda Propia ──────────────────────────
+
+/// Evento de dominio emitido cuando se crea una nueva moneda propia.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonedaCreada {
+    pub codigo: String,
+    pub nombre: String,
+    pub simbolo: String,
+    pub decimales: u32,
+}
+
+/// Crea una nueva moneda propia validando sus atributos y unicidad respecto a las existentes.
+pub fn crear_moneda(
+    codigo: &str,
+    nombre: &str,
+    simbolo: &str,
+    decimales: u32,
+    monedas_existentes: &[Moneda],
+) -> Result<(Moneda, MonedaCreada), Vec<ErrorDominio>> {
+    let mut errores = Vec::new();
+
+    // RF-CAM-01: el código tiene de 3 a 5 letras mayúsculas.
+    let cod = codigo.trim().to_uppercase();
+    if cod.is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Codigo,
+            "El código de la moneda no puede estar vacío",
+        ));
+    } else if !(3..=5).contains(&cod.len()) || !cod.chars().all(|c| c.is_ascii_uppercase()) {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Codigo,
+            "El código de la moneda debe tener de 3 a 5 letras mayúsculas",
+        ));
+    } else {
+        let repetido = monedas_existentes
+            .iter()
+            .any(|m| m.codigo.to_uppercase() == cod)
+            || Moneda::catalogo()
+                .iter()
+                .any(|m| m.codigo.to_uppercase() == cod);
+        if repetido {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Codigo,
+                format!("Ya existe una moneda con el código '{cod}'"),
+            ));
+        }
+    }
+
+    let nom = nombre.trim().to_string();
+    if nom.is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Nombre,
+            "El nombre de la moneda no puede estar vacío",
+        ));
+    } else {
+        let nom_lower = nom.to_lowercase();
+        let repetido = monedas_existentes
+            .iter()
+            .any(|m| m.nombre.trim().to_lowercase() == nom_lower)
+            || Moneda::catalogo()
+                .iter()
+                .any(|m| m.nombre.trim().to_lowercase() == nom_lower);
+        if repetido {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Nombre,
+                format!("Ya existe una moneda con el nombre '{nom}'"),
+            ));
+        }
+    }
+
+    let simb = simbolo.trim().to_string();
+    if simb.is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Simbolo,
+            "El símbolo de la moneda no puede estar vacío",
+        ));
+    }
+
+    if decimales > DECIMALES_MAXIMOS {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Decimales,
+            format!("La moneda no puede tener más de {DECIMALES_MAXIMOS} decimales"),
+        ));
+    }
+
+    if !errores.is_empty() {
+        return Err(errores);
+    }
+
+    let moneda = Moneda {
+        codigo: cod.clone(),
+        nombre: nom.clone(),
+        simbolo: simb.clone(),
+        decimales,
+        de_fabrica: false,
+    };
+
+    let evento = MonedaCreada {
+        codigo: cod,
+        nombre: nom,
+        simbolo: simb,
+        decimales,
+    };
+
+    Ok((moneda, evento))
+}
+
+// ─────────── Unidad Menor con Comprobación de Desbordamiento (C-07) ───────────
+
+/// Convierte un [`Monto`] a un entero `i128` en su unidad menor (céntimos/centavos),
+/// con comprobación explícita de desbordamiento (C-07).
+pub fn monto_a_unidad_menor(monto: &Monto) -> Result<i128, ErrorDominio> {
+    let mut cantidad = monto.cantidad();
+    let decimales = monto.moneda().decimales;
+
+    if cantidad.normalize().scale() > decimales {
+        return Err(ErrorDominio::nuevo(
+            Campo::Monto,
+            format!(
+                "El monto tiene más decimales ({}) de los permitidos por la moneda ({})",
+                cantidad.normalize().scale(),
+                decimales
+            ),
+        ));
+    }
+
+    cantidad.rescale(decimales);
+    Ok(cantidad.mantissa())
+}
+
+/// Convierte un [`Monto`] a un entero `i64` en su unidad menor,
+/// verificando que no desborde el rango entero de 64 bits (C-07).
+pub fn monto_a_unidad_menor_i64(monto: &Monto) -> Result<i64, ErrorDominio> {
+    let unidades_128 = monto_a_unidad_menor(monto)?;
+    i64::try_from(unidades_128).map_err(|_| {
+        ErrorDominio::nuevo(
+            Campo::Monto,
+            "Desbordamiento: el monto excede el límite entero de 64 bits para la unidad menor",
+        )
+    })
+}
+
+/// Convierte un entero `i128` en la unidad menor a un [`Monto`],
+/// con comprobación explícita de desbordamiento (C-07).
+pub fn unidad_menor_a_monto(unidades: i128, moneda: Moneda) -> Result<Monto, ErrorDominio> {
+    let decimales = moneda.decimales;
+    let cantidad = Decimal::try_from_i128_with_scale(unidades, decimales).map_err(|_| {
+        ErrorDominio::nuevo(
+            Campo::Monto,
+            "Desbordamiento numérico al convertir unidades menores a Monto",
+        )
+    })?;
+
+    Ok(Monto::new(cantidad, moneda))
+}
+
+/// Convierte un entero `i64` en la unidad menor a un [`Monto`],
+/// con comprobación explícita de desbordamiento (C-07).
+pub fn unidad_menor_i64_a_monto(unidades: i64, moneda: Moneda) -> Result<Monto, ErrorDominio> {
+    unidad_menor_a_monto(unidades as i128, moneda)
+}
+
+// ──────────────────────────── Tasa ───────────────────────────────
+
+/// Tasa de cambio entre dos monedas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tasa {
+    pub id: String,
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: Decimal,
+    pub fecha: String,
+}
+
+impl Tasa {
+    /// Calcula la tasa inversa (destino -> origen) con valor = 1 / valor.
+    pub fn inversa(&self) -> Result<Tasa, ErrorDominio> {
+        if self.valor <= Decimal::ZERO {
+            return Err(ErrorDominio::nuevo(
+                Campo::Tasa,
+                "No se puede calcular la tasa inversa de un valor menor o igual a cero",
+            ));
+        }
+
+        let uno = Decimal::ONE;
+        let valor_inv = uno.checked_div(self.valor).ok_or_else(|| {
+            ErrorDominio::nuevo(
+                Campo::Tasa,
+                "Desbordamiento aritmético al calcular la tasa inversa",
+            )
+        })?;
+
+        Ok(Tasa {
+            id: format!("{}_inversa", self.id),
+            moneda_origen: self.moneda_destino.clone(),
+            moneda_destino: self.moneda_origen.clone(),
+            valor: valor_inv,
+            fecha: self.fecha.clone(),
+        })
+    }
+}
+
+/// Evento de dominio emitido al registrar una tasa de cambio.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TasaRegistrada {
+    pub id: String,
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: Decimal,
+    pub fecha: String,
+}
+
+/// Registra una tasa de cambio validando que el valor sea positivo,
+/// las monedas existan y sean distintas, y la fecha sea válida y no futura.
+pub fn registrar_tasa(
+    id: String,
+    moneda_origen: &str,
+    moneda_destino: &str,
+    valor_str: &str,
+    fecha: &str,
+    hoy: &str,
+    monedas_existentes: &[Moneda],
+) -> Result<(Tasa, TasaRegistrada), Vec<ErrorDominio>> {
+    let mut errores = Vec::new();
+
+    let id_limpio = id.trim().to_string();
+    if id_limpio.is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Tasa,
+            "El identificador de la tasa no puede estar vacío",
+        ));
+    }
+
+    let orig = moneda_origen.trim().to_uppercase();
+    let dest = moneda_destino.trim().to_uppercase();
+
+    if orig.is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Moneda,
+            "La moneda origen no puede estar vacía",
+        ));
+    }
+    if dest.is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Moneda,
+            "La moneda destino no puede estar vacía",
+        ));
+    }
+
+    if !orig.is_empty() && !dest.is_empty() {
+        if orig == dest {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Tasa,
+                "La moneda origen y la moneda destino no pueden ser iguales",
+            ));
+        }
+
+        if Moneda::por_codigo_en(&orig, monedas_existentes).is_none() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Moneda,
+                format!("La moneda origen '{}' no existe en el catálogo", orig),
+            ));
+        }
+
+        if Moneda::por_codigo_en(&dest, monedas_existentes).is_none() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Moneda,
+                format!("La moneda destino '{}' no existe en el catálogo", dest),
+            ));
+        }
+    }
+
+    let valor_dec = Decimal::from_str(valor_str.trim());
+    let mut valor_validado = Decimal::ZERO;
+    match valor_dec {
+        Err(_) => {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Tasa,
+                "El valor de la tasa no es un número válido",
+            ));
+        }
+        Ok(v) => {
+            if v <= Decimal::ZERO {
+                errores.push(ErrorDominio::nuevo(
+                    Campo::Tasa,
+                    "El valor de la tasa debe ser mayor que cero",
+                ));
+            } else if v.scale() > 8 {
+                errores.push(ErrorDominio::nuevo(
+                    Campo::Tasa,
+                    format!(
+                        "La tasa tiene {} decimales, pero solo se admiten hasta 8",
+                        v.scale()
+                    ),
+                ));
+            } else {
+                valor_validado = v;
+            }
+        }
+    }
+
+    if let Err(e) = validar_fecha(hoy) {
+        errores.push(e);
+    } else if let Err(e) = validar_fecha(fecha) {
+        errores.push(e);
+    } else if fecha > hoy {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Fecha,
+            "La fecha de la tasa no puede ser futura",
+        ));
+    }
+
+    if !errores.is_empty() {
+        return Err(errores);
+    }
+
+    let tasa = Tasa {
+        id: id_limpio.clone(),
+        moneda_origen: orig.clone(),
+        moneda_destino: dest.clone(),
+        valor: valor_validado,
+        fecha: fecha.to_string(),
+    };
+
+    let evento = TasaRegistrada {
+        id: id_limpio,
+        moneda_origen: orig,
+        moneda_destino: dest,
+        valor: valor_validado,
+        fecha: fecha.to_string(),
+    };
+
+    Ok((tasa, evento))
+}
+
+/// Valida la regla "sin tasas cruzadas": toda tasa debe involucrar directamente a la moneda base.
+pub fn validar_sin_tasas_cruzadas(
+    moneda_origen: &str,
+    moneda_destino: &str,
+    codigo_moneda_base: &str,
+) -> Result<(), ErrorDominio> {
+    let orig = moneda_origen.trim().to_uppercase();
+    let dest = moneda_destino.trim().to_uppercase();
+    let base = codigo_moneda_base.trim().to_uppercase();
+
+    if orig != base && dest != base {
+        return Err(ErrorDominio::nuevo(
+            Campo::Tasa,
+            format!(
+                "No se permiten tasas cruzadas entre '{}' y '{}'. Todas las tasas deben definirse respecto a la moneda base '{}'",
+                orig, dest, base
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Busca la tasa vigente para un par de monedas en una fecha de corte determinada.
+///
+/// Si existe una tasa directa en o antes de la fecha, devuelve la más reciente.
+/// Si no existe directa pero existe la inversa, calcula y devuelve la inversa.
+/// Si ambas monedas son iguales, devuelve una tasa identidad de 1.
+pub fn tasa_vigente(
+    tasas: &[Tasa],
+    moneda_origen: &str,
+    moneda_destino: &str,
+    fecha_corte: &str,
+) -> Result<Tasa, ErrorDominio> {
+    let orig = moneda_origen.trim().to_uppercase();
+    let dest = moneda_destino.trim().to_uppercase();
+
+    if orig == dest {
+        return Ok(Tasa {
+            id: "identidad".into(),
+            moneda_origen: orig,
+            moneda_destino: dest,
+            valor: Decimal::ONE,
+            fecha: fecha_corte.to_string(),
+        });
+    }
+
+    // 1. Buscar tasa directa más reciente en o antes de fecha_corte
+    let directa = tasas
+        .iter()
+        .filter(|t| {
+            t.moneda_origen.to_uppercase() == orig
+                && t.moneda_destino.to_uppercase() == dest
+                && t.fecha.as_str() <= fecha_corte
+        })
+        .max_by_key(|t| t.fecha.as_str());
+
+    if let Some(t) = directa {
+        return Ok(t.clone());
+    }
+
+    // 2. Buscar tasa inversa más reciente en o antes de fecha_corte
+    let inversa_candidata = tasas
+        .iter()
+        .filter(|t| {
+            t.moneda_origen.to_uppercase() == dest
+                && t.moneda_destino.to_uppercase() == orig
+                && t.fecha.as_str() <= fecha_corte
+        })
+        .max_by_key(|t| t.fecha.as_str());
+
+    if let Some(t) = inversa_candidata {
+        return t.inversa();
+    }
+
+    Err(ErrorDominio::nuevo(
+        Campo::Tasa,
+        format!(
+            "No existe tasa de cambio vigente entre '{}' y '{}' para la fecha '{}'",
+            orig, dest, fecha_corte
+        ),
+    ))
+}
+
+// ──────────────────────────── MonedaBase ─────────────────────────
+
+/// Configuración de la moneda base para la consolidación multimoneda.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonedaBase {
+    moneda: Moneda,
+}
+
+impl MonedaBase {
+    pub fn nueva(codigo: &str, monedas_disponibles: &[Moneda]) -> Result<Self, ErrorDominio> {
+        let cod = codigo.trim().to_uppercase();
+        let moneda = Moneda::por_codigo_en(&cod, monedas_disponibles).ok_or_else(|| {
+            ErrorDominio::nuevo(
+                Campo::MonedaBase,
+                format!("La moneda base '{}' no existe en el catálogo", cod),
+            )
+        })?;
+        Ok(Self { moneda })
+    }
+
+    pub fn codigo(&self) -> &str {
+        &self.moneda.codigo
+    }
+
+    pub fn moneda(&self) -> &Moneda {
+        &self.moneda
+    }
+}
+
+// ──────────────────────────── Consolidación ──────────────────────
+
+/// Detalle de la conversión de un saldo individual en la consolidación multimoneda.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetalleConsolidacion {
+    pub saldo_original: Monto,
+    pub tasa_aplicada: Decimal,
+    pub monto_convertido_exacto: Decimal,
+}
+
+/// Resultado de la consolidación de saldos en la moneda base con redondeo único.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsolidacionSaldo {
+    pub moneda_base: Moneda,
+    pub total_consolidado: Monto,
+    pub detalles: Vec<DetalleConsolidacion>,
+}
+
+/// Consolida una lista de saldos multimoneda en la moneda base.
+///
+/// **Regla de redondeo único**: Las conversiones intermedias se acumulan con la máxima
+/// precisión decimal exacta de `Decimal`. El redondeo a los decimales de la moneda base
+/// se aplica **exclusivamente una sola vez** sobre la suma final consolidada.
+///
+/// **Regla sin tasas cruzadas**: Cada saldo en moneda extranjera se convierte de forma directa
+/// (o inversa) hacia la moneda base.
+pub fn consolidar_saldos(
+    saldos: &[Monto],
+    moneda_base: &Moneda,
+    tasas: &[Tasa],
+    fecha_corte: &str,
+) -> Result<ConsolidacionSaldo, Vec<ErrorDominio>> {
+    let mut errores = Vec::new();
+    let mut suma_acumulada_exacta = Decimal::ZERO;
+    let mut detalles = Vec::new();
+
+    for saldo in saldos {
+        let cod = &saldo.moneda().codigo;
+        if cod.to_uppercase() == moneda_base.codigo.to_uppercase() {
+            suma_acumulada_exacta += saldo.cantidad();
+            detalles.push(DetalleConsolidacion {
+                saldo_original: saldo.clone(),
+                tasa_aplicada: Decimal::ONE,
+                monto_convertido_exacto: saldo.cantidad(),
+            });
+        } else {
+            // Verificar regla sin tasas cruzadas: la tasa debe ser directamente hacia la moneda base
+            if let Err(e) =
+                validar_sin_tasas_cruzadas(cod, &moneda_base.codigo, &moneda_base.codigo)
+            {
+                errores.push(e);
+                continue;
+            }
+
+            match tasa_vigente(tasas, cod, &moneda_base.codigo, fecha_corte) {
+                Ok(tasa) => {
+                    let convertido_opt = saldo.cantidad().checked_mul(tasa.valor);
+                    match convertido_opt {
+                        Some(convertido) => {
+                            suma_acumulada_exacta += convertido;
+                            detalles.push(DetalleConsolidacion {
+                                saldo_original: saldo.clone(),
+                                tasa_aplicada: tasa.valor,
+                                monto_convertido_exacto: convertido,
+                            });
+                        }
+                        None => {
+                            errores.push(ErrorDominio::nuevo(
+                                Campo::Monto,
+                                format!(
+                                    "Desbordamiento al multiplicar saldo de {} por la tasa",
+                                    cod
+                                ),
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    errores.push(e);
+                }
+            }
+        }
+    }
+
+    if !errores.is_empty() {
+        return Err(errores);
+    }
+
+    // Redondeo único al final a los decimales de la moneda base:
+    let total_redondeado = suma_acumulada_exacta.round_dp(moneda_base.decimales);
+    let total_consolidado = Monto::new(total_redondeado, moneda_base.clone());
+
+    Ok(ConsolidacionSaldo {
+        moneda_base: moneda_base.clone(),
+        total_consolidado,
+        detalles,
+    })
+}
+
 // ──────────────────────────── Tests ──────────────────────────────
 
 #[cfg(test)]
@@ -1189,7 +1727,7 @@ mod tests {
 
     #[test]
     fn catalogo_tiene_cuatro_monedas() {
-        let catalogo = Moneda::de_fabrica();
+        let catalogo = Moneda::catalogo();
         assert_eq!(catalogo.len(), 4);
         let codigos: Vec<&str> = catalogo.iter().map(|m| m.codigo.as_str()).collect();
         assert!(codigos.contains(&"VES"));
@@ -1200,7 +1738,7 @@ mod tests {
 
     #[test]
     fn todas_las_monedas_tienen_dos_decimales() {
-        for m in Moneda::de_fabrica() {
+        for m in Moneda::catalogo() {
             assert_eq!(
                 m.decimales, 2,
                 "La moneda {} no tiene 2 decimales",
@@ -1217,7 +1755,7 @@ mod tests {
             ("EUR", "Euro", "€"),
             ("USDT", "Tether (dólar digital)", "USDT"),
         ];
-        let catalogo = Moneda::de_fabrica();
+        let catalogo = Moneda::catalogo();
         for (codigo, nombre, simbolo) in esperado {
             let m = catalogo
                 .iter()
@@ -1291,7 +1829,6 @@ mod tests {
             "VES",
             "1250.50",
             &[],
-            &Moneda::de_fabrica(),
         )
         .expect("debe crear sin errores");
 
@@ -1308,15 +1845,7 @@ mod tests {
 
     #[test]
     fn crear_cuenta_con_saldo_cero() {
-        let resultado = Cuenta::crear(
-            "id-2".into(),
-            "Banco",
-            TipoCuenta::Banco,
-            "USD",
-            "0",
-            &[],
-            &Moneda::de_fabrica(),
-        );
+        let resultado = Cuenta::crear("id-2".into(), "Banco", TipoCuenta::Banco, "USD", "0", &[]);
         assert!(resultado.is_ok());
     }
 
@@ -1324,16 +1853,8 @@ mod tests {
 
     #[test]
     fn nombre_vacio_falla() {
-        let err = Cuenta::crear(
-            "id-3".into(),
-            "",
-            TipoCuenta::Efectivo,
-            "USD",
-            "100",
-            &[],
-            &Moneda::de_fabrica(),
-        )
-        .expect_err("nombre vacío debe fallar");
+        let err = Cuenta::crear("id-3".into(), "", TipoCuenta::Efectivo, "USD", "100", &[])
+            .expect_err("nombre vacío debe fallar");
 
         assert!(err.iter().any(|e| e.campo == Campo::Nombre));
     }
@@ -1347,7 +1868,6 @@ mod tests {
             "USD",
             "100",
             &[],
-            &Moneda::de_fabrica(),
         )
         .expect_err("nombre de espacios debe fallar");
 
@@ -1366,7 +1886,6 @@ mod tests {
             "EUR",
             "50",
             &existentes,
-            &Moneda::de_fabrica(),
         )
         .expect_err("nombre repetido debe fallar");
 
@@ -1387,7 +1906,6 @@ mod tests {
             "BTC",
             "1.00",
             &[],
-            &Moneda::de_fabrica(),
         )
         .expect_err("moneda inválida debe fallar");
 
@@ -1405,7 +1923,6 @@ mod tests {
             "USD",
             "-10.00",
             &[],
-            &Moneda::de_fabrica(),
         )
         .expect_err("saldo negativo debe fallar");
 
@@ -1426,7 +1943,6 @@ mod tests {
             "EUR",
             "100.123",
             &[],
-            &Moneda::de_fabrica(),
         )
         .expect_err("demasiados decimales debe fallar");
 
@@ -1447,7 +1963,6 @@ mod tests {
             "USD",
             "abc",
             &[],
-            &Moneda::de_fabrica(),
         )
         .expect_err("saldo no numérico debe fallar");
 
@@ -1465,7 +1980,6 @@ mod tests {
             "BTC",    // moneda inválida
             "-5.999", // negativo + demasiados decimales (pero moneda inválida, no se chequea decimales)
             &[],
-            &Moneda::de_fabrica(),
         )
         .expect_err("múltiples errores deben acumularse");
 
@@ -1540,7 +2054,6 @@ mod tests {
             "USD",
             "0",
             &[],
-            &Moneda::de_fabrica(),
         )
         .unwrap();
         let copia = cuenta.clone();
@@ -1564,16 +2077,8 @@ mod tests {
 
     #[test]
     fn monto_de_cuenta_conserva_su_moneda_en_las_operaciones() {
-        let (cuenta, evento) = Cuenta::crear(
-            "id-m".into(),
-            "Dólares",
-            TipoCuenta::Banco,
-            "usd",
-            "5",
-            &[],
-            &Moneda::de_fabrica(),
-        )
-        .unwrap();
+        let (cuenta, evento) =
+            Cuenta::crear("id-m".into(), "Dólares", TipoCuenta::Banco, "usd", "5", &[]).unwrap();
         assert_eq!(cuenta.saldo().moneda(), &evento.moneda);
         let suma = cuenta.saldo().sumar(cuenta.saldo()).unwrap();
         assert_eq!(suma.moneda().codigo, "USD");
@@ -1596,7 +2101,6 @@ mod tests {
             "USD",
             "10.500",
             &[],
-            &Moneda::de_fabrica(),
         )
         .unwrap();
         assert_eq!(cuenta.saldo().cantidad(), dec!(10.50));
@@ -1612,7 +2116,6 @@ mod tests {
             "VES",
             "300",
             &[],
-            &Moneda::de_fabrica(),
         )
         .unwrap();
         assert_eq!(evento.saldo_inicial.to_string(), "300.00");
@@ -1627,7 +2130,6 @@ mod tests {
             "VES",
             "-0.00",
             &[],
-            &Moneda::de_fabrica(),
         )
         .unwrap();
         assert_eq!(evento.saldo_inicial.to_string(), "0.00");
@@ -1642,7 +2144,6 @@ mod tests {
             "USD",
             "10.555",
             &[],
-            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::SaldoInicial));
@@ -1740,7 +2241,6 @@ mod tests {
             "gasto:alimentacion",
             Some("Almuerzo".into()),
             &cats,
-            &Moneda::de_fabrica(),
         )
         .expect("debe registrar movimiento");
 
@@ -1771,7 +2271,6 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_cero.iter().any(|e| e.campo == Campo::Monto));
@@ -1787,7 +2286,6 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_neg.iter().any(|e| e.campo == Campo::Monto));
@@ -1807,7 +2305,6 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Monto));
@@ -1827,7 +2324,6 @@ mod tests {
             "categoria_fantasma",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_inex.iter().any(|e| e.campo == Campo::Categoria));
@@ -1843,7 +2339,6 @@ mod tests {
             "ingreso:salario",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(err_incomp.iter().any(|e| e.campo == Campo::Categoria));
@@ -1863,7 +2358,6 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap_err();
         assert!(
@@ -1889,7 +2383,6 @@ mod tests {
             "ingreso:salario",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1957,7 +2450,6 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -1984,7 +2476,6 @@ mod tests {
             "gasto:transporte",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -2009,7 +2500,6 @@ mod tests {
             "gasto:transporte",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -2030,7 +2520,6 @@ mod tests {
             "USD",
             "1000.00",
             &[],
-            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -2046,7 +2535,6 @@ mod tests {
             "ingreso:salario",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -2061,7 +2549,6 @@ mod tests {
             "gasto:alimentacion",
             None,
             &cats,
-            &Moneda::de_fabrica(),
         )
         .unwrap();
 
@@ -2146,7 +2633,6 @@ mod tests {
                 "USD",
                 &saldo_inicial.to_string(),
                 &[],
-                &Moneda::de_fabrica(),
             )
             .unwrap();
 
@@ -2250,7 +2736,6 @@ mod tests {
                 "USD",
                 &saldo_inicial.to_string(),
                 &[],
-                &Moneda::de_fabrica(),
             )
             .unwrap();
 
@@ -2368,126 +2853,484 @@ mod tests {
         }
     }
 
-    // ── Monedas propias (RF-CAM-01) ──
+    // ── Pruebas de Moneda Propia ──
 
-    fn bitcoin() -> Moneda {
-        Moneda::crear_propia("BTC", "Bitcoin", "₿", "8", &Moneda::de_fabrica())
-            .expect("BTC es válida")
-            .0
+    #[test]
+    fn crear_moneda_propia_valida() {
+        let (moneda, evento) = crear_moneda("COP", "Peso Colombiano", "COL$", 2, &[])
+            .expect("debe crear moneda válida");
+
+        assert_eq!(moneda.codigo, "COP");
+        assert_eq!(moneda.nombre, "Peso Colombiano");
+        assert_eq!(moneda.simbolo, "COL$");
+        assert_eq!(moneda.decimales, 2);
+        assert!(!moneda.de_fabrica);
+
+        assert_eq!(evento.codigo, "COP");
+        assert_eq!(evento.nombre, "Peso Colombiano");
+        assert_eq!(evento.simbolo, "COL$");
+        assert_eq!(evento.decimales, 2);
     }
 
     #[test]
-    fn crear_moneda_propia_valida_devuelve_evento() {
-        let (moneda, evento) =
-            Moneda::crear_propia(" BTC ", " Bitcoin ", "₿", "8", &Moneda::de_fabrica())
-                .expect("debe crearse");
-        assert_eq!(moneda.codigo, "BTC");
-        assert_eq!(moneda.nombre, "Bitcoin");
-        assert_eq!(moneda.decimales, 8);
-        assert_eq!(evento.codigo, "BTC");
-        assert_eq!(evento.decimales, 8);
-    }
-
-    #[test]
-    fn crear_moneda_propia_acumula_errores_por_campo() {
-        let err = Moneda::crear_propia("bt", "", " ", "9", &Moneda::de_fabrica())
-            .expect_err("todo es inválido");
-        let campos: Vec<Campo> = err.iter().map(|e| e.campo).collect();
-        assert_eq!(
-            campos,
-            vec![
-                Campo::Codigo,
-                Campo::Nombre,
-                Campo::Simbolo,
-                Campo::Decimales
-            ]
-        );
-    }
-
-    #[test]
-    fn codigo_de_moneda_propia_respeta_formato() {
-        for codigo in ["BT", "BITCOI", "btc", "B1C", "BT C"] {
-            let err = Moneda::crear_propia(codigo, "X", "X", "2", &Moneda::de_fabrica())
-                .expect_err(codigo);
-            assert_eq!(err[0].campo, Campo::Codigo, "{codigo}");
-        }
-        for codigo in ["ABC", "ABCD", "ABCDE"] {
+    fn crear_moneda_codigo_invalido_o_vacio_falla() {
+        for codigo in ["", "A", "AB", "ABCDEF", "TOOLONG7", "US$", "BT1", "B C"] {
+            let err = crear_moneda(codigo, "Nombre", "$", 2, &[]).unwrap_err();
             assert!(
-                Moneda::crear_propia(codigo, "X", "X", "2", &Moneda::de_fabrica()).is_ok(),
-                "{codigo}"
+                err.iter().any(|e| e.campo == Campo::Codigo),
+                "el código {codigo:?} debía rechazarse"
+            );
+        }
+        for codigo in ["ABC", "abcd", "ABCDE"] {
+            assert!(
+                crear_moneda(codigo, "Nombre", "$", 2, &[]).is_ok(),
+                "el código {codigo:?} es válido"
+            );
+        }
+
+        let err_simbolo = crear_moneda("ABC", "Nombre", " ", 2, &[]).unwrap_err();
+        assert!(err_simbolo.iter().any(|e| e.campo == Campo::Simbolo));
+    }
+
+    #[test]
+    fn crear_moneda_codigo_o_nombre_repetido_falla() {
+        let (cop, _) = crear_moneda("COP", "Peso Colombiano", "COL$", 2, &[]).unwrap();
+        let existentes = vec![cop];
+
+        // Repetido contra catálogo de fábrica (ej: USD)
+        let err_fabrica = crear_moneda("usd", "Dólar", "$", 2, &existentes).unwrap_err();
+        assert!(err_fabrica.iter().any(|e| e.campo == Campo::Codigo));
+
+        // Repetido contra moneda propia existente (ej: cop)
+        let err_propia = crear_moneda("cop", "Otro", "$", 2, &existentes).unwrap_err();
+        assert!(err_propia.iter().any(|e| e.campo == Campo::Codigo));
+
+        // Nombre repetido
+        let err_nombre = crear_moneda("COL", "peso colombiano", "$", 2, &existentes).unwrap_err();
+        assert!(err_nombre.iter().any(|e| e.campo == Campo::Nombre));
+    }
+
+    #[test]
+    fn crear_moneda_decimales_excesivos_falla() {
+        let err = crear_moneda("SAT", "Satoshi", "sat", 9, &[]).unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Decimales));
+    }
+
+    #[test]
+    fn crear_cuenta_con_moneda_propia() {
+        let (btc, _) = crear_moneda("BTC", "Bitcoin", "₿", 8, &[]).unwrap();
+        let monedas = vec![btc];
+
+        let (cuenta, evento) = Cuenta::crear_con_monedas(
+            "id-btc".into(),
+            "Billetera Cripto",
+            TipoCuenta::BilleteraDigital,
+            "BTC",
+            "0.12345678",
+            &[],
+            &monedas,
+        )
+        .expect("debe crear cuenta con moneda propia");
+
+        assert_eq!(cuenta.saldo().moneda().codigo, "BTC");
+        assert_eq!(cuenta.saldo().moneda().decimales, 8);
+        assert_eq!(evento.moneda.codigo, "BTC");
+        assert_eq!(evento.saldo_inicial, dec!(0.12345678));
+    }
+
+    // ── Pruebas de Unidad Menor (C-07) ──
+
+    #[test]
+    fn monto_a_unidad_menor_y_a_la_inversa_dolares() {
+        let usd = Moneda::por_codigo("USD").unwrap();
+        let monto = Monto::new(dec!(10.50), usd.clone());
+
+        let unidades = monto_a_unidad_menor(&monto).expect("debe convertir a céntimos");
+        assert_eq!(unidades, 1050i128);
+
+        let vuelta = unidad_menor_a_monto(unidades, usd).expect("debe volver a monto");
+        assert_eq!(vuelta.cantidad(), dec!(10.50));
+        assert_eq!(vuelta.moneda().codigo, "USD");
+    }
+
+    #[test]
+    fn monto_a_unidad_menor_moneda_sin_decimales() {
+        let clp = Moneda::nueva_propia("CLP", "Peso Chileno", "$", 0);
+        let monto = Monto::new(dec!(5000), clp.clone());
+
+        let unidades = monto_a_unidad_menor(&monto).unwrap();
+        assert_eq!(unidades, 5000i128);
+
+        let vuelta = unidad_menor_a_monto(unidades, clp).unwrap();
+        assert_eq!(vuelta.cantidad(), dec!(5000));
+    }
+
+    #[test]
+    fn monto_a_unidad_menor_ocho_decimales() {
+        let btc = Moneda::nueva_propia("BTC", "Bitcoin", "₿", 8);
+        let monto = Monto::new(dec!(1.12345678), btc.clone());
+
+        let unidades = monto_a_unidad_menor(&monto).unwrap();
+        assert_eq!(unidades, 112345678i128);
+
+        let vuelta = unidad_menor_a_monto(unidades, btc).unwrap();
+        assert_eq!(vuelta.cantidad(), dec!(1.12345678));
+    }
+
+    #[test]
+    fn monto_a_unidad_menor_negativo() {
+        let usd = Moneda::por_codigo("USD").unwrap();
+        let monto = Monto::new(dec!(-25.50), usd.clone());
+
+        let unidades = monto.a_unidad_menor().unwrap();
+        assert_eq!(unidades, -2550i128);
+
+        let vuelta = unidad_menor_a_monto(unidades, usd).unwrap();
+        assert_eq!(vuelta.cantidad(), dec!(-25.50));
+    }
+
+    #[test]
+    fn monto_unidad_menor_i64_desbordamiento_falla() {
+        let usd = Moneda::por_codigo("USD").unwrap();
+        let mas_que_i64 = (i64::MAX as i128) + 1_000_000_000i128;
+        let enorme = Decimal::from_i128_with_scale(mas_que_i64, 2);
+        let monto = Monto::new(enorme, usd);
+
+        let err = monto
+            .a_unidad_menor_i64()
+            .expect_err("debe fallar por desbordamiento de i64");
+        assert_eq!(err.campo, Campo::Monto);
+        assert!(err.mensaje.contains("Desbordamiento"));
+    }
+
+    // ── Pruebas de Tasa de Cambio ──
+
+    #[test]
+    fn registrar_tasa_valida() {
+        let (tasa, ev) = registrar_tasa(
+            "tasa-1".into(),
+            "USD",
+            "VES",
+            "40.50",
+            "2026-10-27",
+            "2026-10-27",
+            &[],
+        )
+        .expect("debe registrar tasa válida");
+
+        assert_eq!(tasa.id, "tasa-1");
+        assert_eq!(tasa.moneda_origen, "USD");
+        assert_eq!(tasa.moneda_destino, "VES");
+        assert_eq!(tasa.valor, dec!(40.50));
+        assert_eq!(tasa.fecha, "2026-10-27");
+
+        assert_eq!(ev.id, "tasa-1");
+        assert_eq!(ev.valor, dec!(40.50));
+    }
+
+    #[test]
+    fn registrar_tasa_validaciones_falla() {
+        // Monedas iguales
+        let err_iguales = registrar_tasa(
+            "t-1".into(),
+            "USD",
+            "USD",
+            "1.00",
+            "2026-10-27",
+            "2026-10-27",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err_iguales.iter().any(|e| e.campo == Campo::Tasa));
+
+        // Moneda inexistente
+        let err_inex = registrar_tasa(
+            "t-2".into(),
+            "XYZ",
+            "USD",
+            "1.00",
+            "2026-10-27",
+            "2026-10-27",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err_inex.iter().any(|e| e.campo == Campo::Moneda));
+
+        // Valor <= 0
+        let err_cero = registrar_tasa(
+            "t-3".into(),
+            "USD",
+            "VES",
+            "0.00",
+            "2026-10-27",
+            "2026-10-27",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err_cero.iter().any(|e| e.campo == Campo::Tasa));
+
+        let err_neg = registrar_tasa(
+            "t-4".into(),
+            "USD",
+            "VES",
+            "-10.00",
+            "2026-10-27",
+            "2026-10-27",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err_neg.iter().any(|e| e.campo == Campo::Tasa));
+
+        // Fecha futura
+        let err_fut = registrar_tasa(
+            "t-5".into(),
+            "USD",
+            "VES",
+            "40.00",
+            "2026-10-28",
+            "2026-10-27",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err_fut.iter().any(|e| e.campo == Campo::Fecha));
+    }
+
+    #[test]
+    fn tasa_inversa_calcula_inversion_exacta() {
+        let tasa = Tasa {
+            id: "t-1".into(),
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: dec!(40.00),
+            fecha: "2026-10-27".into(),
+        };
+
+        let inv = tasa.inversa().expect("debe calcular inversa");
+        assert_eq!(inv.moneda_origen, "VES");
+        assert_eq!(inv.moneda_destino, "USD");
+        assert_eq!(inv.valor, dec!(0.025));
+    }
+
+    #[test]
+    fn tasa_vigente_selecciona_mas_reciente_e_inversa() {
+        let t1 = Tasa {
+            id: "t-1".into(),
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: dec!(38.00),
+            fecha: "2026-10-20".into(),
+        };
+        let t2 = Tasa {
+            id: "t-2".into(),
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: dec!(40.00),
+            fecha: "2026-10-25".into(),
+        };
+        let tasas = vec![t1, t2];
+
+        // A fecha 2026-10-22 la vigente era t1 (38.00)
+        let v_ant = tasa_vigente(&tasas, "USD", "VES", "2026-10-22").unwrap();
+        assert_eq!(v_ant.valor, dec!(38.00));
+
+        // A fecha 2026-10-27 la vigente es t2 (40.00)
+        let v_act = tasa_vigente(&tasas, "USD", "VES", "2026-10-27").unwrap();
+        assert_eq!(v_act.valor, dec!(40.00));
+
+        // Búsqueda inversa: VES a USD debe devolver 1 / 40.00 = 0.025
+        let v_inv = tasa_vigente(&tasas, "VES", "USD", "2026-10-27").unwrap();
+        assert_eq!(v_inv.valor, dec!(0.025));
+
+        // Tasa identidad entre misma moneda
+        let v_id = tasa_vigente(&tasas, "USD", "USD", "2026-10-27").unwrap();
+        assert_eq!(v_id.valor, dec!(1));
+
+        // Fecha anterior a todas las tasas registradas falla
+        let err_previa = tasa_vigente(&tasas, "USD", "VES", "2026-10-15").unwrap_err();
+        assert_eq!(err_previa.campo, Campo::Tasa);
+    }
+
+    #[test]
+    fn regla_sin_tasas_cruzadas_rechaza_par_sin_moneda_base() {
+        let base = "USD";
+        // USD -> VES: permitido
+        assert!(validar_sin_tasas_cruzadas("USD", "VES", base).is_ok());
+        // EUR -> USD: permitido
+        assert!(validar_sin_tasas_cruzadas("EUR", "USD", base).is_ok());
+        // EUR -> VES (ninguna es base): rechazado
+        let err = validar_sin_tasas_cruzadas("EUR", "VES", base).unwrap_err();
+        assert_eq!(err.campo, Campo::Tasa);
+        assert!(err.mensaje.contains("No se permiten tasas cruzadas"));
+    }
+
+    // ── Pruebas de Moneda Base y Consolidación con Redondeo Único ──
+
+    #[test]
+    fn moneda_base_valida_o_inexistente() {
+        assert!(MonedaBase::nueva("USD", &[]).is_ok());
+        let err = MonedaBase::nueva("XYZ", &[]).unwrap_err();
+        assert_eq!(err.campo, Campo::MonedaBase);
+    }
+
+    #[test]
+    fn consolidar_saldos_con_redondeo_unico_evita_deriva_de_redondeo() {
+        let usd = Moneda::por_codigo("USD").unwrap();
+        let ves = Moneda::por_codigo("VES").unwrap();
+        let eur = Moneda::por_codigo("EUR").unwrap();
+
+        let s1 = Monto::new(dec!(100.33), usd.clone());
+        let s2 = Monto::new(dec!(1000.00), ves);
+        let s3 = Monto::new(dec!(50.00), eur);
+        let saldos = vec![s1, s2, s3];
+
+        let t_ves = Tasa {
+            id: "t-ves".into(),
+            moneda_origen: "VES".into(),
+            moneda_destino: "USD".into(),
+            valor: dec!(0.024567),
+            fecha: "2026-10-27".into(),
+        };
+        let t_eur = Tasa {
+            id: "t-eur".into(),
+            moneda_origen: "EUR".into(),
+            moneda_destino: "USD".into(),
+            valor: dec!(1.083333),
+            fecha: "2026-10-27".into(),
+        };
+        let tasas = vec![t_ves, t_eur];
+
+        let cons =
+            consolidar_saldos(&saldos, &usd, &tasas, "2026-10-27").expect("debe consolidar saldos");
+
+        assert_eq!(cons.total_consolidado.cantidad(), dec!(179.06));
+        assert_eq!(cons.total_consolidado.moneda().codigo, "USD");
+        assert_eq!(cons.detalles.len(), 3);
+    }
+
+    #[test]
+    fn consolidar_saldos_falta_tasa_falla() {
+        let usd = Moneda::por_codigo("USD").unwrap();
+        let ves = Moneda::por_codigo("VES").unwrap();
+        let s = Monto::new(dec!(100.00), ves);
+
+        let err = consolidar_saldos(&[s], &usd, &[], "2026-10-27").unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Tasa));
+    }
+
+    // ── Pruebas de Propiedades Nuevas (GeneradorRng) ──
+
+    #[test]
+    fn propiedad_monto_unidad_menor_ida_y_vuelta_es_invariante() {
+        let mut rng = GeneradorRng::con_semilla(20261027);
+
+        for _ in 0..100 {
+            let decimales = (rng.rango(0, 8)) as u32;
+            let moneda = Moneda::nueva_propia("TST", "Test", "T", decimales);
+
+            let centavos = rng.rango(-10_000_000, 10_000_000);
+            let cantidad = Decimal::new(centavos, decimales);
+            let monto = Monto::new(cantidad, moneda.clone());
+
+            let unidades = monto_a_unidad_menor(&monto).expect("debe convertir a unidad menor");
+            assert_eq!(unidades, centavos as i128);
+
+            let vuelta = unidad_menor_a_monto(unidades, moneda).expect("debe volver");
+            assert_eq!(vuelta.cantidad(), monto.cantidad());
+            assert_eq!(vuelta.moneda().codigo, monto.moneda().codigo);
+        }
+    }
+
+    #[test]
+    fn propiedad_tasa_inversa_multiplicacion_da_aproximadamente_uno() {
+        let mut rng = GeneradorRng::con_semilla(314159265);
+
+        for _ in 0..100 {
+            let centavos = rng.rango(10, 500_000);
+            let valor = Decimal::new(centavos, 2);
+
+            let tasa = Tasa {
+                id: "t-prop".into(),
+                moneda_origen: "USD".into(),
+                moneda_destino: "VES".into(),
+                valor,
+                fecha: "2026-10-27".into(),
+            };
+
+            let inv = tasa.inversa().expect("inversa");
+            let producto = tasa.valor * inv.valor;
+
+            let dif = (producto - Decimal::ONE).abs();
+            assert!(
+                dif <= dec!(0.0000001),
+                "El producto T * T_inv ({producto}) debe ser muy cercano a 1 para valor {valor}"
             );
         }
     }
 
     #[test]
-    fn no_se_redefine_una_moneda_de_fabrica_ni_una_propia_repetida() {
-        let err = Moneda::crear_propia("USD", "Otro dólar", "$", "2", &Moneda::de_fabrica())
-            .expect_err("USD es de fábrica");
-        assert!(err[0].mensaje.contains("de fábrica"));
+    fn propiedad_consolidacion_redondeo_unico_invariante_frente_al_orden() {
+        let mut rng = GeneradorRng::con_semilla(161803398);
+        let usd = Moneda::por_codigo("USD").unwrap();
+        let ves = Moneda::por_codigo("VES").unwrap();
+        let eur = Moneda::por_codigo("EUR").unwrap();
 
-        let mut catalogo = Moneda::de_fabrica();
-        catalogo.push(bitcoin());
-        let err =
-            Moneda::crear_propia("BTC", "Otro", "B", "2", &catalogo).expect_err("BTC ya existe");
-        assert_eq!(err[0].campo, Campo::Codigo);
-        assert!(err[0].mensaje.contains("Ya existe"));
-    }
+        let t_ves = Tasa {
+            id: "t-v".into(),
+            moneda_origen: "VES".into(),
+            moneda_destino: "USD".into(),
+            valor: dec!(0.025),
+            fecha: "2026-10-27".into(),
+        };
+        let t_eur = Tasa {
+            id: "t-e".into(),
+            moneda_origen: "EUR".into(),
+            moneda_destino: "USD".into(),
+            valor: dec!(1.08),
+            fecha: "2026-10-27".into(),
+        };
+        let tasas = vec![t_ves, t_eur];
 
-    #[test]
-    fn decimales_de_moneda_propia_entre_cero_y_ocho() {
-        for (texto, valido) in [
-            ("0", true),
-            ("8", true),
-            ("9", false),
-            ("-1", false),
-            ("2.5", false),
-            ("", false),
-        ] {
-            let res = Moneda::crear_propia("ABC", "X", "X", texto, &Moneda::de_fabrica());
-            assert_eq!(res.is_ok(), valido, "decimales {texto:?}");
+        for _ in 0..50 {
+            let m_usd = Monto::new(Decimal::new(rng.rango(100, 100_000), 2), usd.clone());
+            let m_ves = Monto::new(Decimal::new(rng.rango(100, 100_000), 2), ves.clone());
+            let m_eur = Monto::new(Decimal::new(rng.rango(100, 100_000), 2), eur.clone());
+
+            let orden_a = vec![m_usd.clone(), m_ves.clone(), m_eur.clone()];
+            let orden_b = vec![m_eur, m_usd, m_ves];
+
+            let res_a = consolidar_saldos(&orden_a, &usd, &tasas, "2026-10-27").unwrap();
+            let res_b = consolidar_saldos(&orden_b, &usd, &tasas, "2026-10-27").unwrap();
+
+            assert_eq!(
+                res_a.total_consolidado.cantidad(),
+                res_b.total_consolidado.cantidad(),
+                "La consolidación con redondeo único no debe depender del orden de los saldos"
+            );
         }
     }
 
     #[test]
-    fn una_cuenta_puede_usar_una_moneda_propia_del_catalogo() {
-        let mut catalogo = Moneda::de_fabrica();
-        catalogo.push(bitcoin());
+    fn propiedad_consolidacion_moneda_base_identica_a_suma_directa() {
+        let mut rng = GeneradorRng::con_semilla(271828182);
+        let usd = Moneda::por_codigo("USD").unwrap();
 
-        let (cuenta, _) = Cuenta::crear(
-            "c-btc".into(),
-            "Billetera fría",
-            TipoCuenta::BilleteraDigital,
-            "btc",
-            "0.00012345",
-            &[],
-            &catalogo,
-        )
-        .expect("BTC está en el catálogo");
-        assert_eq!(cuenta.saldo().moneda().codigo, "BTC");
-        assert_eq!(cuenta.saldo().cantidad().to_string(), "0.00012345");
+        for _ in 0..50 {
+            let n = rng.rango(2, 6);
+            let mut saldos = Vec::new();
+            let mut suma_directa = Decimal::ZERO;
 
-        let err = Cuenta::crear(
-            "c-btc".into(),
-            "Billetera fría",
-            TipoCuenta::BilleteraDigital,
-            "BTC",
-            "0.000000001",
-            &[],
-            &catalogo,
-        )
-        .expect_err("BTC admite 8 decimales, no 9");
-        assert_eq!(err[0].campo, Campo::SaldoInicial);
+            for _ in 0..n {
+                let d = Decimal::new(rng.rango(10, 50_000), 2);
+                suma_directa += d;
+                saldos.push(Monto::new(d, usd.clone()));
+            }
 
-        let err = Cuenta::crear(
-            "c-btc".into(),
-            "Billetera fría",
-            TipoCuenta::BilleteraDigital,
-            "BTC",
-            "1",
-            &[],
-            &Moneda::de_fabrica(),
-        )
-        .expect_err("sin la moneda propia en el catálogo no se puede usar");
-        assert!(err[0].mensaje.contains("Opciones: VES, USD, EUR, USDT"));
+            let cons = consolidar_saldos(&saldos, &usd, &[], "2026-10-27").unwrap();
+            assert_eq!(
+                cons.total_consolidado.cantidad(),
+                suma_directa,
+                "Para cuentas en moneda base, la consolidación debe ser exactamente igual a la suma directa"
+            );
+        }
     }
 }

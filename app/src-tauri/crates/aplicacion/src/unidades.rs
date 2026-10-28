@@ -15,6 +15,7 @@
 //! Ninguna conversión redondea en silencio: un valor con más decimales de los
 //! que admite su escala, o que no cabe en un `i64`, es un error (INV-03).
 
+use dominio::{Moneda, Monto};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
@@ -24,24 +25,14 @@ use crate::errores::ErrorAplicacion;
 pub const ESCALA_TASA: u32 = dominio::DECIMALES_MAXIMOS;
 
 /// Convierte un decimal a unidades mínimas de una moneda con `decimales` decimales.
+///
+/// Usa la conversión del dominio (C-07): rechaza decimales de más y valores que
+/// no caben en un `i64`.
 pub fn decimal_a_unidades(valor: Decimal, decimales: u32) -> Result<i64, ErrorAplicacion> {
-    if valor.normalize().scale() > decimales {
-        return Err(ErrorAplicacion::Interno(format!(
-            "el monto {valor} tiene más de {decimales} decimales"
-        )));
-    }
-    let mut escalado = valor;
-    escalado.rescale(decimales);
-    if escalado.scale() != decimales {
-        return Err(ErrorAplicacion::Interno(format!(
-            "el monto {valor} es demasiado grande para guardarse"
-        )));
-    }
-    i64::try_from(escalado.mantissa()).map_err(|_| {
-        ErrorAplicacion::Interno(format!(
-            "el monto {valor} es demasiado grande para guardarse"
-        ))
-    })
+    let escala = Moneda::nueva_propia("", "", "", decimales);
+    Monto::crear(valor, escala)
+        .and_then(|monto| monto.a_unidad_menor_i64())
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto {valor}: {}", e.mensaje)))
 }
 
 /// Convierte un monto en texto decimal (`"12.34"`) a unidades mínimas.

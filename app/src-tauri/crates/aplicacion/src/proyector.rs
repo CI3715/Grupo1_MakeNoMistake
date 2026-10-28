@@ -36,19 +36,18 @@ pub const TIPO_MONEDA_CREADA: &str = "MonedaCreada";
 
 /// Catálogo completo de monedas: las cuatro de fábrica más las propias proyectadas.
 pub fn catalogo_completo(propias: &[MonedaProyectada]) -> Vec<Moneda> {
-    let mut catalogo = Moneda::de_fabrica();
-    catalogo.extend(propias.iter().map(|m| Moneda {
-        codigo: m.codigo.clone(),
-        nombre: m.nombre.clone(),
-        simbolo: m.simbolo.clone(),
-        decimales: m.decimales,
-    }));
+    let mut catalogo = Moneda::catalogo();
+    catalogo.extend(
+        propias
+            .iter()
+            .map(|m| Moneda::nueva_propia(&m.codigo, &m.nombre, &m.simbolo, m.decimales)),
+    );
     catalogo
 }
 
 /// Decimales de una moneda del catálogo, o error si no existe.
 pub fn decimales_de(moneda: &str, catalogo: &[Moneda]) -> Result<u32, ErrorAplicacion> {
-    Moneda::buscar(moneda, catalogo)
+    Moneda::por_codigo_en(moneda, catalogo)
         .map(|m| m.decimales)
         .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda}")))
 }
@@ -278,7 +277,7 @@ pub fn proyectar_moneda(
         return Ok(None);
     }
     let moneda = codec::deserializar_moneda_creada(&evento.datos)?;
-    if Moneda::es_de_fabrica(&moneda.codigo) {
+    if Moneda::por_codigo(&moneda.codigo).is_some() {
         return Err(ErrorAplicacion::Interno(format!(
             "{} es una moneda de fábrica y no se puede redefinir",
             moneda.codigo
