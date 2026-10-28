@@ -270,20 +270,13 @@ impl From<aplicacion::CategoriaListada> for CategoriaDto {
 /// los positivos viajan sin «+», así que solo se quita ese carácter (no se calcula nada).
 impl From<aplicacion::MovimientoListado> for MovimientoDto {
     fn from(m: aplicacion::MovimientoListado) -> Self {
-        // Mientras el núcleo no entregue el valor vigente, solo se conoce con
-        // certeza cuando el movimiento no tiene ajustes: es su propio monto.
-        let monto_vigente = if m.estado == "vigente" {
-            Some(m.monto.clone())
-        } else {
-            None
-        };
         MovimientoDto {
             id: m.id,
             cuenta_id: m.cuenta_id,
             tipo: m.tipo,
             monto: m.monto,
             monto_con_signo: m.monto_con_signo.trim_start_matches('+').to_string(),
-            monto_vigente,
+            monto_vigente: m.monto_vigente,
             fecha: m.fecha,
             categoria_id: m.categoria.id,
             categoria_nombre: m.categoria.nombre,
@@ -563,6 +556,89 @@ mod tests {
         );
         assert_eq!(v["corrige_a"], Value::Null);
         assert_eq!(v["monto_con_signo"], "-500.00");
+    }
+
+    #[test]
+    fn movimiento_corregido_conserva_el_monto_vigente() {
+        let listado = aplicacion::MovimientoListado {
+            id: "m1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "100.00".into(),
+            monto_con_signo: "-100.00".into(),
+            monto_vigente: Some("80.00".into()),
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "corregido".into(),
+            corrige_a: None,
+            ajustes: vec!["a1".into()],
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(dto.monto, "100.00", "el monto original no se altera");
+        assert_eq!(
+            dto.monto_vigente.as_deref(),
+            Some("80.00"),
+            "un movimiento corregido debe viajar con su valor vigente"
+        );
+    }
+
+    #[test]
+    fn movimiento_vigente_expone_su_propio_monto() {
+        let listado = aplicacion::MovimientoListado {
+            id: "m1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "100.00".into(),
+            monto_con_signo: "-100.00".into(),
+            monto_vigente: Some("100.00".into()),
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "vigente".into(),
+            corrige_a: None,
+            ajustes: Vec::new(),
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(dto.monto_vigente.as_deref(), Some("100.00"));
+    }
+
+    #[test]
+    fn ajuste_no_expone_monto_vigente() {
+        let listado = aplicacion::MovimientoListado {
+            id: "a1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "20.00".into(),
+            monto_con_signo: "-20.00".into(),
+            monto_vigente: None,
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "ajuste".into(),
+            corrige_a: Some("m1".into()),
+            ajustes: Vec::new(),
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(
+            dto.monto_vigente, None,
+            "un ajuste no tiene un valor vigente propio"
+        );
     }
 
     #[test]
