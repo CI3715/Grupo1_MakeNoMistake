@@ -5,6 +5,68 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+fn fecha_a_dia_mes(fecha: &str) -> (i64, i64) {
+    // Espera formato YYYY-MM-DD
+    let mut partes = fecha.split('-');
+    let _anio = partes.next().and_then(|s| s.parse::<i64>().ok());
+    let mes = partes.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+    let dia = partes.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+    (dia, mes)
+}
+
+pub fn fecha_a_dia_mes_pub(fecha: &str) -> (i64, i64) {
+    fecha_a_dia_mes(fecha)
+}
+
+fn decimal_a_centavos(s: &str) -> i64 {
+    let limpio = s.trim();
+    if limpio.is_empty() {
+        return 0;
+    }
+    let negativo = limpio.starts_with('-');
+    let sin_signo = if negativo { &limpio[1..] } else { limpio };
+    if let Some((ent, dec)) = sin_signo.split_once('.') {
+        let ent: i64 = ent.parse().unwrap_or(0);
+        let mut dec2 = dec.to_string();
+        while dec2.len() < 2 {
+            dec2.push('0');
+        }
+        if dec2.len() > 2 {
+            dec2.truncate(2);
+        }
+        let decv: i64 = dec2.parse().unwrap_or(0);
+        let res = ent * 100 + decv;
+        if negativo { -res } else { res }
+    } else {
+        let ent: i64 = sin_signo.parse().unwrap_or(0);
+        if negativo { -(ent * 100) } else { ent * 100 }
+    }
+}
+
+pub fn decimal_a_centavos_pub(s: &str) -> i64 {
+    decimal_a_centavos(s)
+}
+
+#[allow(dead_code)]
+fn centavos_a_decimal(s_cents: i64) -> String {
+    let negativo = s_cents < 0;
+    let abs = s_cents.abs();
+    let ent = abs / 100;
+    let dec = abs % 100;
+    let dec_str = format!("{:02}", dec);
+    let out = format!("{}.{dec_str}", ent);
+    if negativo {
+        format!("-{out}")
+    } else {
+        out
+    }
+}
+
+#[allow(dead_code)]
+pub fn centavos_a_decimal_pub(s_cents: i64) -> String {
+    centavos_a_decimal(s_cents)
+}
+
 /// Abre una conexión SQLite en la ruta indicada y activa claves foráneas.
 pub fn abrir<P: AsRef<Path>>(ruta: P) -> Result<Connection> {
     let conn = Connection::open(ruta)?;
@@ -20,12 +82,220 @@ pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
 pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
 pub const TIPO_MOVIMIENTO_CORREGIDO: &str = "MovimientoCorregido";
 
+/// Migra una base existente a la nueva estructura con montos en centavos y columnas dia/mes.
+fn migrar_si_necesario(conn: &Connection) -> Result<()> {
+    // Desactivar FKs durante migración para poder recrear tablas
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+    // Limpiar tablas temporales si quedaron de migraciones fallidas
+    let _ = conn.execute_batch("DROP TABLE IF EXISTS cuentas_new; DROP TABLE IF EXISTS movimientos_new;");
+
+    // Si no existe la tabla movimientos (base nueva aún sin inicializar), no migrar
+    let existe_movimientos: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='movimientos'",
+        [],
+        |r| r.get(0),
+    ).unwrap_or(0);
+    if existe_movimientos == 0 {
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        return Ok(());
+    }
+
+    // Comprobar si movimientos tiene la columna dia
+    let mut tiene_dia_mes = false;
+    let mut stmt = conn.prepare("PRAGMA table_info(movimientos)")?;
+    let rows = stmt.query_map([], |r| {
+        let name: String = r.get(1)?;
+        Ok(name)
+    })?;
+    for name in rows {
+        if let Ok(n) = name {
+            if n == "dia" {
+                tiene_dia_mes = true;
+                break;
+            }
+        }
+    }
+    if !tiene_dia_mes {
+        // Añadir columnas si no existen
+        let _ = conn.execute_batch(
+            "ALTER TABLE movimientos ADD COLUMN dia INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE movimientos ADD COLUMN mes INTEGER NOT NULL DEFAULT 0;",
+        );
+        // Poblar dia/mes desde fecha
+        let mut stmt = conn.prepare("SELECT id, fecha FROM movimientos")?;
+        let movimientos: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for (id, fecha) in movimientos {
+            let (dia, mes) = fecha_a_dia_mes(&fecha);
+            let _ = conn.execute(
+                "UPDATE movimientos SET dia = ?1, mes = ?2 WHERE id = ?3",
+                params![dia, mes, id],
+            );
+        }
+    }
+
+    // Migrar cuentas de TEXT a INTEGER si es necesario
+    let mut tipo_saldo_inicial = String::new();
+    let mut stmt = conn.prepare("PRAGMA table_info(cuentas)")?;
+    let rows = stmt.query_map([], |r| {
+        let name: String = r.get(1)?;
+        let tipo: String = r.get(2)?;
+        Ok((name, tipo))
+    })?;
+    for row in rows {
+        if let Ok((name, tipo)) = row {
+            if name == "saldo_inicial" {
+                tipo_saldo_inicial = tipo;
+                break;
+            }
+        }
+    }
+    if tipo_saldo_inicial.to_uppercase().contains("TEXT") {
+        // Crear tabla nueva, copiar datos convirtiendo a centavos
+        conn.execute_batch(
+            "CREATE TABLE cuentas_new (
+                id             TEXT PRIMARY KEY,
+                nombre         TEXT NOT NULL,
+                tipo           TEXT NOT NULL,
+                moneda         TEXT NOT NULL,
+                saldo_inicial  INTEGER NOT NULL,
+                saldo_actual   INTEGER NOT NULL,
+                estado         TEXT NOT NULL DEFAULT 'activa',
+                evento_origen  TEXT NOT NULL,
+                actualizado_en TEXT NOT NULL
+            );",
+        )?;
+        let mut stmt = conn.prepare("SELECT id, nombre, tipo, moneda, saldo_inicial, saldo_actual, estado, evento_origen, actualizado_en FROM cuentas")?;
+        let cuentas: Vec<(String, String, String, String, String, String, String, String, String)> = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for c in cuentas {
+            let si = decimal_a_centavos(&c.4);
+            let sa = decimal_a_centavos(&c.5);
+            let _ = conn.execute(
+                "INSERT INTO cuentas_new (id, nombre, tipo, moneda, saldo_inicial, saldo_actual, estado, evento_origen, actualizado_en) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![c.0, c.1, c.2, c.3, si, sa, c.6, c.7, c.8],
+            );
+        }
+        conn.execute_batch("DROP TABLE cuentas; ALTER TABLE cuentas_new RENAME TO cuentas; CREATE UNIQUE INDEX IF NOT EXISTS idx_cuentas_nombre ON cuentas (lower(nombre));")?;
+    }
+
+    // Migrar movimientos de TEXT monto a INTEGER centavos si es necesario
+    let mut tipo_monto = String::new();
+    let mut stmt = conn.prepare("PRAGMA table_info(movimientos)")?;
+    let rows = stmt.query_map([], |r| {
+        let name: String = r.get(1)?;
+        let tipo: String = r.get(2)?;
+        Ok((name, tipo))
+    })?;
+    for row in rows {
+        if let Ok((name, tipo)) = row {
+            if name == "monto" {
+                tipo_monto = tipo;
+                break;
+            }
+        }
+    }
+    if tipo_monto.to_uppercase().contains("TEXT") {
+        // Asegurar columnas dia/mes
+        let _ = conn.execute_batch(
+            "ALTER TABLE movimientos ADD COLUMN dia INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE movimientos ADD COLUMN mes INTEGER NOT NULL DEFAULT 0;",
+        );
+        conn.execute_batch(
+            "CREATE TABLE movimientos_new (
+                id                   TEXT PRIMARY KEY,
+                cuenta_id            TEXT NOT NULL,
+                tipo                 TEXT NOT NULL CHECK (tipo IN ('ingreso','egreso')),
+                monto                INTEGER NOT NULL CHECK (monto > 0),
+                fecha                TEXT NOT NULL
+                                      CHECK (fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+                dia                  INTEGER NOT NULL,
+                mes                  INTEGER NOT NULL,
+                categoria_id         TEXT NOT NULL,
+                nota                 TEXT,
+                estado               TEXT NOT NULL DEFAULT 'vigente'
+                                      CHECK (estado IN ('vigente','corregido')),
+                reemplaza_a          TEXT,
+                corregido_por_evento TEXT,
+                evento_origen        TEXT NOT NULL,
+                actualizado_en       TEXT NOT NULL
+            );",
+        )?;
+        let mut stmt = conn.prepare("SELECT id, cuenta_id, tipo, monto, fecha, categoria_id, nota, estado, reemplaza_a, corregido_por_evento, evento_origen, actualizado_en FROM movimientos")?;
+        let movimientos: Vec<(String, String, String, String, String, String, Option<String>, String, Option<String>, Option<String>, String, String)> = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for m in movimientos {
+            let monto_cents = decimal_a_centavos(&m.3);
+            if monto_cents <= 0 {
+                continue;
+            }
+            let (dia, mes) = fecha_a_dia_mes(&m.4);
+            let _ = conn.execute(
+                "INSERT INTO movimientos_new (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, nota, estado, reemplaza_a, corregido_por_evento, evento_origen, actualizado_en) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                params![m.0, m.1, m.2, monto_cents, m.4, dia, mes, m.5, m.6, m.7, m.8, m.9, m.10, m.11],
+            );
+        }
+        conn.execute_batch("DROP TABLE movimientos; ALTER TABLE movimientos_new RENAME TO movimientos; CREATE INDEX IF NOT EXISTS idx_movimientos_cuenta ON movimientos (cuenta_id); CREATE INDEX IF NOT EXISTS idx_movimientos_fecha ON movimientos (fecha); CREATE INDEX IF NOT EXISTS idx_movimientos_categoria ON movimientos (categoria_id); CREATE INDEX IF NOT EXISTS idx_movimientos_cuenta_estado_fecha ON movimientos (cuenta_id, estado, fecha); CREATE INDEX IF NOT EXISTS idx_movimientos_cuenta_mes_dia ON movimientos (cuenta_id, mes, dia); CREATE UNIQUE INDEX IF NOT EXISTS idx_movimientos_reemplaza ON movimientos (reemplaza_a) WHERE reemplaza_a IS NOT NULL;")?;
+    } else {
+        // Ya es INTEGER pero puede faltar dia/mes
+        let _ = conn.execute_batch(
+            "ALTER TABLE movimientos ADD COLUMN dia INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE movimientos ADD COLUMN mes INTEGER NOT NULL DEFAULT 0;",
+        );
+        let mut stmt = conn.prepare("SELECT id, fecha FROM movimientos WHERE dia = 0 OR mes = 0")?;
+        let movimientos: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for (id, fecha) in movimientos {
+            let (dia, mes) = fecha_a_dia_mes(&fecha);
+            let _ = conn.execute(
+                "UPDATE movimientos SET dia = ?1, mes = ?2 WHERE id = ?3",
+                params![dia, mes, id],
+            );
+        }
+    }
+
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    Ok(())
+}
+
 /// Inicializa el esquema local: el libro de eventos inmutable (`eventos`), sus
 /// proyecciones de lectura (`cuentas`, `categorias` y `movimientos`) y la tabla
 /// de configuración interna.
 ///
 /// Es idempotente: puede ejecutarse en cada arranque de la aplicación.
 pub fn inicializar(conn: &Connection) -> Result<()> {
+    migrar_si_necesario(conn)?;
     conn.execute_batch(
         "
         -- 1) Libro: registro de eventos inmutable (fuente de verdad).
@@ -48,8 +318,8 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             nombre         TEXT NOT NULL,
             tipo           TEXT NOT NULL,
             moneda         TEXT NOT NULL,
-            saldo_inicial  TEXT NOT NULL,
-            saldo_actual   TEXT NOT NULL,
+            saldo_inicial  INTEGER NOT NULL,
+            saldo_actual   INTEGER NOT NULL,
             estado         TEXT NOT NULL DEFAULT 'activa',
             evento_origen  TEXT NOT NULL REFERENCES eventos(id),
             actualizado_en TEXT NOT NULL
@@ -78,7 +348,8 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             ON categorias (tipo, lower(nombre));
 
         -- 5) Proyección: movimientos de cada cuenta.
-        --    - `monto` es positivo y usa la moneda de la cuenta (no se duplica aquí).
+        --    - `monto` se guarda en centavos (INTEGER).
+        --    - `dia` y `mes` se derivan de `fecha` (YYYY-MM-DD) para búsquedas rápidas.
         --    - `estado` distingue el movimiento vigente del corregido.
         --    - `reemplaza_a` apunta al movimiento original cuando esta fila es una
         --      corrección. La corrección nunca borra ni sobrescribe la original.
@@ -86,13 +357,15 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             id                   TEXT PRIMARY KEY,
             cuenta_id            TEXT NOT NULL REFERENCES cuentas(id),
             tipo                 TEXT NOT NULL CHECK (tipo IN ('ingreso','egreso')),
-            monto                TEXT NOT NULL CHECK (CAST(monto AS REAL) > 0),
+            monto                INTEGER NOT NULL CHECK (monto > 0),
             fecha                TEXT NOT NULL
-                                      CHECK (fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+                                  CHECK (fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+            dia                  INTEGER NOT NULL,
+            mes                  INTEGER NOT NULL,
             categoria_id         TEXT NOT NULL REFERENCES categorias(id),
             nota                 TEXT,
             estado               TEXT NOT NULL DEFAULT 'vigente'
-                                      CHECK (estado IN ('vigente','corregido')),
+                                  CHECK (estado IN ('vigente','corregido')),
             reemplaza_a          TEXT REFERENCES movimientos(id),
             corregido_por_evento TEXT REFERENCES eventos(id),
             evento_origen        TEXT NOT NULL REFERENCES eventos(id),
@@ -106,6 +379,8 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
             ON movimientos (categoria_id);
         CREATE INDEX IF NOT EXISTS idx_movimientos_cuenta_estado_fecha
             ON movimientos (cuenta_id, estado, fecha);
+        CREATE INDEX IF NOT EXISTS idx_movimientos_cuenta_mes_dia
+            ON movimientos (cuenta_id, mes, dia);
         -- Un movimiento solo puede ser reemplazado por una corrección directa.
         CREATE UNIQUE INDEX IF NOT EXISTS idx_movimientos_reemplaza
             ON movimientos (reemplaza_a) WHERE reemplaza_a IS NOT NULL;
@@ -133,6 +408,8 @@ pub fn inicializar(conn: &Connection) -> Result<()> {
           OR OLD.tipo          IS NOT NEW.tipo
           OR OLD.monto         IS NOT NEW.monto
           OR OLD.fecha         IS NOT NEW.fecha
+          OR OLD.dia           IS NOT NEW.dia
+          OR OLD.mes           IS NOT NEW.mes
           OR OLD.categoria_id  IS NOT NEW.categoria_id
           OR OLD.nota          IS NOT NEW.nota
           OR OLD.reemplaza_a   IS NOT NEW.reemplaza_a
@@ -409,8 +686,8 @@ pub struct CuentaRow {
     pub nombre: String,
     pub tipo: String,
     pub moneda: String,
-    pub saldo_inicial: String,
-    pub saldo_actual: String,
+    pub saldo_inicial: i64,
+    pub saldo_actual: i64,
     pub estado: String,
     pub evento_origen: String,
     pub actualizado_en: String,
@@ -536,8 +813,10 @@ pub struct MovimientoRow {
     pub id: String,
     pub cuenta_id: String,
     pub tipo: String,
-    pub monto: String,
+    pub monto: i64,
     pub fecha: String,
+    pub dia: i64,
+    pub mes: i64,
     pub categoria_id: String,
     pub nota: Option<String>,
     pub estado: String,
@@ -550,14 +829,16 @@ pub struct MovimientoRow {
 /// Inserta una fila de proyección de movimiento.
 pub fn insertar_movimiento(conn: &Connection, m: &MovimientoRow) -> Result<()> {
     conn.execute(
-        "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, categoria_id, nota, estado, reemplaza_a, corregido_por_evento, evento_origen, actualizado_en)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO movimientos (id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, nota, estado, reemplaza_a, corregido_por_evento, evento_origen, actualizado_en)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             m.id,
             m.cuenta_id,
             m.tipo,
             m.monto,
             m.fecha,
+            m.dia,
+            m.mes,
             m.categoria_id,
             m.nota,
             m.estado,
@@ -573,7 +854,7 @@ pub fn insertar_movimiento(conn: &Connection, m: &MovimientoRow) -> Result<()> {
 /// Lista todos los movimientos proyectados en orden de registro (por `rowid`).
 pub fn listar_movimientos(conn: &Connection) -> Result<Vec<MovimientoRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, cuenta_id, tipo, monto, fecha, categoria_id, nota, estado, reemplaza_a, corregido_por_evento, evento_origen, actualizado_en
+        "SELECT id, cuenta_id, tipo, monto, fecha, dia, mes, categoria_id, nota, estado, reemplaza_a, corregido_por_evento, evento_origen, actualizado_en
          FROM movimientos ORDER BY rowid ASC",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -583,13 +864,15 @@ pub fn listar_movimientos(conn: &Connection) -> Result<Vec<MovimientoRow>> {
             tipo: r.get(2)?,
             monto: r.get(3)?,
             fecha: r.get(4)?,
-            categoria_id: r.get(5)?,
-            nota: r.get(6)?,
-            estado: r.get(7)?,
-            reemplaza_a: r.get(8)?,
-            corregido_por_evento: r.get(9)?,
-            evento_origen: r.get(10)?,
-            actualizado_en: r.get(11)?,
+            dia: r.get(5)?,
+            mes: r.get(6)?,
+            categoria_id: r.get(7)?,
+            nota: r.get(8)?,
+            estado: r.get(9)?,
+            reemplaza_a: r.get(10)?,
+            corregido_por_evento: r.get(11)?,
+            evento_origen: r.get(12)?,
+            actualizado_en: r.get(13)?,
         })
     })?;
     let mut movimientos = Vec::new();
@@ -625,7 +908,7 @@ pub fn marcar_movimiento_corregido(
 pub fn saldo_inicial_y_moneda(
     conn: &Connection,
     cuenta_id: &str,
-) -> Result<Option<(String, String)>> {
+) -> Result<Option<(i64, String)>> {
     let mut stmt = conn.prepare("SELECT saldo_inicial, moneda FROM cuentas WHERE id = ?1")?;
     let mut rows = stmt.query(params![cuenta_id])?;
     match rows.next()? {
@@ -635,7 +918,7 @@ pub fn saldo_inicial_y_moneda(
 }
 
 /// Pares `(tipo, monto)` de los movimientos vigentes de una cuenta, en orden de registro.
-pub fn movimientos_vigentes(conn: &Connection, cuenta_id: &str) -> Result<Vec<(String, String)>> {
+pub fn movimientos_vigentes(conn: &Connection, cuenta_id: &str) -> Result<Vec<(String, i64)>> {
     let mut stmt = conn.prepare(
         "SELECT tipo, monto FROM movimientos
           WHERE cuenta_id = ?1 AND estado = 'vigente'
@@ -653,11 +936,11 @@ pub fn movimientos_vigentes(conn: &Connection, cuenta_id: &str) -> Result<Vec<(S
 pub fn actualizar_saldo_cuenta(
     conn: &Connection,
     cuenta_id: &str,
-    saldo_actual: &str,
+    saldo_actual_cents: i64,
 ) -> Result<()> {
     conn.execute(
         "UPDATE cuentas SET saldo_actual = ?2 WHERE id = ?1",
-        params![cuenta_id, saldo_actual],
+        params![cuenta_id, saldo_actual_cents],
     )?;
     Ok(())
 }

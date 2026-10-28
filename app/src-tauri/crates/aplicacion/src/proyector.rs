@@ -207,3 +207,31 @@ pub fn calcular_saldo_actual(
         .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda}")))?;
     Ok(format!("{:.prec$}", total, prec = decimales as usize))
 }
+
+/// Variante con montos en centavos (INTEGER) para la nueva capa de infraestructura.
+/// `movimientos_vigentes` es una lista de pares `(tipo, monto_cents)`.
+pub fn calcular_saldo_actual_centavos(
+    saldo_inicial_cents: i64,
+    moneda: &str,
+    movimientos_vigentes: &[(String, i64)],
+) -> Result<i64, ErrorAplicacion> {
+    let mut total: i64 = saldo_inicial_cents;
+
+    for (tipo, monto_cents) in movimientos_vigentes {
+        match tipo.as_str() {
+            "ingreso" => total += *monto_cents,
+            "egreso" | "gasto" => total -= *monto_cents,
+            otro => {
+                return Err(ErrorAplicacion::Interno(format!(
+                    "tipo de movimiento desconocido: {otro}"
+                )));
+            }
+        }
+    }
+
+    // Validación de moneda para mantener compatibilidad con la lógica existente
+    let _ = Moneda::por_codigo(moneda)
+        .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda}")))?;
+
+    Ok(total)
+}

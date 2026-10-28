@@ -40,8 +40,8 @@ fn proyectar_evento(conn: &Connection, evento: &EventoRegistrado) -> Result<(), 
             nombre: cuenta.nombre,
             tipo: cuenta.tipo,
             moneda: cuenta.moneda,
-            saldo_inicial: cuenta.saldo_inicial,
-            saldo_actual: cuenta.saldo_actual,
+            saldo_inicial: crate::db::decimal_a_centavos_pub(&cuenta.saldo_inicial),
+            saldo_actual: crate::db::decimal_a_centavos_pub(&cuenta.saldo_actual),
             estado: cuenta.estado,
             evento_origen: evento.id.clone(),
             actualizado_en: evento.momento_registro.clone(),
@@ -72,12 +72,15 @@ fn proyectar_evento(conn: &Connection, evento: &EventoRegistrado) -> Result<(), 
                 .map_err(|e| ErrorRepositorio(e.to_string()))?;
         }
         let cuenta_id = movimiento.cuenta_id.clone();
+        let (dia, mes) = crate::db::fecha_a_dia_mes_pub(&movimiento.fecha);
         let fila = db::MovimientoRow {
             id: movimiento.id,
             cuenta_id: movimiento.cuenta_id,
             tipo: movimiento.tipo,
-            monto: movimiento.monto,
+            monto: crate::db::decimal_a_centavos_pub(&movimiento.monto),
             fecha: movimiento.fecha,
+            dia,
+            mes,
             categoria_id: movimiento.categoria_id,
             nota: movimiento.nota,
             estado: movimiento.estado,
@@ -132,16 +135,20 @@ pub fn reconstruir_proyecciones(conn: &Connection) -> Result<(), ErrorRepositori
 /// Recalcula `saldo_actual` de una cuenta a partir de su saldo inicial y sus
 /// movimientos vigentes, sin tocar `saldo_inicial` (D-11).
 fn recalcular_saldo(conn: &Connection, cuenta_id: &str) -> Result<(), ErrorRepositorio> {
-    let Some((saldo_inicial, moneda)) =
+    let Some((saldo_inicial_cents, moneda)) =
         db::saldo_inicial_y_moneda(conn, cuenta_id).map_err(|e| ErrorRepositorio(e.to_string()))?
     else {
         return Ok(());
     };
     let vigentes =
         db::movimientos_vigentes(conn, cuenta_id).map_err(|e| ErrorRepositorio(e.to_string()))?;
-    let saldo = aplicacion::proyector::calcular_saldo_actual(&saldo_inicial, &moneda, &vigentes)
-        .map_err(|e| ErrorRepositorio(e.to_string()))?;
-    db::actualizar_saldo_cuenta(conn, cuenta_id, &saldo)
+    let saldo_cents = aplicacion::proyector::calcular_saldo_actual_centavos(
+        saldo_inicial_cents,
+        &moneda,
+        &vigentes,
+    )
+    .map_err(|e| ErrorRepositorio(e.to_string()))?;
+    db::actualizar_saldo_cuenta(conn, cuenta_id, saldo_cents)
         .map_err(|e| ErrorRepositorio(e.to_string()))?;
     Ok(())
 }
@@ -214,8 +221,8 @@ impl RepositorioEventos for RepositorioEventosSqlite {
                     nombre: r.nombre,
                     tipo: r.tipo,
                     moneda: r.moneda,
-                    saldo_inicial: r.saldo_inicial,
-                    saldo_actual: r.saldo_actual,
+                    saldo_inicial: crate::db::centavos_a_decimal_pub(r.saldo_inicial),
+                    saldo_actual: crate::db::centavos_a_decimal_pub(r.saldo_actual),
                     estado: r.estado,
                 })
                 .collect()),
@@ -255,7 +262,7 @@ impl RepositorioEventos for RepositorioEventosSqlite {
                     id: r.id,
                     cuenta_id: r.cuenta_id,
                     tipo: r.tipo,
-                    monto: r.monto,
+                    monto: crate::db::centavos_a_decimal_pub(r.monto),
                     fecha: r.fecha,
                     categoria_id: r.categoria_id,
                     nota: r.nota,
