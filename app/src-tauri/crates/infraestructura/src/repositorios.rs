@@ -470,4 +470,200 @@ mod pruebas {
             "la Entrega 2 no tenía movimientos"
         );
     }
+
+    /// Repositorio SQLite con el esquema, la siembra canónica y las proyecciones
+    /// reconstruidas, listo para recibir eventos.
+    fn repositorio_con_fabrica() -> RepositorioEventosSqlite {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        crate::db::inicializar(&conn).unwrap();
+        crate::db::sembrar_categorias_fabrica(&conn).unwrap();
+        reconstruir_proyecciones(&conn).unwrap();
+        RepositorioEventosSqlite::nuevo(conn)
+    }
+
+    #[test]
+    fn siembra_y_reconstruccion_no_duplica_categorias() {
+        let repo = repositorio_con_fabrica();
+        let categorias = repo.listar_categorias().unwrap();
+
+        assert_eq!(categorias.len(), 11, "no debe haber categorías duplicadas");
+        let mut claves = std::collections::HashSet::new();
+        for categoria in &categorias {
+            assert!(
+                claves.insert((categoria.tipo.clone(), categoria.nombre.to_lowercase())),
+                "categoría duplicada: {} ({})",
+                categoria.nombre,
+                categoria.tipo
+            );
+        }
+        assert!(
+            categorias.iter().any(|c| c.id == "gasto:alimentacion"),
+            "debe existir el ID canónico de Alimentación"
+        );
+        assert!(
+            categorias.iter().all(|c| c.es_fabrica),
+            "las 11 categorías sembradas son de fábrica"
+        );
+    }
+
+    #[test]
+    fn movimiento_con_id_de_dominio_no_viola_la_fk() {
+        let mut repo = repositorio_con_fabrica();
+        guardar_evento(
+            &mut repo,
+            "e-cuenta",
+            "CuentaCreada",
+            r#"{"id":"c1","nombre":"Cartera","tipo":"efectivo","moneda":"USD","saldo_inicial":"100.00"}"#,
+        );
+        guardar_evento(
+            &mut repo,
+            "e-mov",
+            "MovimientoRegistrado",
+            r#"{"id":"m1","cuenta_id":"c1","tipo":"egreso","monto":"25.00","fecha":"2026-10-19","categoria_id":"gasto:alimentacion"}"#,
+        );
+
+        let movimientos = repo.listar_movimientos().unwrap();
+        assert_eq!(movimientos.len(), 1);
+        assert_eq!(movimientos[0].categoria_id, "gasto:alimentacion");
+        assert_eq!(
+            repo.listar_cuentas().unwrap()[0].saldo_actual,
+            "75.00",
+            "el movimiento debe afectar el saldo"
+        );
+    }
+
+    #[test]
+    fn reconstruir_traduce_los_ids_historicos_de_categoria() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        crate::db::inicializar(&conn).unwrap();
+
+        // Simula el libro de una base anterior: eventos con IDs cat-fabrica-*.
+        for categoria in dominio::categorias_de_fabrica() {
+            let legado = aplicacion::categorias::id_categoria_legado(&categoria);
+            let tipo = match categoria.tipo {
+                dominio::TipoMovimiento::Gasto => "egreso",
+                dominio::TipoMovimiento::Ingreso => "ingreso",
+            };
+            let datos = format!(
+                r#"{{"id":"{legado}","nombre":"{}","tipo":"{tipo}","es_fabrica":true}}"#,
+                categoria.nombre
+            );
+            crate::db::insertar_evento(
+                &conn,
+                &legado,
+                "CategoriaCreada",
+                "2026-01-01T00:00:00Z",
+                "fabrica",
+                &datos,
+            )
+            .unwrap();
+        }
+        crate::db::insertar_evento(
+            &conn,
+            "e-cuenta",
+            "CuentaCreada",
+            "2026-10-14T12:00:00Z",
+            "d1",
+            r#"{"id":"c1","nombre":"Cartera","tipo":"efectivo","moneda":"USD","saldo_inicial":"100.00"}"#,
+        )
+        .unwrap();
+        crate::db::insertar_evento(
+            &conn,
+            "e-mov",
+            "MovimientoRegistrado",
+            "2026-10-19T12:00:00Z",
+            "d1",
+            r#"{"id":"m1","cuenta_id":"c1","tipo":"egreso","monto":"10.00","fecha":"2026-10-19","categoria_id":"cat-fabrica-egreso-alimentacion"}"#,
+        )
+        .unwrap();
+
+        reconstruir_proyecciones(&conn).unwrap();
+        let repo = RepositorioEventosSqlite::nuevo(conn);
+
+        let categorias = repo.listar_categorias().unwrap();
+        assert_eq!(categorias.len(), 11);
+        assert!(categorias.iter().any(|c| c.id == "gasto:alimentacion"));
+        assert!(
+            !categorias.iter().any(|c| c.id.starts_with("cat-fabrica-")),
+            "la proyección no debe conservar IDs históricos"
+        );
+
+        let movimientos = repo.listar_movimientos().unwrap();
+        assert_eq!(movimientos.len(), 1);
+        assert_eq!(
+            movimientos[0].categoria_id, "gasto:alimentacion",
+            "el movimiento histórico debe apuntar al ID canónico"
+        );
+    }
+
+    #[test]
+    fn flujo_completo_con_sqlite_usa_categorias_canonicas() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ruta = std::env::temp_dir().join(format!("cuentas_claras_categorias_{nanos}.db"));
+
+        {
+            let bd = crate::db::BaseDatos::persistente(&ruta).unwrap();
+            let repo = RepositorioEventosSqlite::with_conn(bd.conexion());
+            let mut app = aplicacion::CasosDeUso::nuevo(
+                Box::new(repo),
+                Box::new(aplicacion::RelojFijo::nuevo("2026-10-19T12:00:00Z")),
+                Box::new(aplicacion::GeneradorSecuencial::nuevo()),
+                Box::new(aplicacion::DispositivoFijo::nuevo("disp-1")),
+            );
+
+            let categorias = app.listar_categorias().unwrap();
+            assert_eq!(categorias.len(), 11);
+            assert!(
+                categorias
+                    .iter()
+                    .any(|c| c.id == "gasto:alimentacion" && c.de_fabrica)
+            );
+
+            let cuenta = app
+                .crear_cuenta(aplicacion::NuevaCuenta {
+                    nombre: "Cartera".to_string(),
+                    tipo: "efectivo".to_string(),
+                    moneda: "USD".to_string(),
+                    saldo_inicial: "100.00".to_string(),
+                })
+                .unwrap();
+            app.registrar_movimiento(aplicacion::NuevoMovimiento {
+                cuenta_id: cuenta.id.clone(),
+                tipo: "gasto".to_string(),
+                monto: "25.00".to_string(),
+                fecha: "2026-10-19".to_string(),
+                categoria_id: "gasto:alimentacion".to_string(),
+                nota: None,
+            })
+            .unwrap();
+
+            let detalle = app.detalle_cuenta(&cuenta.id).unwrap();
+            assert_eq!(detalle.movimientos.len(), 1);
+            assert_eq!(detalle.cuenta.saldo_actual, "75.00");
+        }
+
+        // Reabrir la base demuestra que la proyección persistida quedó con el ID canónico.
+        {
+            let bd = crate::db::BaseDatos::persistente(&ruta).unwrap();
+            let conn = bd.conexion();
+            let conn = conn.lock().unwrap();
+            let total: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM movimientos WHERE categoria_id = 'gasto:alimentacion'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(total, 1);
+        }
+
+        let _ = std::fs::remove_file(&ruta);
+        let _ = std::fs::remove_file(ruta.with_extension("db-wal"));
+        let _ = std::fs::remove_file(ruta.with_extension("db-shm"));
+    }
 }

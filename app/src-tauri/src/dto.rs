@@ -559,6 +559,89 @@ mod tests {
     }
 
     #[test]
+    fn movimiento_corregido_conserva_el_monto_vigente() {
+        let listado = aplicacion::MovimientoListado {
+            id: "m1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "100.00".into(),
+            monto_con_signo: "-100.00".into(),
+            monto_vigente: Some("80.00".into()),
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "corregido".into(),
+            corrige_a: None,
+            ajustes: vec!["a1".into()],
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(dto.monto, "100.00", "el monto original no se altera");
+        assert_eq!(
+            dto.monto_vigente.as_deref(),
+            Some("80.00"),
+            "un movimiento corregido debe viajar con su valor vigente"
+        );
+    }
+
+    #[test]
+    fn movimiento_vigente_expone_su_propio_monto() {
+        let listado = aplicacion::MovimientoListado {
+            id: "m1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "100.00".into(),
+            monto_con_signo: "-100.00".into(),
+            monto_vigente: Some("100.00".into()),
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "vigente".into(),
+            corrige_a: None,
+            ajustes: Vec::new(),
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(dto.monto_vigente.as_deref(), Some("100.00"));
+    }
+
+    #[test]
+    fn ajuste_no_expone_monto_vigente() {
+        let listado = aplicacion::MovimientoListado {
+            id: "a1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "20.00".into(),
+            monto_con_signo: "-20.00".into(),
+            monto_vigente: None,
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "ajuste".into(),
+            corrige_a: Some("m1".into()),
+            ajustes: Vec::new(),
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(
+            dto.monto_vigente, None,
+            "un ajuste no tiene un valor vigente propio"
+        );
+    }
+
+    #[test]
     fn detalle_de_cuenta_tiene_los_campos_acordados() {
         let detalle = DetalleCuentaDto {
             cuenta: cuenta(),
