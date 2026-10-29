@@ -16,11 +16,15 @@ pub mod vistas;
 
 pub use casos_de_uso::{
     CasosDeUso, DatosCorregirMovimiento, DatosPrevisualizarMovimiento, NuevaCategoria, NuevaCuenta,
-    NuevaMoneda, NuevoMovimiento, TIPO_CATEGORIA_CREADA, TIPO_CUENTA_CREADA,
+    NuevaMoneda, NuevaTasa, NuevoMovimiento, TIPO_CATEGORIA_CREADA, TIPO_CUENTA_CREADA,
     TIPO_MOVIMIENTO_CORREGIDO, TIPO_MOVIMIENTO_REGISTRADO,
 };
+pub type NuevaMonedaPropia = NuevaMoneda;
+
 pub use errores::{ErrorAplicacion, ErrorValidacion};
-pub use memoria::{DispositivoFijo, GeneradorSecuencial, RelojFijo, RepositorioEnMemoria};
+pub use memoria::{
+    DispositivoFijo, GeneradorSecuencial, RelojFijo, RelojModificable, RepositorioEnMemoria,
+};
 pub use proyector::{
     TIPO_MONEDA_BASE_CAMBIADA, TIPO_MONEDA_CREADA, TIPO_TASA_ELIMINADA, TIPO_TASA_REGISTRADA,
 };
@@ -31,5 +35,6 @@ pub use puertos::{
 };
 pub use vistas::{
     CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, DetalleCuentaVista,
-    ListaCuentas, MonedaDto, MovimientoListado, PrevisualizacionMovimiento, Subtotal,
+    ListaCuentas, MonedaDto, MovimientoListado, ParFaltanteVista, PatrimonioVista,
+    PrevisualizacionMovimiento, Subtotal, TasaListada, TasaUsadaVista,
 };
