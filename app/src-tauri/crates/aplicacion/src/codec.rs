@@ -5,8 +5,8 @@
 //! y permitir que la capa de persistencia opere únicamente con cadenas de texto.
 
 use dominio::{
-    CategoriaCreada, CuentaCreada, Moneda, MovimientoCorregido, MovimientoRegistrado, TipoCuenta,
-    TipoMovimiento,
+    CategoriaCreada, CuentaCreada, DECIMALES_MAXIMOS, Moneda, MonedaCreada, MovimientoCorregido,
+    MovimientoRegistrado, TipoCuenta, TipoMovimiento,
 };
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
@@ -54,6 +54,13 @@ pub fn texto_a_tipo_movimiento(texto: &str) -> Result<TipoMovimiento, ErrorAplic
     }
 }
 
+/// Busca una moneda en el catálogo o devuelve un error interno: un evento ya
+/// guardado nunca debería nombrar una moneda desconocida.
+fn buscar_moneda(codigo: &str, catalogo: &[Moneda]) -> Result<Moneda, ErrorAplicacion> {
+    Moneda::por_codigo_en(codigo, catalogo)
+        .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {codigo}")))
+}
+
 /// Extrae una propiedad de tipo cadena desde un valor JSON, devolviendo un error interno si no existe.
 fn texto(valor: &Value, clave: &str) -> Result<String, ErrorAplicacion> {
     valor
@@ -96,7 +103,10 @@ pub fn serializar(evento: &CuentaCreada) -> String {
 }
 
 /// Deserializa una cadena JSON para reconstruir la estructura [`CuentaCreada`] original.
-pub fn deserializar(datos: &str) -> Result<CuentaCreada, ErrorAplicacion> {
+///
+/// `catalogo` son las monedas conocidas en ese punto del libro (fábrica más las
+/// propias creadas antes): la cuenta puede usar una moneda propia.
+pub fn deserializar(datos: &str, catalogo: &[Moneda]) -> Result<CuentaCreada, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
         .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
 
@@ -108,8 +118,7 @@ pub fn deserializar(datos: &str) -> Result<CuentaCreada, ErrorAplicacion> {
         .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
 
     let moneda_str = texto(&valor, "moneda")?;
-    let moneda = Moneda::por_codigo(&moneda_str)
-        .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda_str}")))?;
+    let moneda = buscar_moneda(&moneda_str, catalogo)?;
 
     Ok(CuentaCreada {
         id: texto(&valor, "id")?,
@@ -264,6 +273,7 @@ pub fn serializar_movimiento(evento: &MovimientoRegistrado) -> String {
 /// Deserializa una cadena JSON para reconstruir un [`MovimientoRegistrado`] de dominio.
 pub fn deserializar_evento_movimiento(
     datos: &str,
+    catalogo: &[Moneda],
 ) -> Result<MovimientoRegistrado, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
         .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
@@ -279,8 +289,7 @@ pub fn deserializar_evento_movimiento(
         .get("moneda")
         .and_then(|v| v.as_str())
         .unwrap_or("USD");
-    let moneda = Moneda::por_codigo(moneda_str)
-        .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda_str}")))?;
+    let moneda = buscar_moneda(moneda_str, catalogo)?;
 
     let monto_str = texto(&valor, "monto")?;
     let mut monto = Decimal::from_str(&monto_str)
@@ -321,7 +330,10 @@ pub fn serializar_correccion(evento: &MovimientoCorregido) -> String {
 }
 
 /// Deserializa una cadena JSON para reconstruir un [`MovimientoCorregido`] de dominio.
-pub fn deserializar_correccion(datos: &str) -> Result<MovimientoCorregido, ErrorAplicacion> {
+pub fn deserializar_correccion(
+    datos: &str,
+    catalogo: &[Moneda],
+) -> Result<MovimientoCorregido, ErrorAplicacion> {
     let valor: Value = serde_json::from_str(datos)
         .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
 
@@ -329,8 +341,7 @@ pub fn deserializar_correccion(datos: &str) -> Result<MovimientoCorregido, Error
         .get("moneda")
         .and_then(|v| v.as_str())
         .unwrap_or("USD");
-    let moneda = Moneda::por_codigo(moneda_str)
-        .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda_str}")))?;
+    let moneda = buscar_moneda(moneda_str, catalogo)?;
 
     let monto_str = texto_alternativo(&valor, "monto_correcto", "monto")?;
     let mut monto_correcto = Decimal::from_str(&monto_str)
@@ -388,6 +399,143 @@ pub fn deserializar_evento_categoria(datos: &str) -> Result<CategoriaCreada, Err
     })
 }
 
+/// Serializa un evento [`MonedaCreada`].
+pub fn serializar_moneda_creada(evento: &MonedaCreada) -> String {
+    json!({
+        "codigo": evento.codigo,
+        "nombre": evento.nombre,
+        "simbolo": evento.simbolo,
+        "decimales": evento.decimales,
+    })
+    .to_string()
+}
+
+/// Deserializa y valida la carga de un evento `MonedaCreada`.
+pub fn deserializar_moneda_creada(datos: &str) -> Result<MonedaCreada, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+
+    let codigo = texto(&valor, "codigo")?;
+    let formato_ok =
+        (3..=5).contains(&codigo.len()) && codigo.chars().all(|c| c.is_ascii_uppercase());
+    if !formato_ok {
+        return Err(ErrorAplicacion::Interno(format!(
+            "código de moneda inválido: {codigo}"
+        )));
+    }
+    let decimales = valor
+        .get("decimales")
+        .and_then(|v| v.as_u64())
+        .filter(|d| *d <= u64::from(DECIMALES_MAXIMOS))
+        .ok_or_else(|| {
+            ErrorAplicacion::Interno(format!("decimales inválidos en la moneda {codigo}"))
+        })?;
+
+    Ok(MonedaCreada {
+        codigo,
+        nombre: texto(&valor, "nombre")?,
+        simbolo: texto(&valor, "simbolo")?,
+        decimales: decimales as u32,
+    })
+}
+
+/// Contenido de un evento `TasaRegistrada`: 1 `moneda_origen` = `valor` `moneda_destino`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TasaRegistradaDatos {
+    pub id: String,
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    /// Valor exacto, mayor que cero y con hasta 8 decimales.
+    pub valor: Decimal,
+    pub fecha: String,
+    pub fuente: String,
+}
+
+/// Serializa un evento `TasaRegistrada`; el valor viaja como texto canónico.
+pub fn serializar_tasa_registrada(tasa: &TasaRegistradaDatos) -> String {
+    json!({
+        "id": tasa.id,
+        "moneda_origen": tasa.moneda_origen,
+        "moneda_destino": tasa.moneda_destino,
+        "valor": crate::unidades::texto_tasa(tasa.valor),
+        "fecha": tasa.fecha,
+        "fuente": tasa.fuente,
+    })
+    .to_string()
+}
+
+/// Deserializa y valida la carga de un evento `TasaRegistrada`.
+///
+/// Comprueba lo que toda proyección necesita para ser coherente: monedas
+/// distintas, valor positivo con hasta 8 decimales, fecha y fuente presentes.
+/// Las reglas que dependen del contexto (fecha futura, monedas del catálogo)
+/// son del dominio y del adaptador.
+pub fn deserializar_tasa_registrada(datos: &str) -> Result<TasaRegistradaDatos, ErrorAplicacion> {
+    let valor_json: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+
+    let moneda_origen = texto(&valor_json, "moneda_origen")?.trim().to_uppercase();
+    let moneda_destino = texto(&valor_json, "moneda_destino")?.trim().to_uppercase();
+    if moneda_origen == moneda_destino {
+        return Err(ErrorAplicacion::Interno(format!(
+            "una tasa necesita dos monedas distintas ({moneda_origen})"
+        )));
+    }
+
+    let valor_texto = texto(&valor_json, "valor")?;
+    let valor = Decimal::from_str(valor_texto.trim())
+        .map_err(|e| ErrorAplicacion::Interno(format!("valor de tasa inválido: {e}")))?;
+    if valor <= Decimal::ZERO || valor.normalize().scale() > DECIMALES_MAXIMOS {
+        return Err(ErrorAplicacion::Interno(format!(
+            "valor de tasa inválido: {valor_texto}"
+        )));
+    }
+
+    let fecha = texto(&valor_json, "fecha")?;
+    dominio::validar_fecha(&fecha)
+        .map_err(|e| ErrorAplicacion::Interno(format!("fecha de tasa inválida: {}", e.mensaje)))?;
+
+    let fuente = texto(&valor_json, "fuente")?.trim().to_string();
+    if fuente.is_empty() {
+        return Err(ErrorAplicacion::Interno(
+            "una tasa necesita una fuente".to_string(),
+        ));
+    }
+
+    Ok(TasaRegistradaDatos {
+        id: texto(&valor_json, "id")?,
+        moneda_origen,
+        moneda_destino,
+        valor,
+        fecha,
+        fuente,
+    })
+}
+
+/// Serializa un evento `TasaEliminada`.
+pub fn serializar_tasa_eliminada(tasa_id: &str) -> String {
+    json!({ "tasa_id": tasa_id }).to_string()
+}
+
+/// Deserializa un evento `TasaEliminada` y devuelve el identificador de la tasa.
+pub fn deserializar_tasa_eliminada(datos: &str) -> Result<String, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+    texto(&valor, "tasa_id")
+}
+
+/// Serializa un evento `MonedaBaseCambiada`.
+pub fn serializar_moneda_base_cambiada(moneda: &str) -> String {
+    json!({ "moneda": moneda }).to_string()
+}
+
+/// Deserializa un evento `MonedaBaseCambiada` y devuelve el código de la nueva base.
+pub fn deserializar_moneda_base_cambiada(datos: &str) -> Result<String, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+    Ok(texto(&valor, "moneda")?.trim().to_uppercase())
+}
+
 #[cfg(test)]
 mod pruebas {
     use super::*;
@@ -406,7 +554,7 @@ mod pruebas {
     #[test]
     fn ida_y_vuelta_conserva_el_evento() {
         let original = evento_ejemplo();
-        let recuperado = deserializar(&serializar(&original)).unwrap();
+        let recuperado = deserializar(&serializar(&original), &Moneda::catalogo()).unwrap();
         assert_eq!(recuperado, original);
     }
 
@@ -431,7 +579,10 @@ mod pruebas {
             nota: Some("Cena".to_string()),
         };
         let json_mov = serializar_movimiento(&mov);
-        assert_eq!(deserializar_evento_movimiento(&json_mov).unwrap(), mov);
+        assert_eq!(
+            deserializar_evento_movimiento(&json_mov, &Moneda::catalogo()).unwrap(),
+            mov
+        );
         assert_eq!(deserializar_movimiento(&json_mov).unwrap().id, "m-1");
 
         let corr = MovimientoCorregido {
@@ -442,7 +593,7 @@ mod pruebas {
             moneda: usd,
         };
         assert_eq!(
-            deserializar_correccion(&serializar_correccion(&corr)).unwrap(),
+            deserializar_correccion(&serializar_correccion(&corr), &Moneda::catalogo()).unwrap(),
             corr
         );
 
@@ -459,29 +610,29 @@ mod pruebas {
     #[test]
     fn errores_de_deserializacion_son_internos() {
         assert!(matches!(
-            deserializar("no es json"),
+            deserializar("no es json", &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
-            deserializar("{}"),
+            deserializar("{}", &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         let tipo_malo =
             r#"{"id":"1","nombre":"A","tipo":"tarjeta","moneda":"VES","saldo_inicial":"1.00"}"#;
         assert!(matches!(
-            deserializar(tipo_malo),
+            deserializar(tipo_malo, &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         let monto_malo =
             r#"{"id":"1","nombre":"A","tipo":"banco","moneda":"VES","saldo_inicial":"abc"}"#;
         assert!(matches!(
-            deserializar(monto_malo),
+            deserializar(monto_malo, &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         let moneda_mala =
             r#"{"id":"1","nombre":"A","tipo":"banco","moneda":"XYZ","saldo_inicial":"1.00"}"#;
         assert!(matches!(
-            deserializar(moneda_mala),
+            deserializar(moneda_mala, &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
@@ -489,12 +640,96 @@ mod pruebas {
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
-            deserializar_correccion("no es json"),
+            deserializar_correccion("no es json", &Moneda::catalogo()),
             Err(ErrorAplicacion::Interno(_))
         ));
         assert!(matches!(
             deserializar_categoria("no es json"),
             Err(ErrorAplicacion::Interno(_))
         ));
+    }
+
+    #[test]
+    fn una_cuenta_puede_usar_una_moneda_propia_del_catalogo() {
+        let datos = r#"{"id":"c1","nombre":"Fría","tipo":"billetera_digital","moneda":"BTC","saldo_inicial":"0.00012345"}"#;
+        assert!(deserializar(datos, &Moneda::catalogo()).is_err());
+
+        let mut catalogo = Moneda::catalogo();
+        catalogo.push(Moneda::nueva_propia("BTC", "Bitcoin", "₿", 8));
+        let cuenta = deserializar(datos, &catalogo).unwrap();
+        assert_eq!(cuenta.moneda.decimales, 8);
+        assert_eq!(
+            deserializar(&serializar(&cuenta), &catalogo).unwrap(),
+            cuenta
+        );
+    }
+
+    #[test]
+    fn ida_y_vuelta_de_los_eventos_de_tasas_y_monedas() {
+        let moneda = MonedaCreada {
+            codigo: "BTC".into(),
+            nombre: "Bitcoin".into(),
+            simbolo: "₿".into(),
+            decimales: 8,
+        };
+        assert_eq!(
+            deserializar_moneda_creada(&serializar_moneda_creada(&moneda)).unwrap(),
+            moneda
+        );
+
+        let tasa = TasaRegistradaDatos {
+            id: "t1".into(),
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: dec!(887.00),
+            fecha: "2026-10-20".into(),
+            fuente: "BCV".into(),
+        };
+        let json_tasa = serializar_tasa_registrada(&tasa);
+        assert!(json_tasa.contains(r#""valor":"887""#), "{json_tasa}");
+        assert_eq!(deserializar_tasa_registrada(&json_tasa).unwrap(), tasa);
+
+        assert_eq!(
+            deserializar_tasa_eliminada(&serializar_tasa_eliminada("t1")).unwrap(),
+            "t1"
+        );
+        assert_eq!(
+            deserializar_moneda_base_cambiada(&serializar_moneda_base_cambiada("VES")).unwrap(),
+            "VES"
+        );
+    }
+
+    #[test]
+    fn una_tasa_incoherente_no_se_deserializa() {
+        let base = |origen: &str, destino: &str, valor: &str, fecha: &str, fuente: &str| {
+            format!(
+                r#"{{"id":"t","moneda_origen":"{origen}","moneda_destino":"{destino}","valor":"{valor}","fecha":"{fecha}","fuente":"{fuente}"}}"#
+            )
+        };
+        assert!(
+            deserializar_tasa_registrada(&base("USD", "VES", "887", "2026-10-20", "BCV")).is_ok()
+        );
+        for malo in [
+            base("USD", "usd", "887", "2026-10-20", "BCV"),
+            base("USD", "VES", "0", "2026-10-20", "BCV"),
+            base("USD", "VES", "-1", "2026-10-20", "BCV"),
+            base("USD", "VES", "1.123456789", "2026-10-20", "BCV"),
+            base("USD", "VES", "887", "2026-02-30", "BCV"),
+            base("USD", "VES", "887", "2026-10-20", "  "),
+        ] {
+            assert!(deserializar_tasa_registrada(&malo).is_err(), "{malo}");
+        }
+        assert!(
+            deserializar_moneda_creada(
+                r#"{"codigo":"btc","nombre":"B","simbolo":"B","decimales":2}"#
+            )
+            .is_err()
+        );
+        assert!(
+            deserializar_moneda_creada(
+                r#"{"codigo":"BTC","nombre":"B","simbolo":"B","decimales":9}"#
+            )
+            .is_err()
+        );
     }
 }

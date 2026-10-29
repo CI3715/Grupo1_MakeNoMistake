@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   listarCuentasCommand,
   detalleCuentaCommand,
@@ -8,10 +8,12 @@ import {
   crearCategoriaCommand,
   registrarMovimientoCommand,
   previsualizarMovimientoCommand,
+  crearCuentaCommand,
   CuentaDto,
   DetalleCuentaDto,
   CategoriaDto,
   MovimientoDto,
+  ErrorCampo,
   ErroresDto,
 } from '../utils/tauriCommands';
 import { Movimiento } from '../types/cuentas';
@@ -48,6 +50,30 @@ function adaptarMovimiento(dto: MovimientoDto): Movimiento {
   };
 }
 
+type NuevaCuentaDatos = Parameters<typeof crearCuentaCommand>[0];
+
+interface DatosCuentas {
+  lista: CuentaDto[];
+  categorias: CategoriaDto[];
+}
+
+async function obtenerCuentasYCategorias(): Promise<DatosCuentas> {
+  const resLista = await listarCuentasCommand();
+  const resCat = await listarCategoriasCommand();
+  return {
+    lista: resLista.cuentas || [],
+    categorias: resCat || [],
+  };
+}
+
+function extraerErrores(err: unknown): ErrorCampo[] | null {
+  if (err && typeof err === 'object' && 'errores' in err) {
+    const errores = (err as ErroresDto).errores;
+    if (Array.isArray(errores)) return errores;
+  }
+  return null;
+}
+
 interface PantallaCuentasProps {
   modoOscuro: boolean;
   vistaSubpantalla: 'mis-cuentas' | 'detalle-cuenta';
@@ -77,46 +103,56 @@ export function PantallaCuentas({
   const [mostrarAdvertencia, setMostrarAdvertencia] = useState(false);
   const [saldoAdvertencia, setSaldoAdvertencia] = useState('');
 
-  const [erroresCuenta, setErroresCuenta] = useState<any[]>([]);
+  const [erroresCuenta, setErroresCuenta] = useState<ErrorCampo[]>([]);
   const [erroresMov, setErroresMov] = useState<Record<string, string>>({});
   const [erroresCat, setErroresCat] = useState<Record<string, string>>({});
 
-  const cargarCuentasYCategorias = async () => {
+  const aplicarDatos = useCallback((datos: DatosCuentas) => {
+    setCuentas(datos.lista);
+    setCategorias(datos.categorias);
+    setCuentaActivaId((previa) => previa || (datos.lista.length > 0 ? datos.lista[0].id : ''));
+  }, []);
+
+  const cargarCuentasYCategorias = useCallback(async () => {
     try {
-      const resLista = await listarCuentasCommand();
-      const resCat = await listarCategoriasCommand();
-
-      const lista = resLista.cuentas || [];
-      setCuentas(lista);
-
-      setCategorias(resCat || []);
-
-      if (lista.length > 0 && !cuentaActivaId) {
-        setCuentaActivaId(lista[0].id);
-      }
+      aplicarDatos(await obtenerCuentasYCategorias());
     } catch (e) {
       console.error('Error al consultar SQLite:', e);
     }
-  };
+  }, [aplicarDatos]);
 
-  const cargarDetalleCuenta = async (id: string) => {
+  const cargarDetalleCuenta = useCallback(async (id: string) => {
     if (!id) return;
     try {
-      const detalle = await detalleCuentaCommand(id);
-      setDetalleCuenta(detalle);
+      setDetalleCuenta(await detalleCuentaCommand(id));
     } catch (e) {
       console.error('Error al cargar detalle de cuenta:', e);
     }
-  };
-
-  useEffect(() => {
-    cargarCuentasYCategorias();
   }, []);
 
   useEffect(() => {
-    if (cuentaActivaId) {
-      cargarDetalleCuenta(cuentaActivaId);
-    }
+    let vigente = true;
+    obtenerCuentasYCategorias()
+      .then((datos) => {
+        if (vigente) aplicarDatos(datos);
+      })
+      .catch((e) => console.error('Error al consultar SQLite:', e));
+    return () => {
+      vigente = false;
+    };
+  }, [aplicarDatos]);
+
+  useEffect(() => {
+    if (!cuentaActivaId) return;
+    let vigente = true;
+    detalleCuentaCommand(cuentaActivaId)
+      .then((detalle) => {
+        if (vigente) setDetalleCuenta(detalle);
+      })
+      .catch((e) => console.error('Error al cargar detalle de cuenta:', e));
+    return () => {
+      vigente = false;
+    };
   }, [cuentaActivaId]);
 
   const seleccionarCuenta = (id: string) => {
@@ -137,7 +173,7 @@ export function PantallaCuentas({
     setMostrarModalMovimiento(true);
   };
 
-  const handleCrearCuenta = async (datos: any) => {
+  const handleCrearCuenta = async (datos: NuevaCuentaDatos) => {
     setErroresCuenta([]);
     try {
       const nueva = await invoke<CuentaDto>('crear_cuenta', { datos });
@@ -146,12 +182,12 @@ export function PantallaCuentas({
       if (nueva && nueva.id) {
         setCuentaActivaId(nueva.id);
       }
-    } catch (err: any) {
-      const dtoErr = err as ErroresDto;
-      if (dtoErr && dtoErr.errores) {
-        setErroresCuenta(dtoErr.errores);
+    } catch (err) {
+      const errores = extraerErrores(err);
+      if (errores) {
+        setErroresCuenta(errores);
       } else {
-        setErroresCuenta([{ campo: null, mensaje: typeof err === 'string' ? err : 'Error al crear la cuenta.' }]);
+        setErroresCuenta([{ mensaje: typeof err === 'string' ? err : 'Error al crear la cuenta.' }]);
       }
     }
   };
@@ -207,10 +243,11 @@ export function PantallaCuentas({
 
       await cargarDetalleCuenta(cuentaActivaId);
       await cargarCuentasYCategorias();
-    } catch (err: any) {
-      if (err && typeof err === 'object' && err.errores) {
+    } catch (err) {
+      const errores = extraerErrores(err);
+      if (errores) {
         const mapa: Record<string, string> = {};
-        (err as ErroresDto).errores.forEach((item) => {
+        errores.forEach((item) => {
           mapa[item.campo || 'monto'] = item.mensaje;
         });
         setErroresMov(mapa);
@@ -243,11 +280,11 @@ export function PantallaCuentas({
         setTipoMov(catCreada.tipo as 'gasto' | 'ingreso');
         setCatMovId(catCreada.id);
       }
-    } catch (err: any) {
-      const dtoErr = err as ErroresDto;
-      if (dtoErr && dtoErr.errores) {
+    } catch (err) {
+      const errores = extraerErrores(err);
+      if (errores) {
         const mapa: Record<string, string> = {};
-        dtoErr.errores.forEach((item) => {
+        errores.forEach((item) => {
           mapa[item.campo || 'nombre'] = item.mensaje;
         });
         setErroresCat(mapa);

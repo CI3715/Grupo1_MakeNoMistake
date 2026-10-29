@@ -12,12 +12,11 @@ pub(crate) fn bloquear(casos: &Mutex<CasosDeUso>) -> MutexGuard<'_, CasosDeUso> 
     casos.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn monedas(casos: &Mutex<CasosDeUso>) -> Vec<MonedaDto> {
+fn monedas(casos: &Mutex<CasosDeUso>) -> Result<Vec<MonedaDto>, ErroresDto> {
     bloquear(casos)
         .listar_monedas()
-        .into_iter()
-        .map(MonedaDto::from)
-        .collect()
+        .map(|lista| lista.into_iter().map(MonedaDto::from).collect())
+        .map_err(ErroresDto::from)
 }
 
 fn cuentas(casos: &Mutex<CasosDeUso>) -> Result<ListaCuentasDto, ErroresDto> {
@@ -35,7 +34,7 @@ fn crear(casos: &Mutex<CasosDeUso>, datos: NuevaCuentaDto) -> Result<CuentaDto, 
 }
 
 #[tauri::command]
-pub fn listar_monedas(estado: State<'_, EstadoCasosDeUso>) -> Vec<MonedaDto> {
+pub fn listar_monedas(estado: State<'_, EstadoCasosDeUso>) -> Result<Vec<MonedaDto>, ErroresDto> {
     monedas(&estado)
 }
 
@@ -79,7 +78,7 @@ mod tests {
 
     #[test]
     fn listar_monedas_devuelve_cuatro() {
-        assert_eq!(monedas(&casos()).len(), 4);
+        assert_eq!(monedas(&casos()).ok().map(|lista| lista.len()), Some(4));
     }
 
     #[test]

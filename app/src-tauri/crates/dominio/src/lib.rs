@@ -25,6 +25,9 @@ pub enum Campo {
     Nota,
     Tasa,
     MonedaBase,
+    Codigo,
+    Simbolo,
+    Decimales,
 }
 
 impl Campo {
@@ -42,6 +45,9 @@ impl Campo {
             Campo::Nota => "nota",
             Campo::Tasa => "tasa",
             Campo::MonedaBase => "moneda_base",
+            Campo::Codigo => "codigo",
+            Campo::Simbolo => "simbolo",
+            Campo::Decimales => "decimales",
         }
     }
 }
@@ -64,6 +70,9 @@ impl ErrorDominio {
 }
 
 // ──────────────────────────── Moneda ─────────────────────────────
+
+/// Máximo de decimales que admite una moneda propia (y una tasa de cambio).
+pub const DECIMALES_MAXIMOS: u32 = 8;
 
 /// Moneda soportada por la aplicación.
 ///
@@ -1182,16 +1191,17 @@ pub fn crear_moneda(
 ) -> Result<(Moneda, MonedaCreada), Vec<ErrorDominio>> {
     let mut errores = Vec::new();
 
+    // RF-CAM-01: el código tiene de 3 a 5 letras mayúsculas.
     let cod = codigo.trim().to_uppercase();
     if cod.is_empty() {
         errores.push(ErrorDominio::nuevo(
-            Campo::Moneda,
+            Campo::Codigo,
             "El código de la moneda no puede estar vacío",
         ));
-    } else if cod.len() < 2 || cod.len() > 6 || !cod.chars().all(|c| c.is_ascii_alphanumeric()) {
+    } else if !(3..=5).contains(&cod.len()) || !cod.chars().all(|c| c.is_ascii_uppercase()) {
         errores.push(ErrorDominio::nuevo(
-            Campo::Moneda,
-            "El código de la moneda debe tener entre 2 y 6 caracteres alfanuméricos",
+            Campo::Codigo,
+            "El código de la moneda debe tener de 3 a 5 letras mayúsculas",
         ));
     } else {
         let repetido = monedas_existentes
@@ -1202,7 +1212,7 @@ pub fn crear_moneda(
                 .any(|m| m.codigo.to_uppercase() == cod);
         if repetido {
             errores.push(ErrorDominio::nuevo(
-                Campo::Moneda,
+                Campo::Codigo,
                 format!("Ya existe una moneda con el código '{cod}'"),
             ));
         }
@@ -1233,15 +1243,15 @@ pub fn crear_moneda(
     let simb = simbolo.trim().to_string();
     if simb.is_empty() {
         errores.push(ErrorDominio::nuevo(
-            Campo::Moneda,
+            Campo::Simbolo,
             "El símbolo de la moneda no puede estar vacío",
         ));
     }
 
-    if decimales > 8 {
+    if decimales > DECIMALES_MAXIMOS {
         errores.push(ErrorDominio::nuevo(
-            Campo::Moneda,
-            "La moneda no puede tener más de 8 decimales",
+            Campo::Decimales,
+            format!("La moneda no puede tener más de {DECIMALES_MAXIMOS} decimales"),
         ));
     }
 
@@ -2864,17 +2874,22 @@ mod tests {
 
     #[test]
     fn crear_moneda_codigo_invalido_o_vacio_falla() {
-        let err_vacio = crear_moneda("", "Nombre", "$", 2, &[]).unwrap_err();
-        assert!(err_vacio.iter().any(|e| e.campo == Campo::Moneda));
+        for codigo in ["", "A", "AB", "ABCDEF", "TOOLONG7", "US$", "BT1", "B C"] {
+            let err = crear_moneda(codigo, "Nombre", "$", 2, &[]).unwrap_err();
+            assert!(
+                err.iter().any(|e| e.campo == Campo::Codigo),
+                "el código {codigo:?} debía rechazarse"
+            );
+        }
+        for codigo in ["ABC", "abcd", "ABCDE"] {
+            assert!(
+                crear_moneda(codigo, "Nombre", "$", 2, &[]).is_ok(),
+                "el código {codigo:?} es válido"
+            );
+        }
 
-        let err_corto = crear_moneda("A", "Nombre", "$", 2, &[]).unwrap_err();
-        assert!(err_corto.iter().any(|e| e.campo == Campo::Moneda));
-
-        let err_largo = crear_moneda("TOOLONG7", "Nombre", "$", 2, &[]).unwrap_err();
-        assert!(err_largo.iter().any(|e| e.campo == Campo::Moneda));
-
-        let err_simbolos = crear_moneda("US$", "Nombre", "$", 2, &[]).unwrap_err();
-        assert!(err_simbolos.iter().any(|e| e.campo == Campo::Moneda));
+        let err_simbolo = crear_moneda("ABC", "Nombre", " ", 2, &[]).unwrap_err();
+        assert!(err_simbolo.iter().any(|e| e.campo == Campo::Simbolo));
     }
 
     #[test]
@@ -2884,11 +2899,11 @@ mod tests {
 
         // Repetido contra catálogo de fábrica (ej: USD)
         let err_fabrica = crear_moneda("usd", "Dólar", "$", 2, &existentes).unwrap_err();
-        assert!(err_fabrica.iter().any(|e| e.campo == Campo::Moneda));
+        assert!(err_fabrica.iter().any(|e| e.campo == Campo::Codigo));
 
         // Repetido contra moneda propia existente (ej: cop)
         let err_propia = crear_moneda("cop", "Otro", "$", 2, &existentes).unwrap_err();
-        assert!(err_propia.iter().any(|e| e.campo == Campo::Moneda));
+        assert!(err_propia.iter().any(|e| e.campo == Campo::Codigo));
 
         // Nombre repetido
         let err_nombre = crear_moneda("COL", "peso colombiano", "$", 2, &existentes).unwrap_err();
@@ -2898,7 +2913,7 @@ mod tests {
     #[test]
     fn crear_moneda_decimales_excesivos_falla() {
         let err = crear_moneda("SAT", "Satoshi", "sat", 9, &[]).unwrap_err();
-        assert!(err.iter().any(|e| e.campo == Campo::Moneda));
+        assert!(err.iter().any(|e| e.campo == Campo::Decimales));
     }
 
     #[test]
