@@ -6,8 +6,8 @@
 //! [`Campo`], [`ErrorDominio`], [`MonedaCreada`], [`Tasa`], [`TasaRegistrada`], [`MonedaBase`],
 //! [`ConsolidacionSaldo`], [`DetalleConsolidacion`].
 
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use std::str::FromStr;
 
 // ──────────────────────────── Errores ────────────────────────────
@@ -774,8 +774,6 @@ pub fn registrar_movimiento(
     )
 }
 
-/// Registra un nuevo movimiento financiero validando contra una lista dinámica de monedas disponibles (fábrica + propias).
-#[allow(clippy::too_many_arguments)]
 /// Alias de `registrar_movimiento_con_monedas` para compatibilidad con la capa de aplicación.
 #[allow(clippy::too_many_arguments)]
 pub fn registrar_movimiento_con_catalogo(
@@ -806,6 +804,8 @@ pub fn registrar_movimiento_con_catalogo(
     )
 }
 
+/// Registra un nuevo movimiento financiero validando contra una lista dinámica de monedas disponibles (fábrica + propias).
+#[allow(clippy::too_many_arguments)]
 pub fn registrar_movimiento_con_monedas(
     id: String,
     id_cuenta: String,
@@ -1485,10 +1485,7 @@ pub fn entero_a_monto(entero: i64, decimales: u32) -> Result<Decimal, ErrorDomin
     let d = Decimal::from(entero);
     let mut escala = d;
     escala.set_scale(decimales).map_err(|_| {
-        ErrorDominio::nuevo(
-            Campo::Monto,
-            "Error al asignar la escala decimal del monto",
-        )
+        ErrorDominio::nuevo(Campo::Monto, "Error al asignar la escala decimal del monto")
     })?;
     Ok(escala)
 }
@@ -1522,7 +1519,6 @@ pub fn entero_a_tasa(entero: i64) -> Result<Decimal, ErrorDominio> {
     })?;
     Ok(escala)
 }
-
 
 // ──────────────────────────── Tasa ───────────────────────────────
 
@@ -1999,7 +1995,6 @@ pub fn consolidar_subtotales(
 
 // ──────────────────────────── Tests ──────────────────────────────
 
-
 pub fn tasa_vigente(
     tasas: &[Tasa],
     moneda_origen: &str,
@@ -2220,31 +2215,93 @@ mod tests {
         let fecha_actual = "2026-10-23";
 
         // Tasa válida
-        let v = validar_tasa("USD", "VES", "887.00", "2026-10-23", "BCV", fecha_actual, &catalogo);
+        let v = validar_tasa(
+            "USD",
+            "VES",
+            "887.00",
+            "2026-10-23",
+            "BCV",
+            fecha_actual,
+            &catalogo,
+        );
         assert_eq!(v.unwrap(), dec!(887.00));
 
         // Misma moneda
-        let err = validar_tasa("USD", "USD", "1.00", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        let err = validar_tasa(
+            "USD",
+            "USD",
+            "1.00",
+            "2026-10-23",
+            "BCV",
+            fecha_actual,
+            &catalogo,
+        )
+        .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Monedas));
 
         // Moneda inexistente
-        let err = validar_tasa("XYZ", "USD", "1.00", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        let err = validar_tasa(
+            "XYZ",
+            "USD",
+            "1.00",
+            "2026-10-23",
+            "BCV",
+            fecha_actual,
+            &catalogo,
+        )
+        .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Monedas));
 
         // Valor negativo o cero
-        let err = validar_tasa("USD", "VES", "0.00", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        let err = validar_tasa(
+            "USD",
+            "VES",
+            "0.00",
+            "2026-10-23",
+            "BCV",
+            fecha_actual,
+            &catalogo,
+        )
+        .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Valor));
 
         // Valor con más de 8 decimales
-        let err = validar_tasa("USD", "VES", "1.123456789", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        let err = validar_tasa(
+            "USD",
+            "VES",
+            "1.123456789",
+            "2026-10-23",
+            "BCV",
+            fecha_actual,
+            &catalogo,
+        )
+        .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Valor));
 
         // Fecha futura
-        let err = validar_tasa("USD", "VES", "887.00", "2026-10-24", "BCV", fecha_actual, &catalogo).unwrap_err();
+        let err = validar_tasa(
+            "USD",
+            "VES",
+            "887.00",
+            "2026-10-24",
+            "BCV",
+            fecha_actual,
+            &catalogo,
+        )
+        .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Fecha));
 
         // Fuente vacía
-        let err = validar_tasa("USD", "VES", "887.00", "2026-10-23", "   ", fecha_actual, &catalogo).unwrap_err();
+        let err = validar_tasa(
+            "USD",
+            "VES",
+            "887.00",
+            "2026-10-23",
+            "   ",
+            fecha_actual,
+            &catalogo,
+        )
+        .unwrap_err();
         assert!(err.iter().any(|e| e.campo == Campo::Fuente));
     }
 
@@ -2333,7 +2390,8 @@ mod tests {
         assert_eq!(cons_ves.tasas_usadas.len(), 2);
 
         // Con base USD: falta USDT -> USD (no se calculan tasas cruzadas)
-        let cons_usd_falta = consolidar_subtotales("USD", "2026-10-23", &subtotales, &tasas, &catalogo);
+        let cons_usd_falta =
+            consolidar_subtotales("USD", "2026-10-23", &subtotales, &tasas, &catalogo);
         assert_eq!(cons_usd_falta.total, None);
         assert_eq!(cons_usd_falta.faltantes.len(), 1);
         assert_eq!(cons_usd_falta.faltantes[0].moneda_origen, "USDT");
