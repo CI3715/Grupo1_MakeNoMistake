@@ -11,12 +11,12 @@ use crate::puertos::{
     ResultadoGuardado, TasaProyectada,
 };
 
-/// Convierte un error de la capa de aplicaciÃ³n en un error de repositorio.
+/// Convierte un error de la capa de aplicación en un error de repositorio.
 fn error_repo(e: crate::errores::ErrorAplicacion) -> ErrorRepositorio {
     ErrorRepositorio(e.to_string())
 }
 
-/// AlmacÃ©n de eventos volÃ¡til respaldado por vectores en memoria.
+/// Almacén de eventos volátil respaldado por vectores en memoria.
 ///
 /// Mantiene el libro de eventos y sus proyecciones (`cuentas`, `categorias`,
 /// `movimientos`, `monedas_propias`, `tasas` y moneda base) sincronizados igual
@@ -34,7 +34,7 @@ pub struct RepositorioEnMemoria {
 }
 
 impl RepositorioEnMemoria {
-    /// Crea un repositorio en memoria inicialmente vacÃ­o.
+    /// Crea un repositorio en memoria inicialmente vacío.
     pub fn nuevo() -> RepositorioEnMemoria {
         RepositorioEnMemoria::default()
     }
@@ -42,7 +42,7 @@ impl RepositorioEnMemoria {
     /// Aplica los efectos de un evento sobre las proyecciones, en el orden en que
     /// las comparte con el adaptador de SQLite.
     ///
-    /// Si el evento se rechaza, ninguna proyecciÃ³n cambia: todas las
+    /// Si el evento se rechaza, ninguna proyección cambia: todas las
     /// comprobaciones ocurren antes de escribir.
     fn aplicar(&mut self, evento: &EventoRegistrado) -> Result<(), ErrorRepositorio> {
         if let Some(moneda) = proyector::proyectar_moneda(evento).map_err(error_repo)? {
@@ -107,7 +107,7 @@ impl RepositorioEnMemoria {
         if let Some(movimiento) = mov_proyectado {
             if !self.cuentas.iter().any(|c| c.id == movimiento.cuenta_id) {
                 return Err(ErrorRepositorio(format!(
-                    "la cuenta {} no existe en la proyecciÃ³n",
+                    "la cuenta {} no existe en la proyección",
                     movimiento.cuenta_id
                 )));
             }
@@ -120,7 +120,7 @@ impl RepositorioEnMemoria {
                     .any(|c| c.id == movimiento.categoria_id)
             {
                 return Err(ErrorRepositorio(format!(
-                    "la categorÃ­a {} no existe en la proyecciÃ³n",
+                    "la categoría {} no existe en la proyección",
                     movimiento.categoria_id
                 )));
             }
@@ -223,7 +223,7 @@ impl RepositorioEventos for RepositorioEnMemoria {
     }
 }
 
-/// ImplementaciÃ³n de [`Reloj`] que devuelve siempre un instante constante.
+/// Implementación de [`Reloj`] que devuelve siempre un instante constante.
 #[derive(Debug, Clone)]
 pub struct RelojFijo {
     momento: String,
@@ -289,7 +289,7 @@ impl GeneradorIdentificadores for GeneradorSecuencial {
     }
 }
 
-/// ImplementaciÃ³n de [`DispositivoOrigen`] que devuelve un identificador estÃ¡tico.
+/// Implementación de [`DispositivoOrigen`] que devuelve un identificador estático.
 #[derive(Debug, Clone)]
 pub struct DispositivoFijo {
     id: String,
@@ -307,7 +307,6 @@ impl DispositivoOrigen for DispositivoFijo {
         self.id.clone()
     }
 }
-
 
 /// Implementación de [Reloj] cuya fecha local e instante pueden cambiarse en caliente para pruebas.
 /// Reloj de prueba cuyo instante actual puede modificarse dinámicamente entre llamadas.
@@ -344,5 +343,3 @@ impl Reloj for RelojModificable {
         }
     }
 }
-
-

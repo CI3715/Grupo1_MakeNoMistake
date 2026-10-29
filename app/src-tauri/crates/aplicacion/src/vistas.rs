@@ -166,6 +166,8 @@ pub struct CuentaPatrimonioVista {
     pub moneda: String,
     /// Saldo de la cuenta a la fecha de consulta formateado con sus decimales.
     pub saldo: String,
+    /// Saldo de la cuenta convertido a la moneda base si existe tasa aplicable.
+    pub en_moneda_base: Option<String>,
 }
 
 /// Tasa de cambio empleada durante la consolidación de patrimonio.
