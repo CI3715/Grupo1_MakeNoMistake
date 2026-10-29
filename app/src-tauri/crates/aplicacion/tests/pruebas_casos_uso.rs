@@ -1,7 +1,7 @@
-//! Pruebas de integraciÃ³n de los casos de uso y del repositorio en memoria.
+//! Pruebas de integración de los casos de uso y del repositorio en memoria.
 //!
 //! Verifica las invariantes del sistema (INV-01, INV-02, INV-03, INV-04, INV-05,
-//! INV-13, INV-18), las validaciones de cuentas, categorÃ­as, movimientos y
+//! INV-13, INV-18), las validaciones de cuentas, categorías, movimientos y
 //! correcciones, y reproduce el escenario del ejemplo 2.2 del enunciado.
 
 use aplicacion::contrato::bateria_contrato_repositorio;
@@ -25,13 +25,13 @@ fn preparar_entorno() -> CasosDeUso {
     )
 }
 
-/// Comprueba que la implementaciÃ³n en memoria cumpla el contrato del puerto [`RepositorioEventos`].
+/// Comprueba que la implementación en memoria cumpla el contrato del puerto [`RepositorioEventos`].
 #[test]
 fn contrato_repositorio_en_memoria_pasa_bateria_completa() {
     bateria_contrato_repositorio(RepositorioEnMemoria::nuevo);
 }
 
-/// Comprueba que el catÃ¡logo contenga las cuatro monedas base con 2 decimales
+/// Comprueba que el catálogo contenga las cuatro monedas base con 2 decimales
 /// y que cada cuenta y subtotal conserve su moneda asociada (INV-01).
 #[test]
 fn inv01_catalogo_de_monedas_y_todo_monto_lleva_su_moneda() {
@@ -103,7 +103,7 @@ fn inv02_subtotales_separados_por_moneda_y_caso_vacio() {
     assert_eq!(lista.subtotales[2].total, "50.00");
 }
 
-/// Comprueba que la suma de saldos utilice aritmÃ©tica decimal exacta (`0.10 + 0.20 == 0.30`)
+/// Comprueba que la suma de saldos utilice aritmética decimal exacta (`0.10 + 0.20 == 0.30`)
 /// y que los montos enteros se formateen con los decimales de la moneda (INV-03).
 #[test]
 fn inv03_aritmetica_decimal_exacta_y_formateo_con_decimales_de_la_moneda() {
@@ -175,16 +175,16 @@ fn inv13_idempotencia_guardar_y_proyectar_dos_veces_el_mismo_evento() {
 }
 
 /// Reproduce paso a paso el ejemplo 2.2 del enunciado (M-01) y comprueba INV-04 e INV-05:
-/// Cuenta Â«Billetera dÃ³laresÂ» en USD con saldo inicial 1000.00 -> Ingreso Salario +800.00 (1800.00)
-/// -> Gasto AlimentaciÃ³n -500.00 (1300.00) -> Ajuste a 50.00 (+450.00, saldo final 1750.00).
+/// Cuenta «Billetera dólares» en USD con saldo inicial 1000.00 -> Ingreso Salario +800.00 (1800.00)
+/// -> Gasto Alimentación -500.00 (1300.00) -> Ajuste a 50.00 (+450.00, saldo final 1750.00).
 #[test]
 fn ejemplo_2_2_billetera_dolares_e_invariantes_inv04_inv05() {
     let mut app = preparar_entorno();
 
-    // Paso 1: Crear cuenta "Billetera dÃ³lares" en USD con saldo inicial 1000.00
+    // Paso 1: Crear cuenta "Billetera dólares" en USD con saldo inicial 1000.00
     let cuenta = app
         .crear_cuenta(NuevaCuenta {
-            nombre: "Billetera dÃ³lares".to_string(),
+            nombre: "Billetera dólares".to_string(),
             tipo: "billetera_digital".to_string(),
             moneda: "USD".to_string(),
             saldo_inicial: "1000.00".to_string(),
@@ -209,7 +209,7 @@ fn ejemplo_2_2_billetera_dolares_e_invariantes_inv04_inv05() {
         "1800.00"
     );
 
-    // Paso 3: Gasto AlimentaciÃ³n por 500.00 (era 50, se anotÃ³ 500) -> saldo 1300.00
+    // Paso 3: Gasto Alimentación por 500.00 (era 50, se anotó 500) -> saldo 1300.00
     let gasto = app
         .registrar_movimiento(NuevoMovimiento {
             cuenta_id: cuenta.id.clone(),
@@ -238,7 +238,7 @@ fn ejemplo_2_2_billetera_dolares_e_invariantes_inv04_inv05() {
     assert_eq!(ajuste.monto_con_signo, "+450.00");
     assert_eq!(ajuste.corrige_a.as_deref(), Some(gasto.id.as_str()));
 
-    // VerificaciÃ³n de INV-04 (original sigue visible y marcado como corregido) e INV-05 (composiciÃ³n y saldo)
+    // Verificación de INV-04 (original sigue visible y marcado como corregido) e INV-05 (composición y saldo)
     let detalle = app.detalle_cuenta(&cuenta.id).unwrap();
     assert_eq!(detalle.cuenta.saldo_actual, "1750.00");
     assert_eq!(detalle.composicion.saldo_inicial, "1000.00");
@@ -246,7 +246,7 @@ fn ejemplo_2_2_billetera_dolares_e_invariantes_inv04_inv05() {
     assert_eq!(detalle.composicion.total_gastos, "500.00");
     assert_eq!(detalle.composicion.total_ajustes, "450.00");
 
-    // En la lista estÃ¡n los 3 registros: el ajuste mÃ¡s reciente, el gasto marcado como corregido y el ingreso
+    // En la lista están los 3 registros: el ajuste más reciente, el gasto marcado como corregido y el ingreso
     assert_eq!(detalle.movimientos.len(), 3);
     assert_eq!(detalle.movimientos[0].id, ajuste.id);
     assert_eq!(detalle.movimientos[0].estado, "ajuste");
@@ -255,14 +255,14 @@ fn ejemplo_2_2_billetera_dolares_e_invariantes_inv04_inv05() {
     assert_eq!(detalle.movimientos[1].ajustes, vec![ajuste.id.clone()]);
     assert_eq!(detalle.movimientos[2].id, ingreso.id);
 
-    // Mis cuentas tambiÃ©n refleja el saldo actualizado en la cuenta y en el subtotal por moneda
+    // Mis cuentas también refleja el saldo actualizado en la cuenta y en el subtotal por moneda
     let resumen = app.listar_cuentas().unwrap();
     assert_eq!(resumen.cuentas[0].saldo_actual, "1750.00");
     assert_eq!(resumen.subtotales[0].total, "1750.00");
 }
 
 /// Comprueba todas las validaciones de `RegistrarMovimiento` (monto cero, negativo,
-/// exceso de decimales, categorÃ­a vacÃ­a, inexistente o de otro tipo, y fecha futura).
+/// exceso de decimales, categoría vacía, inexistente o de otro tipo, y fecha futura).
 #[test]
 fn validaciones_de_registrar_movimiento() {
     let mut app = preparar_entorno();
@@ -275,7 +275,7 @@ fn validaciones_de_registrar_movimiento() {
         })
         .unwrap();
 
-    // 1. Monto cero, negativo y con mÃ¡s decimales de los que admite USD
+    // 1. Monto cero, negativo y con más decimales de los que admite USD
     for monto_malo in ["0", "0.00", "-20.00", "10.555", "no_numerico"] {
         let err = app
             .registrar_movimiento(NuevoMovimiento {
@@ -295,7 +295,7 @@ fn validaciones_de_registrar_movimiento() {
         }
     }
 
-    // 2. CategorÃ­a vacÃ­a, inexistente o del tipo equivocado (categorÃ­a de ingreso en un gasto)
+    // 2. Categoría vacía, inexistente o del tipo equivocado (categoría de ingreso en un gasto)
     for cat_mala in ["   ", "gasto:inexistente", "ingreso:salario"] {
         let err = app
             .registrar_movimiento(NuevoMovimiento {
@@ -319,7 +319,7 @@ fn validaciones_de_registrar_movimiento() {
         }
     }
 
-    // 3. Fecha futura (reloj fijo estÃ¡ en 2026-10-19)
+    // 3. Fecha futura (reloj fijo está en 2026-10-19)
     let err_fecha = app
         .registrar_movimiento(NuevoMovimiento {
             cuenta_id: cuenta.id.clone(),
@@ -338,8 +338,8 @@ fn validaciones_de_registrar_movimiento() {
     }
 }
 
-/// Comprueba las reglas de `CorregirMovimiento`: monto correcto 0 (anulaciÃ³n),
-/// mÃºltiples correcciones sucesivas sobre el valor vigente, rechazo de corregir un ajuste,
+/// Comprueba las reglas de `CorregirMovimiento`: monto correcto 0 (anulación),
+/// múltiples correcciones sucesivas sobre el valor vigente, rechazo de corregir un ajuste,
 /// rechazo de movimiento inexistente y rechazo de monto igual al vigente.
 #[test]
 fn validaciones_y_casos_de_corregir_movimiento() {
@@ -364,7 +364,7 @@ fn validaciones_y_casos_de_corregir_movimiento() {
         })
         .unwrap();
 
-    // 1. Primera correcciÃ³n a 150.00 -> ajuste +50.00, saldo 850.00
+    // 1. Primera corrección a 150.00 -> ajuste +50.00, saldo 850.00
     let aj1 = app
         .corregir_movimiento(DatosCorregirMovimiento {
             movimiento_id: gasto.id.clone(),
@@ -386,7 +386,7 @@ fn validaciones_y_casos_de_corregir_movimiento() {
         .unwrap_err();
     assert!(matches!(igual_vigente, ErrorAplicacion::Validacion(_)));
 
-    // 3. Segunda correcciÃ³n a 0.00 (anula el gasto por completo) -> ajuste +150.00, saldo 1000.00
+    // 3. Segunda corrección a 0.00 (anula el gasto por completo) -> ajuste +150.00, saldo 1000.00
     let aj2 = app
         .corregir_movimiento(DatosCorregirMovimiento {
             movimiento_id: gasto.id.clone(),
@@ -418,7 +418,7 @@ fn validaciones_y_casos_de_corregir_movimiento() {
     assert!(matches!(inex, ErrorAplicacion::Validacion(_)));
 }
 
-/// Comprueba la creaciÃ³n y listado de categorÃ­as y la previsualizaciÃ³n de saldo negativo.
+/// Comprueba la creación y listado de categorías y la previsualización de saldo negativo.
 #[test]
 fn categorias_y_previsualizacion_de_saldo_negativo() {
     let mut app = preparar_entorno();
@@ -434,14 +434,14 @@ fn categorias_y_previsualizacion_de_saldo_negativo() {
     assert!(!nueva.de_fabrica);
     assert_eq!(app.listar_categorias().unwrap().len(), 12);
 
-    // Repetir nombre en el mismo tipo sin distinguir mayÃºsculas se rechaza
+    // Repetir nombre en el mismo tipo sin distinguir mayúsculas se rechaza
     let repetida = app.crear_categoria(NuevaCategoria {
         nombre: "  mAsCoTaS ".to_string(),
         tipo: "gasto".to_string(),
     });
     assert!(matches!(repetida, Err(ErrorAplicacion::Validacion(_))));
 
-    // PrevisualizaciÃ³n de gasto que deja saldo negativo sin guardar nada
+    // Previsualización de gasto que deja saldo negativo sin guardar nada
     let cuenta = app
         .crear_cuenta(NuevaCuenta {
             nombre: "Caja".to_string(),
@@ -468,7 +468,7 @@ fn categorias_y_previsualizacion_de_saldo_negativo() {
     );
 }
 
-/// Comprueba que aplicar o almacenar el mismo evento mÃ¡s de una vez produzca el mismo estado
+/// Comprueba que aplicar o almacenar el mismo evento más de una vez produzca el mismo estado
 /// para todos los tipos de evento de las Entregas 2 y 3 (INV-13).
 #[test]
 fn inv13_idempotencia_con_todos_los_eventos_nuevos() {
@@ -492,7 +492,7 @@ fn inv13_idempotencia_con_todos_los_eventos_nuevos() {
         tipo: "MovimientoRegistrado".to_string(),
         momento_registro: "2026-10-19T10:02:00Z".to_string(),
         dispositivo_origen: "disp-1".to_string(),
-        datos: r#"{"id":"m1","id_movimiento":"m1","cuenta_id":"c1","id_cuenta":"c1","tipo":"egreso","monto":"40.00","moneda":"USD","fecha":"2026-10-19","categoria_id":"cat-1","id_categoria":"cat-1","nota":" CafÃ© "}"#.to_string(),
+        datos: r#"{"id":"m1","id_movimiento":"m1","cuenta_id":"c1","id_cuenta":"c1","tipo":"egreso","monto":"40.00","moneda":"USD","fecha":"2026-10-19","categoria_id":"cat-1","id_categoria":"cat-1","nota":" Café "}"#.to_string(),
     };
     let ev_corr = EventoRegistrado {
         id: "ev-corr-1".to_string(),
@@ -519,7 +519,7 @@ fn inv13_idempotencia_con_todos_los_eventos_nuevos() {
     assert_eq!(detalle.movimientos.len(), 2);
 }
 
-/// Comprueba que la moneda de una cuenta permanezca inalterada tras su creaciÃ³n (INV-18).
+/// Comprueba que la moneda de una cuenta permanezca inalterada tras su creación (INV-18).
 #[test]
 fn inv18_moneda_de_cuenta_no_cambia_tras_crearse() {
     let mut app = preparar_entorno();
@@ -544,7 +544,7 @@ fn inv18_moneda_de_cuenta_no_cambia_tras_crearse() {
     assert_eq!(lista.cuentas[0].moneda, "VES");
 }
 
-/// Comprueba las validaciones de creaciÃ³n de cuenta y conversiÃ³n de errores.
+/// Comprueba las validaciones de creación de cuenta y conversión de errores.
 #[test]
 fn validaciones_de_crear_cuenta_y_errores_de_repositorio() {
     let mut app = preparar_entorno();
@@ -572,7 +572,7 @@ fn validaciones_de_crear_cuenta_y_errores_de_repositorio() {
     assert!(matches!(err_repo, ErrorAplicacion::Almacenamiento(_)));
 }
 
-/// RF-CAM-01: una moneda propia entra al catÃ¡logo y se puede usar en una
+/// RF-CAM-01: una moneda propia entra al catálogo y se puede usar en una
 /// cuenta nueva con sus propios decimales; los saldos se calculan en su escala.
 #[test]
 fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
@@ -592,12 +592,12 @@ fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
     assert_eq!(monedas.len(), 5);
     assert_eq!(
         monedas[4].codigo, "BTC",
-        "las propias van despuÃ©s de las de fÃ¡brica"
+        "las propias van después de las de fábrica"
     );
 
     let cuenta = app
         .crear_cuenta(NuevaCuenta {
-            nombre: "Billetera frÃ­a".to_string(),
+            nombre: "Billetera fría".to_string(),
             tipo: "billetera_digital".to_string(),
             moneda: "BTC".to_string(),
             saldo_inicial: "0,00012345".to_string(),
@@ -618,7 +618,7 @@ fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
     assert_eq!(lista.cuentas[0].saldo_actual, "0.00012350");
     assert_eq!(lista.subtotales[0].moneda, "BTC");
 
-    // Repetir el cÃ³digo o redefinir una de fÃ¡brica se rechaza por campo.
+    // Repetir el código o redefinir una de fábrica se rechaza por campo.
     for codigo in ["BTC", "USD"] {
         let err = app
             .crear_moneda(NuevaMoneda {
@@ -632,12 +632,12 @@ fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
             ErrorAplicacion::Validacion(lista) => {
                 assert_eq!(lista[0].campo.as_deref(), Some("codigo"), "{codigo}")
             }
-            otro => panic!("se esperaba validaciÃ³n, llegÃ³ {otro:?}"),
+            otro => panic!("se esperaba validación, llegó {otro:?}"),
         }
     }
     assert_eq!(app.listar_monedas().unwrap().len(), 5);
 
-    // Decimales que no son un nÃºmero: se informa ese campo junto con los demÃ¡s.
+    // Decimales que no son un número: se informa ese campo junto con los demás.
     let err = app
         .crear_moneda(NuevaMoneda {
             codigo: "x".to_string(),
@@ -651,13 +651,9 @@ fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
             let campos: Vec<_> = lista.iter().filter_map(|e| e.campo.as_deref()).collect();
             assert_eq!(campos, vec!["codigo", "decimales"]);
         }
-        otro => panic!("se esperaba validaciÃ³n, llegÃ³ {otro:?}"),
+        otro => panic!("se esperaba validación, llegó {otro:?}"),
     }
 }
-
-
-
-
 
 #[test]
 fn test_entrega4_ejemplo_2_3_completo_y_patrimonio() {
@@ -1056,7 +1052,11 @@ fn test_entrega4_c03_monto_vigente_en_movimientos_corregidos() {
     .unwrap();
 
     let detalle2 = app.detalle_cuenta(&cta.id).unwrap();
-    let original2 = detalle2.movimientos.iter().find(|m| m.id == mov.id).unwrap();
+    let original2 = detalle2
+        .movimientos
+        .iter()
+        .find(|m| m.id == mov.id)
+        .unwrap();
     assert_eq!(original2.monto_vigente, Some("30.00".into()));
 }
 
@@ -1114,6 +1114,8 @@ fn test_entrega4_fecha_corte_patrimonio() {
     assert_eq!(pat_23.total, Some("180.00".into()));
 
     // Fecha futura relativa a reloj (2026-10-24 > 2026-10-23)
-    let err_futura = app.consultar_patrimonio(Some("2026-10-24".into())).unwrap_err();
+    let err_futura = app
+        .consultar_patrimonio(Some("2026-10-24".into()))
+        .unwrap_err();
     assert!(matches!(err_futura, ErrorAplicacion::Validacion(_)));
 }

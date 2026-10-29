@@ -1,5 +1,5 @@
-//! Casos de uso de la aplicaciÃ³n: gestiÃ³n de cuentas, categorÃ­as, registro y
-//! correcciÃ³n de movimientos, previsualizaciÃ³n de saldo y consulta de detalles.
+//! Casos de uso de la aplicación: gestión de cuentas, categorías, registro y
+//! corrección de movimientos, previsualización de saldo y consulta de detalles.
 
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
@@ -16,7 +16,9 @@ use dominio::{
 use crate::categorias::id_categoria_canonico;
 use crate::codec;
 use crate::errores::{ErrorAplicacion, ErrorValidacion};
-use crate::proyector::{self, TIPO_MONEDA_BASE_CAMBIADA, TIPO_MONEDA_CREADA, TIPO_TASA_ELIMINADA, TIPO_TASA_REGISTRADA};
+use crate::proyector::{
+    self, TIPO_MONEDA_BASE_CAMBIADA, TIPO_MONEDA_CREADA, TIPO_TASA_ELIMINADA, TIPO_TASA_REGISTRADA,
+};
 use crate::puertos::{
     DispositivoOrigen, EventoRegistrado, GeneradorIdentificadores, Reloj, RepositorioEventos,
 };
@@ -26,23 +28,23 @@ use crate::vistas::{
     PatrimonioVista, PrevisualizacionMovimiento, Subtotal, TasaListada, TasaUsadaVista,
 };
 
-/// Identificador de tipo para los eventos de creaciÃ³n de cuenta.
+/// Identificador de tipo para los eventos de creación de cuenta.
 pub const TIPO_CUENTA_CREADA: &str = "CuentaCreada";
 /// Identificador de tipo para los eventos de registro de movimiento.
 pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
-/// Identificador de tipo para los eventos de correcciÃ³n de movimiento (ajuste).
+/// Identificador de tipo para los eventos de corrección de movimiento (ajuste).
 pub const TIPO_MOVIMIENTO_CORREGIDO: &str = "MovimientoCorregido";
-/// Identificador de tipo para los eventos de creaciÃ³n de categorÃ­a personalizada.
+/// Identificador de tipo para los eventos de creación de categoría personalizada.
 pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
 
 /// Datos de entrada requeridos para registrar una nueva cuenta.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct NuevaCuenta {
-    /// Nombre de la cuenta (obligatorio y Ãºnico sin distinguir mayÃºsculas).
+    /// Nombre de la cuenta (obligatorio y único sin distinguir mayúsculas).
     pub nombre: String,
     /// Tipo de cuenta (`"efectivo"`, `"banco"` o `"billetera_digital"`).
     pub tipo: String,
-    /// CÃ³digo de una moneda del catÃ¡logo (de fÃ¡brica o propia).
+    /// Código de una moneda del catálogo (de fábrica o propia).
     pub moneda: String,
     /// Saldo inicial expresado como cadena decimal (por ejemplo, `"1250.50"`).
     pub saldo_inicial: String,
@@ -64,16 +66,16 @@ pub struct NuevaTasa {
 }
 
 /// Datos de entrada para crear una moneda propia. Los decimales llegan como
-/// texto, tal como los escribiÃ³ la persona, y los valida el dominio.
+/// texto, tal como los escribió la persona, y los valida el dominio.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct NuevaMoneda {
-    /// CÃ³digo de 3 a 5 letras mayÃºsculas (por ejemplo, `"BTC"`).
+    /// Código de 3 a 5 letras mayúsculas (por ejemplo, `"BTC"`).
     pub codigo: String,
     /// Nombre visible.
     pub nombre: String,
-    /// SÃ­mbolo con el que se muestran los montos.
+    /// Símbolo con el que se muestran los montos.
     pub simbolo: String,
-    /// NÃºmero de decimales, de 0 a 8.
+    /// Número de decimales, de 0 a 8.
     pub decimales: String,
 }
 
@@ -88,7 +90,7 @@ pub struct NuevoMovimiento {
     pub monto: String,
     /// Fecha del movimiento en formato `"AAAA-MM-DD"`.
     pub fecha: String,
-    /// Identificador o nombre de la categorÃ­a asociada.
+    /// Identificador o nombre de la categoría asociada.
     pub categoria_id: String,
     /// Nota descriptiva opcional.
     pub nota: Option<String>,
@@ -114,23 +116,23 @@ pub struct DatosPrevisualizarMovimiento {
     pub monto: String,
 }
 
-/// Datos de entrada requeridos para crear una nueva categorÃ­a de usuario.
+/// Datos de entrada requeridos para crear una nueva categoría de usuario.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct NuevaCategoria {
-    /// Nombre de la categorÃ­a (Ãºnico dentro de su mismo tipo sin distinguir mayÃºsculas).
+    /// Nombre de la categoría (único dentro de su mismo tipo sin distinguir mayúsculas).
     pub nombre: String,
     /// Tipo de movimiento al que pertenece (`"ingreso"` o `"gasto"`).
     pub tipo: String,
 }
 
-/// Registro interno de un movimiento original proyectado junto con su orden de inserciÃ³n.
+/// Registro interno de un movimiento original proyectado junto con su orden de inserción.
 #[derive(Debug, Clone)]
 struct MovimientoProyectado {
     orden: usize,
     movimiento: Movimiento,
 }
 
-/// Registro interno de un ajuste proyectado junto con su fecha y orden de inserciÃ³n.
+/// Registro interno de un ajuste proyectado junto con su fecha y orden de inserción.
 #[derive(Debug, Clone)]
 struct AjusteProyectado {
     orden: usize,
@@ -187,15 +189,15 @@ impl CasosDeUso {
         }
     }
 
-    /// CatÃ¡logo completo de monedas: las cuatro de fÃ¡brica mÃ¡s las propias.
+    /// Catálogo completo de monedas: las cuatro de fábrica más las propias.
     fn catalogo(&self) -> Result<Vec<Moneda>, ErrorAplicacion> {
         Ok(proyector::catalogo_completo(
             &self.repositorio.listar_monedas_propias()?,
         ))
     }
 
-    /// Devuelve el catÃ¡logo de monedas: las de fÃ¡brica y, despuÃ©s, las propias
-    /// en orden de creaciÃ³n.
+    /// Devuelve el catálogo de monedas: las de fábrica y, después, las propias
+    /// en orden de creación.
     pub fn listar_monedas(&self) -> Result<Vec<MonedaDto>, ErrorAplicacion> {
         Ok(self.catalogo()?.into_iter().map(moneda_a_dto).collect())
     }
@@ -203,8 +205,8 @@ impl CasosDeUso {
     /// Valida y crea una moneda propia (RF-CAM-01) registrando el evento
     /// `MonedaCreada`. Desde ese momento puede usarse en una cuenta nueva.
     pub fn crear_moneda(&mut self, entrada: NuevaMoneda) -> Result<MonedaDto, ErrorAplicacion> {
-        // Los decimales llegan como texto: si no son un nÃºmero entero, el
-        // dominio valida el resto con 0 y se aÃ±ade el error del campo.
+        // Los decimales llegan como texto: si no son un número entero, el
+        // dominio valida el resto con 0 y se añade el error del campo.
         let texto_decimales = entrada.decimales.trim();
         let decimales = texto_decimales.parse::<u32>();
         let resultado = crear_moneda(
@@ -217,9 +219,9 @@ impl CasosDeUso {
         let error_decimales = decimales.is_err().then(|| ErrorValidacion {
             campo: Some(Campo::Decimales.a_texto().to_string()),
             mensaje: if texto_decimales.is_empty() {
-                "Indica cuÃ¡ntos decimales usa la moneda.".to_string()
+                "Indica cuántos decimales usa la moneda.".to_string()
             } else {
-                format!("Los decimales deben ser un nÃºmero entero de 0 a {DECIMALES_MAXIMOS}.")
+                format!("Los decimales deben ser un número entero de 0 a {DECIMALES_MAXIMOS}.")
             },
         });
         let (moneda, evento_dominio) = match (resultado, error_decimales) {
@@ -273,8 +275,8 @@ impl CasosDeUso {
         })
     }
 
-    /// Valida los datos de entrada con una Ãºnica invocaciÃ³n a `Cuenta::crear` (D-10)
-    /// y, si son vÃ¡lidos, sella y persiste el evento `CuentaCreada`.
+    /// Valida los datos de entrada con una única invocación a `Cuenta::crear` (D-10)
+    /// y, si son válidos, sella y persiste el evento `CuentaCreada`.
     pub fn crear_cuenta(&mut self, entrada: NuevaCuenta) -> Result<CuentaListada, ErrorAplicacion> {
         let proyectadas = self.repositorio.listar_cuentas()?;
         let nombres_existentes: Vec<String> =
@@ -332,7 +334,7 @@ impl CasosDeUso {
                         pos,
                         ErrorValidacion {
                             campo: Some("tipo".to_string()),
-                            mensaje: "El tipo de cuenta no es vÃ¡lido.".to_string(),
+                            mensaje: "El tipo de cuenta no es válido.".to_string(),
                         },
                     );
                 }
@@ -341,7 +343,7 @@ impl CasosDeUso {
         }
     }
 
-    /// Lista todas las categorÃ­as disponibles (las 11 de fÃ¡brica mÃ¡s las creadas por el usuario).
+    /// Lista todas las categorías disponibles (las 11 de fábrica más las creadas por el usuario).
     pub fn listar_categorias(&self) -> Result<Vec<CategoriaListada>, ErrorAplicacion> {
         let estado = self.proyectar_libro()?;
         Ok(estado
@@ -356,7 +358,7 @@ impl CasosDeUso {
             .collect())
     }
 
-    /// Crea una categorÃ­a personalizada validando unicidad por tipo (sin distinguir mayÃºsculas)
+    /// Crea una categoría personalizada validando unicidad por tipo (sin distinguir mayúsculas)
     /// y persiste el evento `CategoriaCreada`.
     pub fn crear_categoria(
         &mut self,
@@ -396,7 +398,7 @@ impl CasosDeUso {
                 if entrada.nombre.trim().is_empty() {
                     errs.push(ErrorValidacion {
                         campo: Some("nombre".to_string()),
-                        mensaje: "El nombre de la categorÃ­a no puede estar vacÃ­o".to_string(),
+                        mensaje: "El nombre de la categoría no puede estar vacío".to_string(),
                     });
                 }
                 errs.push(ErrorValidacion {
@@ -612,7 +614,7 @@ impl CasosDeUso {
         let mut cantidad = Decimal::from_str(&monto_norm).map_err(|_| {
             ErrorAplicacion::Validacion(vec![ErrorValidacion {
                 campo: Some("monto".to_string()),
-                mensaje: "El monto no es un nÃºmero vÃ¡lido".to_string(),
+                mensaje: "El monto no es un número válido".to_string(),
             }])
         })?;
 
@@ -673,8 +675,8 @@ impl CasosDeUso {
         })
     }
 
-    /// Obtiene el detalle completo de una cuenta: datos generales, composiciÃ³n del saldo
-    /// y lista de movimientos y ajustes del mÃ¡s reciente al mÃ¡s antiguo.
+    /// Obtiene el detalle completo de una cuenta: datos generales, composición del saldo
+    /// y lista de movimientos y ajustes del más reciente al más antiguo.
     pub fn detalle_cuenta(&self, cuenta_id: &str) -> Result<DetalleCuentaVista, ErrorAplicacion> {
         let estado = self.proyectar_libro()?;
         let id_limpio = cuenta_id.trim();
@@ -770,7 +772,7 @@ impl CasosDeUso {
     }
 
     /// Recorre todos los eventos del repositorio garantizando idempotencia por `id` (INV-13)
-    /// y reconstruye el estado de cuentas, categorÃ­as, movimientos y ajustes.
+    /// y reconstruye el estado de cuentas, categorías, movimientos y ajustes.
     fn proyectar_libro(&self) -> Result<EstadoLibro, ErrorAplicacion> {
         let eventos = self.repositorio.listar()?;
         let mut vistos = HashSet::new();
@@ -957,7 +959,7 @@ impl CasosDeUso {
         })
     }
 
-    /// Elimina lÃ³gicamente una tasa de cambio existente registrando el evento `TasaEliminada` (RF-CAM-02).
+    /// Elimina lógicamente una tasa de cambio existente registrando el evento `TasaEliminada` (RF-CAM-02).
     pub fn eliminar_tasa(&mut self, id: &str) -> Result<(), ErrorAplicacion> {
         let estado = self.proyectar_libro()?;
         let id_limpio = id.trim();
@@ -1020,7 +1022,7 @@ impl CasosDeUso {
         {
             return Err(ErrorAplicacion::Validacion(vec![ErrorValidacion {
                 campo: Some("moneda".to_string()),
-                mensaje: format!("La moneda '{base_limpia}' no estÃ¡ en el catÃ¡logo"),
+                mensaje: format!("La moneda '{base_limpia}' no está en el catálogo"),
             }]));
         }
 
@@ -1039,14 +1041,11 @@ impl CasosDeUso {
         Ok(base_limpia)
     }
 
-    /// Obtiene la moneda base vigente para la consolidaciÃ³n de patrimonio (por defecto `"USD"`).
+    /// Obtiene la moneda base vigente para la consolidación de patrimonio (por defecto `"USD"`).
     pub fn obtener_moneda_base(&self) -> Result<String, ErrorAplicacion> {
         let estado = self.proyectar_libro()?;
         Ok(estado.moneda_base)
     }
-
-
-
 
     /// Consulta la posición patrimonial consolidada a una fecha dada (o la fecha del sistema).
     ///
@@ -1170,7 +1169,7 @@ impl CasosDeUso {
     }
 }
 
-/// ExtensiÃ³n auxiliar para obtener un [`Monto`] validado desde un evento de movimiento.
+/// Extensión auxiliar para obtener un [`Monto`] validado desde un evento de movimiento.
 trait MontoDesdeEvento {
     fn from_evento_interno(ev: &MovimientoRegistrado, moneda: &Moneda) -> Monto;
 }
@@ -1191,7 +1190,7 @@ impl MontoDesdeEvento for Monto {
     }
 }
 
-/// Calcula la composiciÃ³n y el saldo derivado de una cuenta usando la funciÃ³n pura del dominio.
+/// Calcula la composición y el saldo derivado de una cuenta usando la función pura del dominio.
 fn calcular_composicion_de_cuenta(
     cuenta_ev: &CuentaCreada,
     estado: &EstadoLibro,
@@ -1264,7 +1263,7 @@ fn resolver_id_categoria(entrada: &str, categorias: &[Categoria]) -> String {
     }
 }
 
-/// Obtiene el resumen de una categorÃ­a por su identificador.
+/// Obtiene el resumen de una categoría por su identificador.
 fn buscar_resumen_categoria(id_cat: &str, categorias: &[Categoria]) -> CategoriaResumen {
     if let Some(c) = categorias.iter().find(|c| c.id == id_cat) {
         CategoriaResumen {
@@ -1364,12 +1363,12 @@ fn normalizar_separador_decimal(texto: &str) -> String {
     }
 }
 
-/// Formatea una cantidad decimal con el nÃºmero exacto de decimales definidos para su moneda.
+/// Formatea una cantidad decimal con el número exacto de decimales definidos para su moneda.
 fn formatear_monto(cantidad: Decimal, decimales: u32) -> String {
     format!("{:.prec$}", cantidad, prec = decimales as usize)
 }
 
-/// Calcula la suma exacta de saldos actuales por cada moneda presente, conservando el orden de apariciÃ³n.
+/// Calcula la suma exacta de saldos actuales por cada moneda presente, conservando el orden de aparición.
 fn calcular_subtotales(saldos: &[(String, u32, Decimal)]) -> Vec<Subtotal> {
     let mut monedas_orden: Vec<(String, u32)> = Vec::new();
     let mut sumas: HashMap<String, Decimal> = HashMap::new();
@@ -1405,7 +1404,7 @@ fn moneda_a_dto(m: Moneda) -> MonedaDto {
     }
 }
 
-/// Transforma la lista de errores de dominio al tipo [`ErrorValidacion`] de la capa de aplicaciÃ³n.
+/// Transforma la lista de errores de dominio al tipo [`ErrorValidacion`] de la capa de aplicación.
 fn convertir_errores(errores: Vec<ErrorDominio>) -> Vec<ErrorValidacion> {
     errores
         .into_iter()
