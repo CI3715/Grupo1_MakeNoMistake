@@ -14,7 +14,8 @@ pub struct EventoRegistrado {
     /// Identificador único e inmutable del evento en formato UUID v4.
     pub id: String,
     /// Identificador del tipo de evento (`"CuentaCreada"`, `"CategoriaCreada"`,
-    /// `"MovimientoRegistrado"`, `"MovimientoCorregido"`, ...).
+    /// `"MovimientoRegistrado"`, `"MovimientoCorregido"`, `"TasaRegistrada"`,
+    /// `"TasaEliminada"`, `"MonedaBaseCambiada"`, `"MonedaCreada"`).
     pub tipo: String,
     /// Fecha y hora de creación en formato ISO 8601 UTC (`"YYYY-MM-DDTHH:MM:SSZ"`).
     pub momento_registro: String,
@@ -42,7 +43,8 @@ pub struct ErrorRepositorio(pub String);
 ///
 /// Es una caché derivada del libro de eventos: se puede borrar y reconstruir por
 /// completo en cualquier momento. Nunca es la fuente de verdad. Los montos viajan
-/// como texto ya formateado con la escala de su moneda.
+/// como texto ya formateado con la escala de su moneda (cada adaptador decide
+/// cómo guardarlos; SQLite los guarda como enteros en unidades mínimas).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CuentaProyectada {
     /// Identificador de la cuenta (coincide con el del evento `CuentaCreada`).
@@ -51,7 +53,7 @@ pub struct CuentaProyectada {
     pub nombre: String,
     /// Tipo en texto (`"efectivo"`, `"banco"`, `"billetera_digital"`).
     pub tipo: String,
-    /// Código de la moneda (`"VES"`, `"USD"`, `"EUR"`, `"USDT"`).
+    /// Código de la moneda (de fábrica o propia).
     pub moneda: String,
     /// Saldo con el que se creó la cuenta. Es fijo: nunca cambia (D-11).
     pub saldo_inicial: String,
@@ -104,18 +106,60 @@ pub struct MovimientoProyectado {
     pub corregido_por_evento: Option<String>,
 }
 
+/// Fila de la proyección materializada `monedas_propias` (modelo de lectura).
+///
+/// Solo guarda las monedas creadas por la persona; las cuatro de fábrica viven
+/// en el dominio ([`dominio::Moneda::de_fabrica`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonedaProyectada {
+    /// Código único de 3 a 5 letras mayúsculas.
+    pub codigo: String,
+    /// Nombre visible.
+    pub nombre: String,
+    /// Símbolo con el que se muestran los montos.
+    pub simbolo: String,
+    /// Decimales de la moneda (0 a 8). Nunca cambian.
+    pub decimales: u32,
+}
+
+/// Fila de la proyección materializada `tasas` (historial de tasas de cambio).
+///
+/// Una tasa eliminada no desaparece: queda con `estado = "eliminada"` para
+/// conservar la trazabilidad, igual que un movimiento corregido.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TasaProyectada {
+    /// Identificador de la tasa.
+    pub id: String,
+    /// Moneda de origen del par.
+    pub moneda_origen: String,
+    /// Moneda de destino del par.
+    pub moneda_destino: String,
+    /// Unidades de destino por 1 unidad de origen, en texto canónico sin ceros
+    /// finales (`"887"`, `"0.0011274"`).
+    pub valor: String,
+    /// Día al que corresponde la tasa (`AAAA-MM-DD`).
+    pub fecha: String,
+    /// De dónde salió el valor (`"BCV"`, `"casa de cambio"`, ...).
+    pub fuente: String,
+    /// `"vigente"` o `"eliminada"`.
+    pub estado: String,
+}
+
 /// Puerto de persistencia para el libro inmutable de eventos y sus proyecciones.
 ///
 /// Las implementaciones deben garantizar:
 /// 1. `listar` devuelve los eventos en estricto orden de inserción.
 /// 2. `guardar` es idempotente respecto al campo `id` y devuelve [`ResultadoGuardado::YaExistia`] si el identificador se repite.
 /// 3. Los eventos almacenados son inmutables y su contenido no se sobrescribe.
-/// 4. Al guardar un evento nuevo, las proyecciones `cuentas`, `categorias` y
-///    `movimientos` se actualizan en la **misma transacción** (atomicidad): o se
-///    persiste el evento y sus efectos, o ninguno.
-/// 5. `listar_cuentas`, `listar_categorias` y `listar_movimientos` son simples
-///    lecturas de las proyecciones (no reproyectan eventos).
-/// 6. `reconstruir` borra las tres proyecciones y las recalcula desde el libro de
+/// 4. Al guardar un evento nuevo, las proyecciones (`cuentas`, `categorias`,
+///    `movimientos`, `monedas_propias`, `tasas` y moneda base) se actualizan en la
+///    **misma transacción** (atomicidad): o se persiste el evento y sus efectos, o
+///    ninguno. Un evento que dejaría una proyección incoherente (una tasa con una
+///    moneda desconocida, eliminar una tasa que no está vigente, ...) se rechaza
+///    sin guardarse.
+/// 5. Los métodos `listar_*` y `moneda_base` son simples lecturas de las
+///    proyecciones (no reproyectan eventos).
+/// 6. `reconstruir` borra todas las proyecciones y las recalcula desde el libro de
 ///    eventos; el resultado debe ser idéntico al que se obtendría tras un `guardar`
 ///    normal.
 ///
@@ -137,6 +181,17 @@ pub trait RepositorioEventos: Send {
 
     /// Lectura de la proyección `movimientos`, en orden de registro.
     fn listar_movimientos(&self) -> Result<Vec<MovimientoProyectado>, ErrorRepositorio>;
+
+    /// Lectura de la proyección `monedas_propias`, en orden de creación.
+    fn listar_monedas_propias(&self) -> Result<Vec<MonedaProyectada>, ErrorRepositorio>;
+
+    /// Lectura del historial de tasas (vigentes y eliminadas), en orden de
+    /// registro: entre dos tasas del mismo par y fecha, la posterior es la que vale.
+    fn listar_tasas(&self) -> Result<Vec<TasaProyectada>, ErrorRepositorio>;
+
+    /// Moneda base elegida con `MonedaBaseCambiada`, o `None` si nunca se cambió
+    /// (la aplicación usa entonces la moneda por defecto).
+    fn moneda_base(&self) -> Result<Option<String>, ErrorRepositorio>;
 
     /// Reconstruye las proyecciones desde cero releyendo el libro de eventos.
     fn reconstruir(&mut self) -> Result<(), ErrorRepositorio>;

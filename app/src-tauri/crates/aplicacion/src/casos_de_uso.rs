@@ -6,15 +6,17 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use dominio::{
-    Ajuste, Campo, Categoria, Cuenta, CuentaCreada, ErrorDominio, EstadoMovimiento, Moneda, Monto,
-    Movimiento, MovimientoCorregido, MovimientoRegistrado, TipoCuenta, TipoMovimiento,
-    calcular_saldo_y_composicion, categorias_de_fabrica, corregir_movimiento, crear_categoria,
-    registrar_movimiento, saldo_resultante,
+    Ajuste, Campo, Categoria, Cuenta, CuentaCreada, DECIMALES_MAXIMOS, ErrorDominio,
+    EstadoMovimiento, Moneda, Monto, Movimiento, MovimientoCorregido, MovimientoRegistrado,
+    TipoCuenta, TipoMovimiento, calcular_saldo_y_composicion, categorias_de_fabrica,
+    corregir_movimiento, crear_categoria, crear_moneda, registrar_movimiento_con_monedas,
+    saldo_resultante,
 };
 
 use crate::categorias::id_categoria_canonico;
 use crate::codec;
 use crate::errores::{ErrorAplicacion, ErrorValidacion};
+use crate::proyector::{self, TIPO_MONEDA_CREADA};
 use crate::puertos::{
     DispositivoOrigen, EventoRegistrado, GeneradorIdentificadores, Reloj, RepositorioEventos,
 };
@@ -39,10 +41,24 @@ pub struct NuevaCuenta {
     pub nombre: String,
     /// Tipo de cuenta (`"efectivo"`, `"banco"` o `"billetera_digital"`).
     pub tipo: String,
-    /// Código de la moneda del catálogo (`"VES"`, `"USD"`, `"EUR"`, `"USDT"`).
+    /// Código de una moneda del catálogo (de fábrica o propia).
     pub moneda: String,
     /// Saldo inicial expresado como cadena decimal (por ejemplo, `"1250.50"`).
     pub saldo_inicial: String,
+}
+
+/// Datos de entrada para crear una moneda propia. Los decimales llegan como
+/// texto, tal como los escribió la persona, y los valida el dominio.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct NuevaMoneda {
+    /// Código de 3 a 5 letras mayúsculas (por ejemplo, `"BTC"`).
+    pub codigo: String,
+    /// Nombre visible.
+    pub nombre: String,
+    /// Símbolo con el que se muestran los montos.
+    pub simbolo: String,
+    /// Número de decimales, de 0 a 8.
+    pub decimales: String,
 }
 
 /// Datos de entrada requeridos para registrar un movimiento (ingreso o gasto).
@@ -108,6 +124,8 @@ struct AjusteProyectado {
 
 /// Estado completo proyectado en memoria a partir de la secuencia de eventos del libro.
 struct EstadoLibro {
+    /// Catálogo de monedas: fábrica más las propias creadas en el libro.
+    monedas: Vec<Moneda>,
     cuentas: Vec<CuentaCreada>,
     categorias: Vec<Categoria>,
     movimientos: Vec<MovimientoProyectado>,
@@ -138,17 +156,59 @@ impl CasosDeUso {
         }
     }
 
-    /// Devuelve el catálogo de monedas soportadas por el sistema.
-    pub fn listar_monedas(&self) -> Vec<MonedaDto> {
-        Moneda::catalogo()
-            .into_iter()
-            .map(|m| MonedaDto {
-                codigo: m.codigo,
-                nombre: m.nombre,
-                simbolo: m.simbolo,
-                decimales: m.decimales as u8,
-            })
-            .collect()
+    /// Catálogo completo de monedas: las cuatro de fábrica más las propias.
+    fn catalogo(&self) -> Result<Vec<Moneda>, ErrorAplicacion> {
+        Ok(proyector::catalogo_completo(
+            &self.repositorio.listar_monedas_propias()?,
+        ))
+    }
+
+    /// Devuelve el catálogo de monedas: las de fábrica y, después, las propias
+    /// en orden de creación.
+    pub fn listar_monedas(&self) -> Result<Vec<MonedaDto>, ErrorAplicacion> {
+        Ok(self.catalogo()?.into_iter().map(moneda_a_dto).collect())
+    }
+
+    /// Valida y crea una moneda propia (RF-CAM-01) registrando el evento
+    /// `MonedaCreada`. Desde ese momento puede usarse en una cuenta nueva.
+    pub fn crear_moneda(&mut self, entrada: NuevaMoneda) -> Result<MonedaDto, ErrorAplicacion> {
+        // Los decimales llegan como texto: si no son un número entero, el
+        // dominio valida el resto con 0 y se añade el error del campo.
+        let texto_decimales = entrada.decimales.trim();
+        let decimales = texto_decimales.parse::<u32>();
+        let resultado = crear_moneda(
+            &entrada.codigo,
+            &entrada.nombre,
+            &entrada.simbolo,
+            *decimales.as_ref().unwrap_or(&0),
+            &self.catalogo()?,
+        );
+        let error_decimales = decimales.is_err().then(|| ErrorValidacion {
+            campo: Some(Campo::Decimales.a_texto().to_string()),
+            mensaje: if texto_decimales.is_empty() {
+                "Indica cuántos decimales usa la moneda.".to_string()
+            } else {
+                format!("Los decimales deben ser un número entero de 0 a {DECIMALES_MAXIMOS}.")
+            },
+        });
+        let (moneda, evento_dominio) = match (resultado, error_decimales) {
+            (Ok(creada), None) => creada,
+            (resultado, error_decimales) => {
+                let mut errores = resultado.err().map(convertir_errores).unwrap_or_default();
+                errores.extend(error_decimales);
+                return Err(ErrorAplicacion::Validacion(errores));
+            }
+        };
+
+        let evento = EventoRegistrado {
+            id: self.ids.nuevo_id(),
+            tipo: TIPO_MONEDA_CREADA.to_string(),
+            momento_registro: self.reloj.ahora_utc(),
+            dispositivo_origen: self.dispositivo.id_dispositivo(),
+            datos: codec::serializar_moneda_creada(&evento_dominio),
+        };
+        self.repositorio.guardar(&evento)?;
+        Ok(moneda_a_dto(moneda))
     }
 
     /// Reconstruye el listado de cuentas con su saldo actual derivado de todos sus
@@ -194,13 +254,14 @@ impl CasosDeUso {
         let saldo_normalizado = normalizar_separador_decimal(&entrada.saldo_inicial);
 
         // Una sola llamada a Cuenta::crear (D-10).
-        let resultado_dominio = Cuenta::crear(
+        let resultado_dominio = Cuenta::crear_con_monedas(
             String::new(),
             &entrada.nombre,
             tipo_para_validar,
             &entrada.moneda,
             &saldo_normalizado,
             &nombres_existentes,
+            &self.catalogo()?,
         );
 
         match (resultado_dominio, tipo_resultado) {
@@ -346,7 +407,7 @@ impl CasosDeUso {
         };
         let hoy = self.reloj.hoy();
 
-        let res_dominio = registrar_movimiento(
+        let res_dominio = registrar_movimiento_con_monedas(
             String::new(),
             entrada.cuenta_id.clone(),
             tipo_val,
@@ -357,6 +418,7 @@ impl CasosDeUso {
             &id_cat_resuelto,
             entrada.nota.clone(),
             &estado.categorias,
+            &estado.monedas,
         );
 
         let mut errores = Vec::new();
@@ -543,7 +605,7 @@ impl CasosDeUso {
         cantidad.rescale(cuenta_ev.moneda.decimales);
 
         let comp = calcular_composicion_de_cuenta(cuenta_ev, &estado)?;
-        let (_, mov_hipotetico) = registrar_movimiento(
+        let (_, mov_hipotetico) = registrar_movimiento_con_monedas(
             "prev".to_string(),
             cuenta_ev.id.clone(),
             TipoMovimiento::Gasto,
@@ -554,6 +616,7 @@ impl CasosDeUso {
             "gasto:alimentacion",
             None,
             &categorias_de_fabrica(),
+            &estado.monedas,
         )
         .map_err(|errs| ErrorAplicacion::Validacion(convertir_errores(errs)))?;
 
@@ -680,6 +743,7 @@ impl CasosDeUso {
     fn proyectar_libro(&self) -> Result<EstadoLibro, ErrorAplicacion> {
         let eventos = self.repositorio.listar()?;
         let mut vistos = HashSet::new();
+        let mut monedas = Moneda::catalogo();
         let mut cuentas = Vec::new();
         let mut categorias = categorias_de_fabrica();
         let mut movimientos: Vec<MovimientoProyectado> = Vec::new();
@@ -690,8 +754,19 @@ impl CasosDeUso {
                 continue;
             }
             match e.tipo.as_str() {
+                TIPO_MONEDA_CREADA => {
+                    let ev = codec::deserializar_moneda_creada(&e.datos)?;
+                    if Moneda::por_codigo_en(&ev.codigo, &monedas).is_none() {
+                        monedas.push(Moneda::nueva_propia(
+                            &ev.codigo,
+                            &ev.nombre,
+                            &ev.simbolo,
+                            ev.decimales,
+                        ));
+                    }
+                }
                 TIPO_CUENTA_CREADA => {
-                    cuentas.push(codec::deserializar(&e.datos)?);
+                    cuentas.push(codec::deserializar(&e.datos, &monedas)?);
                 }
                 TIPO_CATEGORIA_CREADA => {
                     let ev = codec::deserializar_categoria(&e.datos)?;
@@ -710,7 +785,7 @@ impl CasosDeUso {
                     }
                 }
                 TIPO_MOVIMIENTO_REGISTRADO => {
-                    let ev = codec::deserializar_evento_movimiento(&e.datos)?;
+                    let ev = codec::deserializar_evento_movimiento(&e.datos, &monedas)?;
                     let monto = Monto::from_evento_interno(&ev, &ev.moneda);
                     movimientos.push(MovimientoProyectado {
                         orden: indice,
@@ -727,7 +802,7 @@ impl CasosDeUso {
                     });
                 }
                 TIPO_MOVIMIENTO_CORREGIDO => {
-                    let ev = codec::deserializar_correccion(&e.datos)?;
+                    let ev = codec::deserializar_correccion(&e.datos, &monedas)?;
                     if let Some(orig) = movimientos
                         .iter_mut()
                         .find(|m| m.movimiento.id == ev.id_movimiento_original)
@@ -761,6 +836,7 @@ impl CasosDeUso {
         }
 
         Ok(EstadoLibro {
+            monedas,
             cuentas,
             categorias,
             movimientos,
@@ -776,13 +852,14 @@ trait MontoDesdeEvento {
 
 impl MontoDesdeEvento for Monto {
     fn from_evento_interno(ev: &MovimientoRegistrado, moneda: &Moneda) -> Monto {
-        let (cuenta_base, _) = Cuenta::crear(
+        let (cuenta_base, _) = Cuenta::crear_con_monedas(
             "tmp".to_string(),
             "Tmp",
             TipoCuenta::Efectivo,
             &moneda.codigo,
             &ev.monto.to_string(),
             &[],
+            std::slice::from_ref(moneda),
         )
         .expect("monto de evento previamente validado");
         cuenta_base.saldo().clone()
@@ -794,13 +871,14 @@ fn calcular_composicion_de_cuenta(
     cuenta_ev: &CuentaCreada,
     estado: &EstadoLibro,
 ) -> Result<dominio::ComposicionSaldo, ErrorAplicacion> {
-    let (cuenta_dom, _) = Cuenta::crear(
+    let (cuenta_dom, _) = Cuenta::crear_con_monedas(
         cuenta_ev.id.clone(),
         &cuenta_ev.nombre,
         cuenta_ev.tipo,
         &cuenta_ev.moneda.codigo,
         &cuenta_ev.saldo_inicial.to_string(),
         &[],
+        std::slice::from_ref(&cuenta_ev.moneda),
     )
     .map_err(|e| ErrorAplicacion::Interno(format!("Cuenta corrupta en proyección: {e:?}")))?;
 
@@ -976,6 +1054,16 @@ fn calcular_subtotales(saldos: &[(String, u32, Decimal)]) -> Vec<Subtotal> {
         });
     }
     subtotales
+}
+
+/// Convierte una moneda del dominio al modelo de lectura de la interfaz.
+fn moneda_a_dto(m: Moneda) -> MonedaDto {
+    MonedaDto {
+        codigo: m.codigo,
+        nombre: m.nombre,
+        simbolo: m.simbolo,
+        decimales: m.decimales as u8,
+    }
 }
 
 /// Transforma la lista de errores de dominio al tipo [`ErrorValidacion`] de la capa de aplicación.

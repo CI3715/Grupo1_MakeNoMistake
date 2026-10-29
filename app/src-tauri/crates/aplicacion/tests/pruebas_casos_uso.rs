@@ -10,8 +10,8 @@ use aplicacion::puertos::{
 };
 use aplicacion::{
     CasosDeUso, DatosCorregirMovimiento, DatosPrevisualizarMovimiento, DispositivoFijo,
-    ErrorAplicacion, GeneradorSecuencial, NuevaCategoria, NuevaCuenta, NuevoMovimiento, RelojFijo,
-    RepositorioEnMemoria,
+    ErrorAplicacion, GeneradorSecuencial, NuevaCategoria, NuevaCuenta, NuevaMoneda,
+    NuevoMovimiento, RelojFijo, RepositorioEnMemoria,
 };
 
 /// Crea una instancia de [`CasosDeUso`] configurada con adaptadores deterministas en memoria.
@@ -35,7 +35,7 @@ fn contrato_repositorio_en_memoria_pasa_bateria_completa() {
 #[test]
 fn inv01_catalogo_de_monedas_y_todo_monto_lleva_su_moneda() {
     let mut app = preparar_entorno();
-    let monedas = app.listar_monedas();
+    let monedas = app.listar_monedas().unwrap();
     assert_eq!(monedas.len(), 4);
     for codigo in ["VES", "USD", "EUR", "USDT"] {
         assert!(
@@ -569,4 +569,87 @@ fn validaciones_de_crear_cuenta_y_errores_de_repositorio() {
 
     let err_repo = ErrorAplicacion::from(ErrorRepositorio("fallo".to_string()));
     assert!(matches!(err_repo, ErrorAplicacion::Almacenamiento(_)));
+}
+
+/// RF-CAM-01: una moneda propia entra al catálogo y se puede usar en una
+/// cuenta nueva con sus propios decimales; los saldos se calculan en su escala.
+#[test]
+fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
+    let mut app = preparar_entorno();
+
+    let btc = app
+        .crear_moneda(NuevaMoneda {
+            codigo: "BTC".to_string(),
+            nombre: "Bitcoin".to_string(),
+            simbolo: "₿".to_string(),
+            decimales: "8".to_string(),
+        })
+        .unwrap();
+    assert_eq!(btc.decimales, 8);
+
+    let monedas = app.listar_monedas().unwrap();
+    assert_eq!(monedas.len(), 5);
+    assert_eq!(
+        monedas[4].codigo, "BTC",
+        "las propias van después de las de fábrica"
+    );
+
+    let cuenta = app
+        .crear_cuenta(NuevaCuenta {
+            nombre: "Billetera fría".to_string(),
+            tipo: "billetera_digital".to_string(),
+            moneda: "BTC".to_string(),
+            saldo_inicial: "0,00012345".to_string(),
+        })
+        .unwrap();
+    assert_eq!(cuenta.saldo_actual, "0.00012345");
+
+    app.registrar_movimiento(NuevoMovimiento {
+        cuenta_id: cuenta.id.clone(),
+        tipo: "ingreso".to_string(),
+        monto: "0.00000005".to_string(),
+        fecha: "2026-10-19".to_string(),
+        categoria_id: "Regalos".to_string(),
+        nota: None,
+    })
+    .unwrap();
+    let lista = app.listar_cuentas().unwrap();
+    assert_eq!(lista.cuentas[0].saldo_actual, "0.00012350");
+    assert_eq!(lista.subtotales[0].moneda, "BTC");
+
+    // Repetir el código o redefinir una de fábrica se rechaza por campo.
+    for codigo in ["BTC", "USD"] {
+        let err = app
+            .crear_moneda(NuevaMoneda {
+                codigo: codigo.to_string(),
+                nombre: "Otra".to_string(),
+                simbolo: "O".to_string(),
+                decimales: "2".to_string(),
+            })
+            .unwrap_err();
+        match err {
+            ErrorAplicacion::Validacion(lista) => {
+                assert_eq!(lista[0].campo.as_deref(), Some("codigo"), "{codigo}")
+            }
+            otro => panic!("se esperaba validación, llegó {otro:?}"),
+        }
+    }
+    assert_eq!(app.listar_monedas().unwrap().len(), 5);
+
+    // Decimales que no son un número: se informa ese campo junto con los demás.
+    let err = app
+        .crear_moneda(NuevaMoneda {
+            codigo: "x".to_string(),
+            nombre: "Otra".to_string(),
+            simbolo: "O".to_string(),
+            decimales: "dos".to_string(),
+        })
+        .unwrap_err();
+    match err {
+        ErrorAplicacion::Validacion(lista) => {
+            let campos: Vec<_> = lista.iter().filter_map(|e| e.campo.as_deref()).collect();
+            assert_eq!(campos, vec!["codigo", "decimales"]);
+        }
+        otro => panic!("se esperaba validación, llegó {otro:?}"),
+    }
 }
