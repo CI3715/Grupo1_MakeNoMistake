@@ -804,6 +804,7 @@ pub fn registrar_movimiento_con_catalogo(
     )
 }
 
+/// Registra un nuevo movimiento financiero validando contra una lista dinámica de monedas disponibles (fábrica + propias).
 #[allow(clippy::too_many_arguments)]
 pub fn registrar_movimiento_con_monedas(
     id: String,
