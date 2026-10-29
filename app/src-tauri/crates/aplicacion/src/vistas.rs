@@ -50,6 +50,8 @@ pub struct MonedaDto {
     pub simbolo: String,
     /// Número de posiciones decimales permitidas.
     pub decimales: u8,
+    /// Indica si la moneda pertenece al catálogo de fábrica.
+    pub de_fabrica: bool,
 }
 
 /// Representación de una categoría de ingresos o gastos.
@@ -134,4 +136,79 @@ pub struct PrevisualizacionMovimiento {
     pub saldo_resultante: String,
     /// Indica si la operación es un gasto que deja el saldo de la cuenta menor que cero.
     pub deja_saldo_negativo: bool,
+}
+
+/// Representación de una tasa de cambio en listados e historial.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TasaListada {
+    /// Identificador único de la tasa.
+    pub id: String,
+    /// Código de la moneda de origen.
+    pub moneda_origen: String,
+    /// Código de la moneda de destino.
+    pub moneda_destino: String,
+    /// Valor decimal formateado como texto.
+    pub valor: String,
+    /// Fecha de la tasa (AAAA-MM-DD).
+    pub fecha: String,
+    /// Fuente de la tasa (ej. "BCV", "P2P").
+    pub fuente: String,
+}
+
+/// Representación de una cuenta en la vista de patrimonio consolidado.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CuentaPatrimonioVista {
+    /// Identificador de la cuenta.
+    pub id: String,
+    /// Nombre visible.
+    pub nombre: String,
+    /// Moneda de la cuenta.
+    pub moneda: String,
+    /// Saldo de la cuenta a la fecha de consulta formateado con sus decimales.
+    pub saldo: String,
+}
+
+/// Tasa de cambio empleada durante la consolidación de patrimonio.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TasaUsadaVista {
+    /// Moneda origen de la tasa.
+    pub origen: String,
+    /// Moneda destino de la tasa.
+    pub destino: String,
+    /// Valor decimal de la tasa como texto.
+    pub valor: String,
+    /// Fecha de vigencia de la tasa (AAAA-MM-DD).
+    pub fecha: String,
+    /// Fuente declarada.
+    pub fuente: String,
+    /// Indica si se aplicó como tasa inversa (1 / valor).
+    pub es_inversa: bool,
+}
+
+/// Par de monedas para el cual falta una tasa aplicable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ParFaltanteVista {
+    /// Moneda de origen que requiere conversión.
+    pub origen: String,
+    /// Moneda de destino (moneda base).
+    pub destino: String,
+}
+
+/// Vista consolidada del patrimonio del usuario a una fecha de consulta (RF-CAM-04).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PatrimonioVista {
+    /// Moneda base en la que se calcula el total consolidado.
+    pub moneda_base: String,
+    /// Fecha a la que se realiza la consulta (AAAA-MM-DD).
+    pub fecha_consulta: String,
+    /// Saldos de las cuentas activas a la fecha de consulta.
+    pub cuentas: Vec<CuentaPatrimonioVista>,
+    /// Subtotales independientes por cada moneda presente.
+    pub subtotales: Vec<Subtotal>,
+    /// Total consolidado redondeado a los decimales de la moneda base, o `None` si falta alguna tasa.
+    pub total: Option<String>,
+    /// Tasas de cambio utilizadas en la consolidación.
+    pub tasas_usadas: Vec<TasaUsadaVista>,
+    /// Pares de monedas faltantes que impiden calcular el total consolidado.
+    pub faltantes: Vec<ParFaltanteVista>,
 }

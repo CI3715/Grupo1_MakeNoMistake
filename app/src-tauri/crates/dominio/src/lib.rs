@@ -6,6 +6,7 @@
 //! [`Campo`], [`ErrorDominio`], [`MonedaCreada`], [`Tasa`], [`TasaRegistrada`], [`MonedaBase`],
 //! [`ConsolidacionSaldo`], [`DetalleConsolidacion`].
 
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
@@ -25,9 +26,12 @@ pub enum Campo {
     Nota,
     Tasa,
     MonedaBase,
+    Fuente,
+    Valor,
     Codigo,
     Simbolo,
     Decimales,
+    Monedas,
 }
 
 impl Campo {
@@ -45,9 +49,12 @@ impl Campo {
             Campo::Nota => "nota",
             Campo::Tasa => "tasa",
             Campo::MonedaBase => "moneda_base",
+            Campo::Fuente => "fuente",
+            Campo::Valor => "valor",
             Campo::Codigo => "codigo",
             Campo::Simbolo => "simbolo",
             Campo::Decimales => "decimales",
+            Campo::Monedas => "monedas",
         }
     }
 }
@@ -164,6 +171,74 @@ impl Moneda {
             .find(|m| m.codigo.to_uppercase() == codigo_upper)
             .cloned()
             .or_else(|| Self::por_codigo(codigo))
+    }
+
+    /// Valida y crea una nueva moneda propia del usuario asegurando que el código tenga
+    /// entre 3 y 5 letras mayúsculas ASCII, que no exista previamente y decimales entre 0 y 8 (RF-CAM-01).
+    pub fn crear_propia(
+        codigo: &str,
+        nombre: &str,
+        simbolo: &str,
+        decimales: u32,
+        existentes: &[Moneda],
+    ) -> Result<Moneda, Vec<ErrorDominio>> {
+        let mut errores = Vec::new();
+
+        let cod = codigo.trim();
+        if cod.is_empty() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Codigo,
+                "El código de la moneda no puede estar vacío",
+            ));
+        } else if cod.len() < 3 || cod.len() > 5 || !cod.chars().all(|c| c.is_ascii_uppercase()) {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Codigo,
+                "El código de la moneda debe tener entre 3 y 5 letras mayúsculas",
+            ));
+        } else if existentes
+            .iter()
+            .any(|m| m.codigo.eq_ignore_ascii_case(cod))
+        {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Codigo,
+                format!("Ya existe una moneda con el código '{}'", cod),
+            ));
+        }
+
+        let nom = nombre.trim();
+        if nom.is_empty() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Nombre,
+                "El nombre de la moneda no puede estar vacío",
+            ));
+        }
+
+        let sim = simbolo.trim();
+        if sim.is_empty() {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Simbolo,
+                "El símbolo de la moneda no puede estar vacío",
+            ));
+        }
+
+        if decimales > 8 {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Decimales,
+                "La moneda no puede tener más de 8 decimales",
+            ));
+        }
+
+        if !errores.is_empty() {
+            return Err(errores);
+        }
+
+        Ok(Moneda {
+            codigo: cod.to_string(),
+            nombre: nom.to_string(),
+            simbolo: sim.to_string(),
+            decimales,
+            de_fabrica: false,
+        })
     }
 }
 
@@ -331,6 +406,27 @@ impl Cuenta {
     }
 
     /// Crea una cuenta nueva validando contra una lista dinámica de monedas disponibles (fábrica + propias).
+    /// Alias de `crear_con_monedas` para compatibilidad con la capa de aplicación.
+    pub fn crear_con_catalogo(
+        id: String,
+        nombre: &str,
+        tipo: TipoCuenta,
+        moneda_codigo: &str,
+        saldo_inicial: &str,
+        nombres_existentes: &[String],
+        catalogo_monedas: &[Moneda],
+    ) -> Result<(Cuenta, CuentaCreada), Vec<ErrorDominio>> {
+        Self::crear_con_monedas(
+            id,
+            nombre,
+            tipo,
+            moneda_codigo,
+            saldo_inicial,
+            nombres_existentes,
+            catalogo_monedas,
+        )
+    }
+
     pub fn crear_con_monedas(
         id: String,
         nombre: &str,
@@ -680,6 +776,36 @@ pub fn registrar_movimiento(
 
 /// Registra un nuevo movimiento financiero validando contra una lista dinámica de monedas disponibles (fábrica + propias).
 #[allow(clippy::too_many_arguments)]
+/// Alias de `registrar_movimiento_con_monedas` para compatibilidad con la capa de aplicación.
+#[allow(clippy::too_many_arguments)]
+pub fn registrar_movimiento_con_catalogo(
+    id: String,
+    id_cuenta: String,
+    tipo: TipoMovimiento,
+    monto_str: &str,
+    moneda_codigo: &str,
+    fecha: &str,
+    hoy: &str,
+    id_categoria: &str,
+    nota: Option<String>,
+    categorias_existentes: &[Categoria],
+    catalogo_monedas: &[Moneda],
+) -> Result<(Movimiento, MovimientoRegistrado), Vec<ErrorDominio>> {
+    registrar_movimiento_con_monedas(
+        id,
+        id_cuenta,
+        tipo,
+        monto_str,
+        moneda_codigo,
+        fecha,
+        hoy,
+        id_categoria,
+        nota,
+        categorias_existentes,
+        catalogo_monedas,
+    )
+}
+
 pub fn registrar_movimiento_con_monedas(
     id: String,
     id_cuenta: String,
@@ -1332,6 +1458,72 @@ pub fn unidad_menor_i64_a_monto(unidades: i64, moneda: Moneda) -> Result<Monto, 
     unidad_menor_a_monto(unidades as i128, moneda)
 }
 
+// ── Conversiones a Entero C-07 para Codec y Eventos ──
+
+/// Factor de escala fijo ($10^8$) para representar tasas de cambio como enteros exactos (C-07).
+pub const FACTOR_ESCALA_TASA: u32 = 8;
+
+/// Convierte un monto decimal a su valor entero en la unidad menor de la moneda (C-07 / INV-03).
+pub fn monto_a_entero(monto: Decimal, decimales: u32) -> Result<i64, ErrorDominio> {
+    let factor = Decimal::from(10u64.pow(decimales));
+    let escalado = monto.checked_mul(factor).ok_or_else(|| {
+        ErrorDominio::nuevo(
+            Campo::Monto,
+            "Desbordamiento aritmético al convertir el monto a entero",
+        )
+    })?;
+    escalado.to_i64().ok_or_else(|| {
+        ErrorDominio::nuevo(
+            Campo::Monto,
+            "El monto excede el rango representable en entero de 64 bits",
+        )
+    })
+}
+
+/// Convierte un entero en la unidad menor de la moneda a su valor decimal exacto (C-07).
+pub fn entero_a_monto(entero: i64, decimales: u32) -> Result<Decimal, ErrorDominio> {
+    let d = Decimal::from(entero);
+    let mut escala = d;
+    escala.set_scale(decimales).map_err(|_| {
+        ErrorDominio::nuevo(
+            Campo::Monto,
+            "Error al asignar la escala decimal del monto",
+        )
+    })?;
+    Ok(escala)
+}
+
+/// Convierte el valor de una tasa a su representación entera multiplicada por $10^8$ (C-07).
+pub fn tasa_a_entero(valor: Decimal) -> Result<i64, ErrorDominio> {
+    let factor = Decimal::from(10u64.pow(FACTOR_ESCALA_TASA));
+    let escalado = valor.checked_mul(factor).ok_or_else(|| {
+        ErrorDominio::nuevo(
+            Campo::Valor,
+            "Desbordamiento aritmético al convertir la tasa a entero",
+        )
+    })?;
+    escalado.to_i64().ok_or_else(|| {
+        ErrorDominio::nuevo(
+            Campo::Valor,
+            "La tasa excede el rango representable en entero de 64 bits",
+        )
+    })
+}
+
+/// Convierte un entero escalado por $10^8$ a su valor decimal exacto de tasa (C-07).
+pub fn entero_a_tasa(entero: i64) -> Result<Decimal, ErrorDominio> {
+    let d = Decimal::from(entero);
+    let mut escala = d;
+    escala.set_scale(FACTOR_ESCALA_TASA).map_err(|_| {
+        ErrorDominio::nuevo(
+            Campo::Valor,
+            "Error al asignar la escala decimal de la tasa",
+        )
+    })?;
+    Ok(escala)
+}
+
+
 // ──────────────────────────── Tasa ───────────────────────────────
 
 /// Tasa de cambio entre dos monedas.
@@ -1342,6 +1534,7 @@ pub struct Tasa {
     pub moneda_destino: String,
     pub valor: Decimal,
     pub fecha: String,
+    pub fuente: String,
 }
 
 impl Tasa {
@@ -1368,6 +1561,7 @@ impl Tasa {
             moneda_destino: self.moneda_origen.clone(),
             valor: valor_inv,
             fecha: self.fecha.clone(),
+            fuente: self.fuente.clone(),
         })
     }
 }
@@ -1380,6 +1574,19 @@ pub struct TasaRegistrada {
     pub moneda_destino: String,
     pub valor: Decimal,
     pub fecha: String,
+    pub fuente: String,
+}
+
+/// Evento emitido cuando se elimina lógicamente una tasa de cambio.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TasaEliminada {
+    pub id: String,
+}
+
+/// Evento emitido cuando se cambia la moneda base de la aplicación.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonedaBaseCambiada {
+    pub nueva_moneda_base: String,
 }
 
 /// Registra una tasa de cambio validando que el valor sea positivo,
@@ -1492,6 +1699,7 @@ pub fn registrar_tasa(
         moneda_destino: dest.clone(),
         valor: valor_validado,
         fecha: fecha.to_string(),
+        fuente: String::new(),
     };
 
     let evento = TasaRegistrada {
@@ -1500,6 +1708,7 @@ pub fn registrar_tasa(
         moneda_destino: dest,
         valor: valor_validado,
         fecha: fecha.to_string(),
+        fuente: String::new(),
     };
 
     Ok((tasa, evento))
@@ -1532,6 +1741,265 @@ pub fn validar_sin_tasas_cruzadas(
 /// Si existe una tasa directa en o antes de la fecha, devuelve la más reciente.
 /// Si no existe directa pero existe la inversa, calcula y devuelve la inversa.
 /// Si ambas monedas son iguales, devuelve una tasa identidad de 1.
+/// Valida los datos requeridos para registrar una tasa de cambio (RF-CAM-02, INV-01).
+pub fn validar_tasa(
+    moneda_origen: &str,
+    moneda_destino: &str,
+    valor_str: &str,
+    fecha: &str,
+    fuente: &str,
+    fecha_actual: &str,
+    catalogo_monedas: &[Moneda],
+) -> Result<Decimal, Vec<ErrorDominio>> {
+    let mut errores = Vec::new();
+
+    let origen = moneda_origen.trim();
+    let destino = moneda_destino.trim();
+
+    let origen_existe = catalogo_monedas
+        .iter()
+        .any(|m| m.codigo.eq_ignore_ascii_case(origen));
+    let destino_existe = catalogo_monedas
+        .iter()
+        .any(|m| m.codigo.eq_ignore_ascii_case(destino));
+
+    if origen.is_empty() || destino.is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Monedas,
+            "Las monedas de origen y destino son obligatorias",
+        ));
+    } else if origen.eq_ignore_ascii_case(destino) {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Monedas,
+            "Las monedas de origen y destino deben ser distintas",
+        ));
+    } else {
+        if !origen_existe {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Monedas,
+                format!("La moneda de origen '{}' no está en el catálogo", origen),
+            ));
+        }
+        if !destino_existe {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Monedas,
+                format!("La moneda de destino '{}' no está en el catálogo", destino),
+            ));
+        }
+    }
+
+    let valor_dec = Decimal::from_str(valor_str.trim());
+    let valor = match valor_dec {
+        Ok(v) => {
+            if v.is_sign_negative() || v.is_zero() {
+                errores.push(ErrorDominio::nuevo(
+                    Campo::Valor,
+                    "El valor de la tasa debe ser mayor que cero",
+                ));
+            } else if v.normalize().scale() > 8 {
+                errores.push(ErrorDominio::nuevo(
+                    Campo::Valor,
+                    "El valor de la tasa admite hasta 8 decimales",
+                ));
+            }
+            Some(v)
+        }
+        Err(_) => {
+            errores.push(ErrorDominio::nuevo(
+                Campo::Valor,
+                "El valor de la tasa no es un número válido",
+            ));
+            None
+        }
+    };
+
+    if let Err(e) = validar_fecha(fecha) {
+        errores.push(e);
+    } else if fecha > fecha_actual {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Fecha,
+            "La fecha de la tasa no puede ser futura",
+        ));
+    }
+
+    if fuente.trim().is_empty() {
+        errores.push(ErrorDominio::nuevo(
+            Campo::Fuente,
+            "La fuente no puede estar vacía",
+        ));
+    }
+
+    if !errores.is_empty() {
+        return Err(errores);
+    }
+
+    Ok(valor.unwrap())
+}
+
+/// Representa una tasa de cambio aplicada durante la consolidación de patrimonio.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TasaUsada {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: Decimal,
+    pub fecha: String,
+    pub fuente: String,
+    pub es_inversa: bool,
+}
+
+/// Par de monedas para el cual no existe una tasa aplicable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParFaltante {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+}
+
+/// Busca la tasa aplicable entre dos monedas para una fecha de consulta dada.
+///
+/// Reglas acordadas:
+/// 1. Busca la tasa directa más reciente con fecha <= fecha_consulta.
+/// 2. Si hay empate en la misma fecha, gana la registrada más recientemente en el libro (mayor índice).
+/// 3. Si no existe directa, busca la inversa más reciente con fecha <= fecha_consulta.
+/// 4. Nunca calcula tasas cruzadas a través de una tercera moneda.
+pub fn buscar_tasa_aplicable(
+    moneda_origen: &str,
+    moneda_destino: &str,
+    fecha_consulta: &str,
+    tasas: &[Tasa],
+) -> Option<TasaUsada> {
+    if moneda_origen.eq_ignore_ascii_case(moneda_destino) {
+        return None;
+    }
+
+    // Buscar directa
+    let tasa_directa = tasas
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| {
+            t.moneda_origen.eq_ignore_ascii_case(moneda_origen)
+                && t.moneda_destino.eq_ignore_ascii_case(moneda_destino)
+                && t.fecha.as_str() <= fecha_consulta
+        })
+        .max_by(|(i1, t1), (i2, t2)| t1.fecha.cmp(&t2.fecha).then_with(|| i1.cmp(i2)));
+
+    if let Some((_, t)) = tasa_directa {
+        return Some(TasaUsada {
+            moneda_origen: t.moneda_origen.clone(),
+            moneda_destino: t.moneda_destino.clone(),
+            valor: t.valor,
+            fecha: t.fecha.clone(),
+            fuente: t.fuente.clone(),
+            es_inversa: false,
+        });
+    }
+
+    // Buscar inversa
+    let tasa_inversa = tasas
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| {
+            t.moneda_origen.eq_ignore_ascii_case(moneda_destino)
+                && t.moneda_destino.eq_ignore_ascii_case(moneda_origen)
+                && t.fecha.as_str() <= fecha_consulta
+        })
+        .max_by(|(i1, t1), (i2, t2)| t1.fecha.cmp(&t2.fecha).then_with(|| i1.cmp(i2)));
+
+    if let Some((_, t)) = tasa_inversa {
+        return Some(TasaUsada {
+            moneda_origen: t.moneda_origen.clone(),
+            moneda_destino: t.moneda_destino.clone(),
+            valor: t.valor,
+            fecha: t.fecha.clone(),
+            fuente: t.fuente.clone(),
+            es_inversa: true,
+        });
+    }
+
+    None
+}
+
+/// Resultado de la consolidación del patrimonio en la moneda base.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsolidacionPatrimonio {
+    pub moneda_base: String,
+    pub total: Option<Decimal>,
+    pub tasas_usadas: Vec<TasaUsada>,
+    pub faltantes: Vec<ParFaltante>,
+}
+
+/// Consolida los subtotales de distintas monedas en una sola moneda base (INV-02, INV-03, RF-CAM-04).
+pub fn consolidar_subtotales(
+    moneda_base: &str,
+    fecha_consulta: &str,
+    subtotales: &[(String, Decimal)],
+    tasas: &[Tasa],
+    catalogo_monedas: &[Moneda],
+) -> ConsolidacionPatrimonio {
+    let mut total_acumulado = Decimal::ZERO;
+    let mut tasas_usadas: Vec<TasaUsada> = Vec::new();
+    let mut faltantes: Vec<ParFaltante> = Vec::new();
+
+    let decimales_base = catalogo_monedas
+        .iter()
+        .find(|m| m.codigo.eq_ignore_ascii_case(moneda_base))
+        .map(|m| m.decimales)
+        .unwrap_or(2);
+
+    for (moneda, subtotal) in subtotales {
+        if moneda.eq_ignore_ascii_case(moneda_base) {
+            total_acumulado += *subtotal;
+            continue;
+        }
+
+        match buscar_tasa_aplicable(moneda, moneda_base, fecha_consulta, tasas) {
+            Some(tasa) => {
+                if tasa.es_inversa {
+                    // 1 / tasa.valor * subtotal
+                    total_acumulado += *subtotal / tasa.valor;
+                } else {
+                    total_acumulado += *subtotal * tasa.valor;
+                }
+                if !tasas_usadas.iter().any(|u| {
+                    u.moneda_origen.eq_ignore_ascii_case(&tasa.moneda_origen)
+                        && u.moneda_destino.eq_ignore_ascii_case(&tasa.moneda_destino)
+                        && u.fecha == tasa.fecha
+                        && u.valor == tasa.valor
+                        && u.es_inversa == tasa.es_inversa
+                }) {
+                    tasas_usadas.push(tasa);
+                }
+            }
+            None => {
+                if !faltantes
+                    .iter()
+                    .any(|f| f.moneda_origen.eq_ignore_ascii_case(moneda))
+                {
+                    faltantes.push(ParFaltante {
+                        moneda_origen: moneda.clone(),
+                        moneda_destino: moneda_base.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    let total = if faltantes.is_empty() {
+        Some(total_acumulado.round_dp(decimales_base))
+    } else {
+        None
+    };
+
+    ConsolidacionPatrimonio {
+        moneda_base: moneda_base.to_string(),
+        total,
+        tasas_usadas,
+        faltantes,
+    }
+}
+
+// ──────────────────────────── Tests ──────────────────────────────
+
+
 pub fn tasa_vigente(
     tasas: &[Tasa],
     moneda_origen: &str,
@@ -1548,6 +2016,7 @@ pub fn tasa_vigente(
             moneda_destino: dest,
             valor: Decimal::ONE,
             fecha: fecha_corte.to_string(),
+            fuente: "identidad".into(),
         });
     }
 
@@ -1720,6 +2189,177 @@ pub fn consolidar_saldos(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn conversiones_c07_monto_y_tasa() {
+        // Monto 50.00 USD (2 decimales) -> 5000
+        let m = dec!(50.00);
+        let i = monto_a_entero(m, 2).unwrap();
+        assert_eq!(i, 5000);
+        let m_vuelta = entero_a_monto(i, 2).unwrap();
+        assert_eq!(m_vuelta, m);
+
+        // Monto 0.12345678 BTC (8 decimales) -> 12345678
+        let m_btc = dec!(0.12345678);
+        let i_btc = monto_a_entero(m_btc, 8).unwrap();
+        assert_eq!(i_btc, 12345678);
+        let m_btc_vuelta = entero_a_monto(i_btc, 8).unwrap();
+        assert_eq!(m_btc_vuelta, m_btc);
+
+        // Tasa 887.00 -> 88700000000
+        let t = dec!(887.00);
+        let i_t = tasa_a_entero(t).unwrap();
+        assert_eq!(i_t, 88700000000);
+        let t_vuelta = entero_a_tasa(i_t).unwrap();
+        assert_eq!(t_vuelta, t);
+    }
+
+    #[test]
+    fn validar_tasa_reglas() {
+        let catalogo = Moneda::catalogo();
+        let fecha_actual = "2026-10-23";
+
+        // Tasa válida
+        let v = validar_tasa("USD", "VES", "887.00", "2026-10-23", "BCV", fecha_actual, &catalogo);
+        assert_eq!(v.unwrap(), dec!(887.00));
+
+        // Misma moneda
+        let err = validar_tasa("USD", "USD", "1.00", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Monedas));
+
+        // Moneda inexistente
+        let err = validar_tasa("XYZ", "USD", "1.00", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Monedas));
+
+        // Valor negativo o cero
+        let err = validar_tasa("USD", "VES", "0.00", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Valor));
+
+        // Valor con más de 8 decimales
+        let err = validar_tasa("USD", "VES", "1.123456789", "2026-10-23", "BCV", fecha_actual, &catalogo).unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Valor));
+
+        // Fecha futura
+        let err = validar_tasa("USD", "VES", "887.00", "2026-10-24", "BCV", fecha_actual, &catalogo).unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Fecha));
+
+        // Fuente vacía
+        let err = validar_tasa("USD", "VES", "887.00", "2026-10-23", "   ", fecha_actual, &catalogo).unwrap_err();
+        assert!(err.iter().any(|e| e.campo == Campo::Fuente));
+    }
+
+    #[test]
+    fn seleccion_tasa_vigente_desempate_e_inversa() {
+        let tasas = vec![
+            Tasa {
+                id: "1".into(),
+                moneda_origen: "USD".into(),
+                moneda_destino: "VES".into(),
+                valor: dec!(880.00),
+                fecha: "2026-10-20".into(),
+                fuente: "BCV".into(),
+            },
+            Tasa {
+                id: "2".into(),
+                moneda_origen: "USD".into(),
+                moneda_destino: "VES".into(),
+                valor: dec!(885.00),
+                fecha: "2026-10-22".into(),
+                fuente: "BCV mañana".into(),
+            },
+            Tasa {
+                id: "3".into(),
+                moneda_origen: "USD".into(),
+                moneda_destino: "VES".into(),
+                valor: dec!(887.00),
+                fecha: "2026-10-22".into(),
+                fuente: "BCV tarde".into(),
+            },
+        ];
+
+        // Consulta al 2026-10-21: toma la del 2026-10-20
+        let t_21 = buscar_tasa_aplicable("USD", "VES", "2026-10-21", &tasas).unwrap();
+        assert_eq!(t_21.valor, dec!(880.00));
+        assert_eq!(t_21.fecha, "2026-10-20");
+        assert!(!t_21.es_inversa);
+
+        // Consulta al 2026-10-23: desempate en la fecha 2026-10-22 toma la última registrada ("BCV tarde")
+        let t_23 = buscar_tasa_aplicable("USD", "VES", "2026-10-23", &tasas).unwrap();
+        assert_eq!(t_23.valor, dec!(887.00));
+        assert_eq!(t_23.fuente, "BCV tarde");
+
+        // Consulta inversa VES -> USD: toma la tasa y marca es_inversa = true
+        let t_inv = buscar_tasa_aplicable("VES", "USD", "2026-10-23", &tasas).unwrap();
+        assert_eq!(t_inv.valor, dec!(887.00));
+        assert!(t_inv.es_inversa);
+    }
+
+    #[test]
+    fn consolidar_subtotales_ejemplo_2_3() {
+        let catalogo = Moneda::catalogo();
+        let subtotales = vec![
+            ("VES".to_string(), dec!(88700.00)),
+            ("USD".to_string(), dec!(200.00)),
+            ("USDT".to_string(), dec!(50.00)),
+        ];
+
+        let mut tasas = vec![
+            Tasa {
+                id: "1".into(),
+                moneda_origen: "USD".into(),
+                moneda_destino: "VES".into(),
+                valor: dec!(887.00),
+                fecha: "2026-10-23".into(),
+                fuente: "BCV".into(),
+            },
+            Tasa {
+                id: "2".into(),
+                moneda_origen: "USDT".into(),
+                moneda_destino: "VES".into(),
+                valor: dec!(1000.00),
+                fecha: "2026-10-23".into(),
+                fuente: "Paralelo".into(),
+            },
+        ];
+
+        // Con base VES:
+        // 88,700.00 VES
+        // 200.00 USD * 887.00 = 177,400.00 VES
+        // 50.00 USDT * 1,000.00 = 50,000.00 VES
+        // Total = 316,100.00 VES
+        let cons_ves = consolidar_subtotales("VES", "2026-10-23", &subtotales, &tasas, &catalogo);
+        assert_eq!(cons_ves.total, Some(dec!(316100.00)));
+        assert!(cons_ves.faltantes.is_empty());
+        assert_eq!(cons_ves.tasas_usadas.len(), 2);
+
+        // Con base USD: falta USDT -> USD (no se calculan tasas cruzadas)
+        let cons_usd_falta = consolidar_subtotales("USD", "2026-10-23", &subtotales, &tasas, &catalogo);
+        assert_eq!(cons_usd_falta.total, None);
+        assert_eq!(cons_usd_falta.faltantes.len(), 1);
+        assert_eq!(cons_usd_falta.faltantes[0].moneda_origen, "USDT");
+        assert_eq!(cons_usd_falta.faltantes[0].moneda_destino, "USD");
+
+        // Registrar USDT -> USD
+        tasas.push(Tasa {
+            id: "3".into(),
+            moneda_origen: "USDT".into(),
+            moneda_destino: "USD".into(),
+            valor: dec!(1.00),
+            fecha: "2026-10-23".into(),
+            fuente: "P2P".into(),
+        });
+
+        // Reconsultar con base USD:
+        // VES -> USD usa inversa: 88700 / 887 = 100.00
+        // USD -> USD: 200.00
+        // USDT -> USD directa: 50 * 1.00 = 50.00
+        // Total: 350.00 USD
+        let cons_usd = consolidar_subtotales("USD", "2026-10-23", &subtotales, &tasas, &catalogo);
+        assert_eq!(cons_usd.total, Some(dec!(350.00)));
+        assert!(cons_usd.faltantes.is_empty());
+        assert_eq!(cons_usd.tasas_usadas.len(), 2);
+    }
+
     use super::*;
     use rust_decimal_macros::dec;
 
@@ -3103,6 +3743,7 @@ mod tests {
             moneda_destino: "VES".into(),
             valor: dec!(40.00),
             fecha: "2026-10-27".into(),
+            fuente: "BCV".into(),
         };
 
         let inv = tasa.inversa().expect("debe calcular inversa");
@@ -3119,6 +3760,7 @@ mod tests {
             moneda_destino: "VES".into(),
             valor: dec!(38.00),
             fecha: "2026-10-20".into(),
+            fuente: "BCV".into(),
         };
         let t2 = Tasa {
             id: "t-2".into(),
@@ -3126,6 +3768,7 @@ mod tests {
             moneda_destino: "VES".into(),
             valor: dec!(40.00),
             fecha: "2026-10-25".into(),
+            fuente: "BCV".into(),
         };
         let tasas = vec![t1, t2];
 
@@ -3189,6 +3832,7 @@ mod tests {
             moneda_destino: "USD".into(),
             valor: dec!(0.024567),
             fecha: "2026-10-27".into(),
+            fuente: "BCV".into(),
         };
         let t_eur = Tasa {
             id: "t-eur".into(),
@@ -3196,6 +3840,7 @@ mod tests {
             moneda_destino: "USD".into(),
             valor: dec!(1.083333),
             fecha: "2026-10-27".into(),
+            fuente: "BCV".into(),
         };
         let tasas = vec![t_ves, t_eur];
 
@@ -3254,6 +3899,7 @@ mod tests {
                 moneda_destino: "VES".into(),
                 valor,
                 fecha: "2026-10-27".into(),
+                fuente: "BCV".into(),
             };
 
             let inv = tasa.inversa().expect("inversa");
@@ -3280,6 +3926,7 @@ mod tests {
             moneda_destino: "USD".into(),
             valor: dec!(0.025),
             fecha: "2026-10-27".into(),
+            fuente: "BCV".into(),
         };
         let t_eur = Tasa {
             id: "t-e".into(),
@@ -3287,6 +3934,7 @@ mod tests {
             moneda_destino: "USD".into(),
             valor: dec!(1.08),
             fecha: "2026-10-27".into(),
+            fuente: "BCV".into(),
         };
         let tasas = vec![t_ves, t_eur];
 

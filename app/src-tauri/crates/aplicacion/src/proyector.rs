@@ -1,10 +1,10 @@
-//! Proyección de eventos hacia el modelo de lectura (`cuentas`, `categorias`,
-//! `movimientos`, `monedas_propias`, `tasas` y moneda base) y cálculo del saldo
+//! ProyecciÃ³n de eventos hacia el modelo de lectura (`cuentas`, `categorias`,
+//! `movimientos`, `monedas_propias`, `tasas` y moneda base) y cÃ¡lculo del saldo
 //! actual.
 //!
-//! Concentra la única regla que traduce un evento del libro inmutable a una fila
-//! de proyección. Al vivir en la capa de aplicación, tanto el adaptador en
-//! memoria como el de SQLite comparten exactamente la misma lógica.
+//! Concentra la Ãºnica regla que traduce un evento del libro inmutable a una fila
+//! de proyecciÃ³n. Al vivir en la capa de aplicaciÃ³n, tanto el adaptador en
+//! memoria como el de SQLite comparten exactamente la misma lÃ³gica.
 
 use dominio::Moneda;
 use rust_decimal::Decimal;
@@ -19,7 +19,7 @@ use crate::puertos::{
     MovimientoProyectado, TasaProyectada,
 };
 
-/// Identificador de tipo de los eventos de categoría.
+/// Identificador de tipo de los eventos de categorÃ­a.
 pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
 /// Identificador de tipo del evento que registra un movimiento.
 pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
@@ -34,7 +34,7 @@ pub const TIPO_MONEDA_BASE_CAMBIADA: &str = "MonedaBaseCambiada";
 /// Identificador de tipo del evento que crea una moneda propia.
 pub const TIPO_MONEDA_CREADA: &str = "MonedaCreada";
 
-/// Catálogo completo de monedas: las cuatro de fábrica más las propias proyectadas.
+/// CatÃ¡logo completo de monedas: las cuatro de fÃ¡brica mÃ¡s las propias proyectadas.
 pub fn catalogo_completo(propias: &[MonedaProyectada]) -> Vec<Moneda> {
     let mut catalogo = Moneda::catalogo();
     catalogo.extend(
@@ -45,17 +45,17 @@ pub fn catalogo_completo(propias: &[MonedaProyectada]) -> Vec<Moneda> {
     catalogo
 }
 
-/// Decimales de una moneda del catálogo, o error si no existe.
+/// Decimales de una moneda del catÃ¡logo, o error si no existe.
 pub fn decimales_de(moneda: &str, catalogo: &[Moneda]) -> Result<u32, ErrorAplicacion> {
     Moneda::por_codigo_en(moneda, catalogo)
         .map(|m| m.decimales)
         .ok_or_else(|| ErrorAplicacion::Interno(format!("Moneda desconocida: {moneda}")))
 }
 
-/// Traduce un evento `CuentaCreada` a la fila inicial que debe escribirse en la proyección `cuentas`.
+/// Traduce un evento `CuentaCreada` a la fila inicial que debe escribirse en la proyecciÃ³n `cuentas`.
 ///
-/// Devuelve `Ok(None)` para eventos que no afectan a esta proyección. Un evento
-/// `CuentaCreada` con carga inválida es un error: la proyección no puede quedar
+/// Devuelve `Ok(None)` para eventos que no afectan a esta proyecciÃ³n. Un evento
+/// `CuentaCreada` con carga invÃ¡lida es un error: la proyecciÃ³n no puede quedar
 /// desincronizada.
 ///
 /// La cuenta nace con `saldo_actual == saldo_inicial`; los movimientos posteriores
@@ -87,7 +87,7 @@ pub fn proyectar_cuenta(
     }))
 }
 
-/// Traduce un evento `CategoriaCreada` a la fila de la proyección `categorias`.
+/// Traduce un evento `CategoriaCreada` a la fila de la proyecciÃ³n `categorias`.
 ///
 /// Devuelve `Ok(None)` para cualquier otro tipo de evento.
 pub fn proyectar_categoria(
@@ -107,9 +107,9 @@ pub fn proyectar_categoria(
 }
 
 /// Traduce un evento de movimiento (`MovimientoRegistrado` o `MovimientoCorregido`)
-/// a la fila que debe escribirse en la proyección `movimientos`.
+/// a la fila que debe escribirse en la proyecciÃ³n `movimientos`.
 ///
-/// Para una corrección con datos completos de reemplazo, `reemplaza_a` apunta al
+/// Para una correcciÃ³n con datos completos de reemplazo, `reemplaza_a` apunta al
 /// movimiento original. Si el evento es un ajuste de dominio que solo contiene
 /// la diferencia (`id_ajuste`, `efecto`), devuelve `Ok(None)` para que el ajuste
 /// sea procesado mediante `proyectar_correccion_ajuste`.
@@ -159,7 +159,7 @@ pub fn proyectar_movimiento(
 
 ///Construye un [`MovimientoProyectado`] a partir de un evento `MovimientoCorregido`
 /// de dominio (que almacena `id_ajuste`, `id_movimiento_original` y `monto_correcto`)
-/// tomando la cuenta y categoría del movimiento original.
+/// tomando la cuenta y categorÃ­a del movimiento original.
 pub fn proyectar_correccion_con_original(
     evento: &EventoRegistrado,
     movimientos_previos: &[MovimientoProyectado],
@@ -169,7 +169,7 @@ pub fn proyectar_correccion_con_original(
         return Ok(None);
     }
     let valor: serde_json::Value = serde_json::from_str(&evento.datos)
-        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON invÃ¡lido: {e}")))?;
     if valor.get("id_ajuste").is_none() || valor.get("cuenta_id").is_some() {
         return Ok(None);
     }
@@ -208,7 +208,7 @@ pub fn proyectar_correccion_con_original(
 }
 
 /// Calcula el saldo actual de una cuenta a partir de su saldo inicial y sus
-/// movimientos vigentes, usando aritmética decimal exacta (INV-03) y formateando
+/// movimientos vigentes, usando aritmÃ©tica decimal exacta (INV-03) y formateando
 /// el resultado con los decimales de la moneda de la cuenta.
 ///
 /// `movimientos_vigentes` es una lista de pares `(tipo, monto)` donde `tipo` es
@@ -219,11 +219,11 @@ pub fn calcular_saldo_actual(
     movimientos_vigentes: &[(String, String)],
 ) -> Result<String, ErrorAplicacion> {
     let mut total = Decimal::from_str(saldo_inicial)
-        .map_err(|e| ErrorAplicacion::Interno(format!("saldo inicial inválido: {e}")))?;
+        .map_err(|e| ErrorAplicacion::Interno(format!("saldo inicial invÃ¡lido: {e}")))?;
 
     for (tipo, monto) in movimientos_vigentes {
         let valor = Decimal::from_str(monto)
-            .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+            .map_err(|e| ErrorAplicacion::Interno(format!("monto invÃ¡lido: {e}")))?;
         match tipo.as_str() {
             "ingreso" => total += valor,
             "egreso" | "gasto" => total -= valor,
@@ -238,10 +238,10 @@ pub fn calcular_saldo_actual(
     Ok(format!("{:.prec$}", total, prec = decimales as usize))
 }
 
-/// Variante con montos en **unidades mínimas** (enteros con la escala de la
+/// Variante con montos en **unidades mÃ­nimas** (enteros con la escala de la
 /// moneda de la cuenta), para el adaptador de SQLite.
 ///
-/// Todos los montos de una cuenta están en la misma moneda y, por lo tanto, en
+/// Todos los montos de una cuenta estÃ¡n en la misma moneda y, por lo tanto, en
 /// la misma escala: la suma entera es exacta. Un desbordamiento es un error, no
 /// un resultado incorrecto.
 pub fn calcular_saldo_actual_unidades(
@@ -266,9 +266,9 @@ pub fn calcular_saldo_actual_unidades(
     Ok(total)
 }
 
-/// Traduce un evento `MonedaCreada` a la fila de la proyección `monedas_propias`.
+/// Traduce un evento `MonedaCreada` a la fila de la proyecciÃ³n `monedas_propias`.
 ///
-/// Rechaza un código de fábrica: esas monedas no se pueden redefinir. La
+/// Rechaza un cÃ³digo de fÃ¡brica: esas monedas no se pueden redefinir. La
 /// unicidad frente a otras monedas propias la comprueba cada adaptador.
 pub fn proyectar_moneda(
     evento: &EventoRegistrado,
@@ -279,7 +279,7 @@ pub fn proyectar_moneda(
     let moneda = codec::deserializar_moneda_creada(&evento.datos)?;
     if Moneda::por_codigo(&moneda.codigo).is_some() {
         return Err(ErrorAplicacion::Interno(format!(
-            "{} es una moneda de fábrica y no se puede redefinir",
+            "{} es una moneda de fÃ¡brica y no se puede redefinir",
             moneda.codigo
         )));
     }

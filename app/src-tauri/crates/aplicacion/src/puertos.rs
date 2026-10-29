@@ -145,26 +145,17 @@ pub struct TasaProyectada {
     pub estado: String,
 }
 
+impl TasaProyectada {
+    pub fn es_vigente(&self) -> bool {
+        self.estado == "vigente"
+    }
+
+    pub fn esta_eliminada(&self) -> bool {
+        self.estado == "eliminada"
+    }
+}
+
 /// Puerto de persistencia para el libro inmutable de eventos y sus proyecciones.
-///
-/// Las implementaciones deben garantizar:
-/// 1. `listar` devuelve los eventos en estricto orden de inserción.
-/// 2. `guardar` es idempotente respecto al campo `id` y devuelve [`ResultadoGuardado::YaExistia`] si el identificador se repite.
-/// 3. Los eventos almacenados son inmutables y su contenido no se sobrescribe.
-/// 4. Al guardar un evento nuevo, las proyecciones (`cuentas`, `categorias`,
-///    `movimientos`, `monedas_propias`, `tasas` y moneda base) se actualizan en la
-///    **misma transacción** (atomicidad): o se persiste el evento y sus efectos, o
-///    ninguno. Un evento que dejaría una proyección incoherente (una tasa con una
-///    moneda desconocida, eliminar una tasa que no está vigente, ...) se rechaza
-///    sin guardarse.
-/// 5. Los métodos `listar_*` y `moneda_base` son simples lecturas de las
-///    proyecciones (no reproyectan eventos).
-/// 6. `reconstruir` borra todas las proyecciones y las recalcula desde el libro de
-///    eventos; el resultado debe ser idéntico al que se obtendría tras un `guardar`
-///    normal.
-///
-/// Además, `saldo_inicial` de una cuenta es inmutable y `saldo_actual` siempre
-/// coincide con `saldo_inicial` más el efecto de los movimientos vigentes (D-11).
 pub trait RepositorioEventos: Send {
     /// Almacena un evento en el repositorio si su identificador no ha sido registrado antes.
     fn guardar(&mut self, evento: &EventoRegistrado)
