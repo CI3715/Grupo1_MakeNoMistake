@@ -1076,6 +1076,13 @@ impl CasosDeUso {
         let mut cuentas_vista = Vec::new();
         let mut saldos_por_cuenta = Vec::new();
 
+        let decimales_base = estado
+            .monedas
+            .iter()
+            .find(|m| m.codigo.eq_ignore_ascii_case(&estado.moneda_base))
+            .map(|m| m.decimales)
+            .unwrap_or(2);
+
         for cl in &estado.cuentas {
             // "una cuenta no aparece antes de su fecha de creación"
             if cl.fecha_creacion > fecha {
@@ -1087,11 +1094,36 @@ impl CasosDeUso {
             let saldo_dec = comp.saldo_actual.cantidad();
             let saldo_str = formatear_monto(saldo_dec, cl.cuenta.moneda.decimales);
 
+            let en_moneda_base = if cl
+                .cuenta
+                .moneda
+                .codigo
+                .eq_ignore_ascii_case(&estado.moneda_base)
+            {
+                Some(formatear_monto(saldo_dec, decimales_base))
+            } else {
+                dominio::buscar_tasa_aplicable(
+                    &cl.cuenta.moneda.codigo,
+                    &estado.moneda_base,
+                    &fecha,
+                    &estado.tasas,
+                )
+                .map(|t| {
+                    let conv = if t.es_inversa {
+                        saldo_dec / t.valor
+                    } else {
+                        saldo_dec * t.valor
+                    };
+                    formatear_monto(conv, decimales_base)
+                })
+            };
+
             cuentas_vista.push(CuentaPatrimonioVista {
                 id: cl.cuenta.id.clone(),
                 nombre: cl.cuenta.nombre.clone(),
                 moneda: cl.cuenta.moneda.codigo.clone(),
                 saldo: saldo_str,
+                en_moneda_base,
             });
 
             saldos_por_cuenta.push((

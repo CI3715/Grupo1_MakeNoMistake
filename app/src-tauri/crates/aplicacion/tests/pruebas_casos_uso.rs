@@ -717,6 +717,10 @@ fn test_entrega4_ejemplo_2_3_completo_y_patrimonio() {
     assert_eq!(pat_ves.total, Some("316100.00".into()));
     assert!(pat_ves.faltantes.is_empty());
     assert_eq!(pat_ves.tasas_usadas.len(), 2);
+    // Verificación de la columna "En VES" del ejemplo 2.3
+    assert_eq!(pat_ves.cuentas[0].en_moneda_base, Some("88700.00".into()));
+    assert_eq!(pat_ves.cuentas[1].en_moneda_base, Some("177400.00".into()));
+    assert_eq!(pat_ves.cuentas[2].en_moneda_base, Some("50000.00".into()));
 
     // 4. Cambiar base a USD: falta tasa USDT -> USD
     app.cambiar_moneda_base("USD").unwrap();
@@ -731,6 +735,15 @@ fn test_entrega4_ejemplo_2_3_completo_y_patrimonio() {
     assert!(pat_usd_incompleto.tasas_usadas[0].es_inversa);
     assert_eq!(pat_usd_incompleto.tasas_usadas[0].origen, "USD");
     assert_eq!(pat_usd_incompleto.tasas_usadas[0].destino, "VES");
+    assert_eq!(
+        pat_usd_incompleto.cuentas[0].en_moneda_base,
+        Some("100.00".into())
+    );
+    assert_eq!(
+        pat_usd_incompleto.cuentas[1].en_moneda_base,
+        Some("200.00".into())
+    );
+    assert_eq!(pat_usd_incompleto.cuentas[2].en_moneda_base, None);
 
     // 5. Registrar tasa USDT -> USD: 1 USDT = 1.00 USD
     app.registrar_tasa(NuevaTasa {
@@ -748,6 +761,18 @@ fn test_entrega4_ejemplo_2_3_completo_y_patrimonio() {
     assert_eq!(pat_usd_completo.total, Some("350.00".into()));
     assert!(pat_usd_completo.faltantes.is_empty());
     assert_eq!(pat_usd_completo.tasas_usadas.len(), 2);
+    assert_eq!(
+        pat_usd_completo.cuentas[0].en_moneda_base,
+        Some("100.00".into())
+    );
+    assert_eq!(
+        pat_usd_completo.cuentas[1].en_moneda_base,
+        Some("200.00".into())
+    );
+    assert_eq!(
+        pat_usd_completo.cuentas[2].en_moneda_base,
+        Some("50.00".into())
+    );
 }
 
 /// Comprueba la selección de la tasa vigente, desempate en la misma fecha (gana la última registrada)
