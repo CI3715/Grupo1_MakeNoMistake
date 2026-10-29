@@ -57,8 +57,7 @@ impl From<PatrimonioVista> for PatrimonioDto {
                     nombre: c.nombre,
                     moneda: c.moneda,
                     saldo: c.saldo,
-                    // La vista de aplicación todavía no entrega el saldo convertido.
-                    en_moneda_base: None,
+                    en_moneda_base: c.en_moneda_base,
                 })
                 .collect(),
             subtotales: v
