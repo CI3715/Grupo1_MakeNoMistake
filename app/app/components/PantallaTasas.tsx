@@ -6,123 +6,109 @@ import {
   listarTasasCommand,
   registrarTasaCommand,
   eliminarTasaCommand,
+  extraerErrores,
+  mensajeDeError,
   MonedaDto,
   HistorialParDto,
 } from '../utils/tauriCommands';
-import { formatearFechaDDMMYYYY } from '../utils/formato';
+import { fechaHoyLocal, formatearFechaDDMMYYYY, normalizarDecimal } from '../utils/formato';
 
 interface PantallaTasasProps {
   modoOscuro?: boolean;
 }
 
-const obtenerFechaHoyLocal = (): string => {
-  const hoy = new Date();
-  const a = hoy.getFullYear();
-  const m = String(hoy.getMonth() + 1).padStart(2, '0');
-  const d = String(hoy.getDate()).padStart(2, '0');
-  return `${a}-${m}-${d}`;
-};
+interface CargaTasas {
+  /** Número de recarga al que corresponde este resultado. */
+  recarga: number;
+  monedas: MonedaDto[];
+  historiales: HistorialParDto[];
+  error: string | null;
+}
 
 export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true }) => {
-  const [monedas, setMonedas] = useState<MonedaDto[]>([]);
-  const [historiales, setHistoriales] = useState<HistorialParDto[]>([]);
-  const [cargando, setCargando] = useState<boolean>(true);
-  const [errorBackend, setErrorBackend] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState<number>(0);
+  const [carga, setCarga] = useState<CargaTasas | null>(null);
   const [mensajeExito, setMensajeExito] = useState<string | null>(null);
+  const [errorEliminar, setErrorEliminar] = useState<string | null>(null);
 
   const [tasaAEliminar, setTasaAEliminar] = useState<string | null>(null);
 
   const [origen, setOrigen] = useState<string>('USD');
   const [destino, setDestino] = useState<string>('VES');
   const [valor, setValor] = useState<string>('');
-  const [fecha, setFecha] = useState<string>(obtenerFechaHoyLocal);
+  const [fecha, setFecha] = useState<string>(fechaHoyLocal);
   const [fuente, setFuente] = useState<string>('');
   const [erroresForm, setErroresForm] = useState<Record<string, string>>({});
 
-  const cargarDatos = async () => {
-    setCargando(true);
-    setErrorBackend(null);
-    try {
-      const [resMonedas, resTasas] = await Promise.all([
-        listarMonedasCommand(),
-        listarTasasCommand(),
-      ]);
-
-      setMonedas(Array.isArray(resMonedas) ? resMonedas : []);
-
-      const historialesArray = Array.isArray(resTasas)
-        ? resTasas
-        : (resTasas as any)?.tasas || (resTasas as any)?.historiales || [];
-
-      setHistoriales(Array.isArray(historialesArray) ? historialesArray : []);
-    } catch (err: any) {
-      setErrorBackend(typeof err === 'string' ? err : 'Error al cargar las tasas de cambio.');
-      setHistoriales([]);
-    } finally {
-      setCargando(false);
-    }
-  };
-
+  // Carga de datos: el estado solo se actualiza dentro de los callbacks de la promesa.
   useEffect(() => {
-    cargarDatos();
-  }, []);
+    let vigente = true;
+    Promise.all([listarMonedasCommand(), listarTasasCommand()])
+      .then(([monedas, historiales]) => {
+        if (vigente) setCarga({ recarga, monedas, historiales, error: null });
+      })
+      .catch((err) => {
+        if (vigente) {
+          setCarga({
+            recarga,
+            monedas: [],
+            historiales: [],
+            error: mensajeDeError(err, 'Error al cargar las tasas de cambio.'),
+          });
+        }
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [recarga]);
+
+  const cargando = carga === null || carga.recarga !== recarga;
+  const monedas = carga?.monedas ?? [];
+  const historiales = carga?.historiales ?? [];
+  const errorBackend = carga?.error ?? null;
+
+  const avisarExito = (mensaje: string) => {
+    setMensajeExito(mensaje);
+    setTimeout(() => setMensajeExito(null), 4000);
+  };
 
   const handleRegistrar = async (e: React.FormEvent) => {
     e.preventDefault();
     setErroresForm({});
     setMensajeExito(null);
 
-    const valNum = parseFloat(valor);
-    const nuevosErrores: Record<string, string> = {};
-
-    if (!valor || isNaN(valNum) || valNum <= 0) {
-      nuevosErrores.valor = 'El valor debe ser mayor a 0.';
-    }
-    if (!fecha) nuevosErrores.fecha = 'La fecha es obligatoria.';
-    if (!fuente.trim()) nuevosErrores.fuente = 'La fuente es obligatoria.';
-    if (origen === destino) nuevosErrores.destino = 'Las monedas deben ser distintas.';
-
-    if (Object.keys(nuevosErrores).length > 0) {
-      setErroresForm(nuevosErrores);
-      return;
-    }
-
     try {
+      // Solo se envía lo escrito: el dominio valida valor, fecha, fuente y el par.
       await registrarTasaCommand({
         moneda_origen: origen,
         moneda_destino: destino,
-        valor: valNum,
+        valor: normalizarDecimal(valor),
         fecha,
         fuente: fuente.trim(),
       });
       setValor('');
       setFuente('');
-      setMensajeExito('Tasa registrada exitosamente.');
-      await cargarDatos();
-      setTimeout(() => setMensajeExito(null), 4000);
-    } catch (err: any) {
-      if (typeof err === 'object' && err !== null && err.errores) {
-        const mapa: Record<string, string> = {};
-        err.errores.forEach((item: any) => {
-          mapa[item.campo || 'general'] = item.mensaje;
-        });
-        setErroresForm(mapa);
-      } else {
-        setErroresForm({ general: String(err) });
-      }
+      setRecarga((r) => r + 1);
+      avisarExito('Tasa registrada exitosamente.');
+    } catch (err) {
+      const mapa: Record<string, string> = {};
+      extraerErrores(err, 'No se pudo registrar la tasa.').forEach((item) => {
+        mapa[item.campo ?? 'general'] = item.mensaje;
+      });
+      setErroresForm(mapa);
     }
   };
 
   const confirmarEliminacion = async () => {
     if (!tasaAEliminar) return;
+    setErrorEliminar(null);
     try {
       await eliminarTasaCommand(tasaAEliminar);
-      setMensajeExito('Tasa eliminada correctamente.');
       setTasaAEliminar(null);
-      await cargarDatos();
-      setTimeout(() => setMensajeExito(null), 4000);
+      setRecarga((r) => r + 1);
+      avisarExito('Tasa eliminada correctamente.');
     } catch (err) {
-      setErrorBackend('Error al eliminar la tasa: ' + String(err));
+      setErrorEliminar(mensajeDeError(err, 'No se pudo eliminar la tasa.'));
       setTasaAEliminar(null);
     }
   };
@@ -153,6 +139,9 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
         {erroresForm.general && (
           <p className="mb-3 text-xs text-rose-400 font-semibold">{erroresForm.general}</p>
         )}
+        {erroresForm.moneda && (
+          <p className="mb-3 text-xs text-rose-400 font-semibold">{erroresForm.moneda}</p>
+        )}
 
         <form onSubmit={handleRegistrar} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -173,6 +162,7 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
                   </option>
                 ))}
               </select>
+              {erroresForm.moneda_origen && <span className="text-[11px] text-rose-400 mt-1 block">{erroresForm.moneda_origen}</span>}
             </div>
 
             <div>
@@ -192,7 +182,7 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
                   </option>
                 ))}
               </select>
-              {erroresForm.destino && <span className="text-[11px] text-rose-400 mt-1 block">{erroresForm.destino}</span>}
+              {erroresForm.moneda_destino && <span className="text-[11px] text-rose-400 mt-1 block">{erroresForm.moneda_destino}</span>}
             </div>
           </div>
 
@@ -203,9 +193,9 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
               </label>
               <input
                 id="valor-tasa"
-                type="number"
-                step="any"
-                placeholder="Ej. 887.00"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ej. 887,00"
                 value={valor}
                 onChange={(e) => setValor(e.target.value)}
                 style={estiloInput}
@@ -221,7 +211,7 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
               <input
                 id="fecha-tasa"
                 type="date"
-                max={obtenerFechaHoyLocal()}
+                max={fechaHoyLocal()}
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
                 style={estiloInput}
@@ -261,21 +251,23 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
       <div className={`p-5 rounded-2xl border shadow-sm ${bgCard}`}>
         <h2 className="text-sm font-bold mb-4">Historial de Tasas por Par</h2>
 
+        {errorEliminar && <p className="text-xs text-rose-400 text-center pb-3">{errorEliminar}</p>}
+
         {cargando ? (
           <p className="text-xs text-gray-400 text-center py-6">Cargando tasas de cambio...</p>
         ) : errorBackend ? (
           <p className="text-xs text-rose-400 text-center py-6">{errorBackend}</p>
-        ) : !Array.isArray(historiales) || historiales.length === 0 ? (
+        ) : historiales.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-6">No hay tasas de cambio registradas aún.</p>
         ) : (
           <div className="space-y-4">
             {historiales.map((h) => (
-              <div key={h.par || Math.random().toString()} className="border border-gray-700/60 rounded-xl overflow-hidden">
+              <div key={`${h.moneda_origen}-${h.moneda_destino}`} className="border border-gray-700/60 rounded-xl overflow-hidden">
                 <div className="bg-gray-500/10 px-4 py-2 font-bold text-xs uppercase tracking-wider text-purple-400">
-                  Par {h.par || `${(h as any).moneda_origen}/${(h as any).moneda_destino}`}
+                  Par {h.moneda_origen} → {h.moneda_destino}
                 </div>
                 <div className="divide-y divide-gray-800">
-                  {Array.isArray(h.tasas) && h.tasas.map((t) => (
+                  {h.tasas.map((t) => (
                     <div key={t.id} className="p-3 flex items-center justify-between text-xs gap-2">
                       <div>
                         <span className="font-extrabold text-sm">{t.valor}</span>
