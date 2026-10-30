@@ -365,6 +365,7 @@ mod tests {
         assert_eq!(p.total.as_deref(), Some("316100.00"));
         assert!(p.faltantes.is_empty());
         assert!(p.tasas_usadas.iter().all(|t| !t.inversa));
+        assert!(p.cuentas.iter().all(|c| c.en_moneda_base.is_some()));
     }
 
     #[test]
