@@ -140,6 +140,51 @@ Corren dos pruebas, ambas con un repositorio en memoria (sin base de datos ni re
 
 Registra y corrige movimientos, cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: los movimientos, la marca de corregido y los saldos deben ser exactamente los mismos. Ningún movimiento ni saldo se envía al servidor (INV-16).
 
+## Monedas, tasas de cambio y patrimonio (Entrega 4)
+
+Desde la Entrega 4 la aplicación permite registrar tasas de cambio, elegir una moneda base y ver el patrimonio total consolidado en esa moneda. Todo se guarda en el mismo archivo `cuentas_claras.db` de las entregas anteriores (ver «Cuentas y almacenamiento local») y funciona sin internet y sin el servidor. Las tasas son personales: no se envían al servidor (INV-16).
+
+La regla de oro es que nunca se suman montos de monedas distintas sin una tasa explícita con fecha (INV-02). Si falta una tasa, el sistema no inventa una conversión ni muestra un total incorrecto: muestra los subtotales por moneda y nombra el par que falta. Una tasa indica cuántas unidades de la moneda de destino equivalen a una de la moneda de origen, con su fecha (no futura) y su fuente; admite hasta 8 decimales y un valor mayor que cero. Pueden convivir varias tasas del mismo par en fechas distintas, y el patrimonio usa la más reciente con fecha igual o anterior a la fecha de consulta (si hay dos el mismo día, gana la registrada más recientemente). Si solo existe la tasa en sentido contrario se usa su inversa (1 ÷ valor), y nunca se calculan tasas cruzadas a través de una tercera moneda. Cambiar la moneda base (USD por defecto) no modifica ningún movimiento ni saldo: solo cambia la moneda del total. Además de VES, USD, EUR y USDT, que no se pueden modificar ni eliminar, se pueden crear monedas propias con código de 3 a 5 letras mayúsculas, nombre, símbolo y de 0 a 8 decimales.
+
+Cada operación se guarda como un evento inmutable (`TasaRegistrada`, `TasaEliminada`, `MonedaBaseCambiada` y `MonedaCreada`) en la tabla `eventos`, que sigue admitiendo solo inserciones: eliminar una tasa es un evento nuevo, no un `DELETE`, y no toca ningún movimiento porque los movimientos nunca guardan una conversión. Los montos se guardan como enteros en la unidad menor de su moneda (50,00 USD es 5000) y las tasas como enteros multiplicados por 10⁸, sin coma flotante (INV-03). El texto solo se usa en lo que viaja hacia la pantalla. Las conversiones usan aritmética decimal exacta y el total consolidado se redondea una sola vez, al final, a los decimales de la moneda base.
+
+Comandos de Tauri que usa la interfaz, con montos y tasas como texto, fechas `AAAA-MM-DD` y errores `{ campo, mensaje }` en español:
+
+| Comando | Qué hace |
+|---|---|
+| `invoke('registrar_tasa')` | Valida y registra una tasa con su fecha y su fuente. |
+| `invoke('eliminar_tasa')` | Registra la eliminación de una tasa registrada por error. |
+| `invoke('listar_tasas')` | Historial de cada par con valor, fecha y fuente. |
+| `invoke('cambiar_moneda_base')` | Cambia la moneda en la que se presenta el total. |
+| `invoke('crear_moneda')` | Crea una moneda propia. |
+| `invoke('listar_monedas')` | Monedas de fábrica y propias. |
+| `invoke('consultar_patrimonio')` | Saldos, subtotales por moneda, total consolidado, tasas usadas y pares que faltan. |
+
+### Reproducir el ejemplo 2.3 en la aplicación
+
+Con `npm run tauri dev`, empezando de cero (ver «Cuentas y almacenamiento local»):
+
+1. Crea tres cuentas: **Efectivo bolívares** en **VES** con `88.700,00`, **Banco en dólares** en **USD** con `200,00` y **Billetera USDT** en **USDT** con `50,00`.
+2. En **Tasas de Cambio** registra `1 USD = 887,00 VES` con fecha 20/10/2026 y fuente `BCV`, y `1 USDT = 1.000,00 VES` con fecha 21/10/2026 y fuente `casa de cambio`.
+3. Elige **VES** como moneda base y abre **Patrimonio**: el total consolidado es `Bs. 316.100,00` (88.700,00 + 177.400,00 + 50.000,00) y el total declara las dos tasas que usó.
+4. Cambia la moneda base a **USD**. El efectivo se convierte con la inversa de USD→VES (88.700 ÷ 887 = 100,00 USD), pero no existe ninguna tasa entre USDT y USD, así que no aparece total: se ven los subtotales por moneda y el aviso «Falta una tasa de USDT a USD con fecha igual o anterior a» la fecha de consulta.
+5. Registra `1 USDT = 1,00 USD`. El total pasa a ser `$ 350,00`.
+6. Para ver otra vez el caso de la tasa faltante, elimina una tasa necesaria: el sistema deja de consolidar y nombra el par exacto.
+
+### Reproducir el ejemplo 2.3 con la prueba automatizada
+
+Desde `src-tauri/`:
+
+```
+cargo test --workspace ejemplo_2_3
+```
+
+Corren tres pruebas con un repositorio en memoria (sin base de datos ni red): `test_entrega4_ejemplo_2_3_completo_y_patrimonio`, en la capa de aplicación, que recorre el ejemplo completo (316.100,00 VES, el faltante USDT→USD con base USD y los 350,00 USD tras registrar la tasa); `el_ejemplo_2_3_se_reproduce_de_punta_a_punta`, en los comandos de Tauri; y `consolidar_subtotales_ejemplo_2_3`, en el dominio.
+
+### Prueba de autonomía de la Entrega 4
+
+Registra tasas, cambia la moneda base y consulta el patrimonio; cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: las tasas, la moneda base y el patrimonio deben ser exactamente los mismos. Ninguna tasa ni saldo se envía al servidor.
+
 ## Ejecutar las pruebas
 
 Desde `src-tauri/`:
