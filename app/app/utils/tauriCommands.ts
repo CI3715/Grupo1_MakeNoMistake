@@ -1,21 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 
+// --- DTOs Cuentas, Movimientos y Categorías ---
 export interface CuentaDto {
   id: string;
   nombre: string;
   tipo: string;
   moneda: string;
-  saldo_actual: string;
-}
-
-export interface SubtotalDto {
-  moneda: string;
-  total: string;
-}
-
-export interface ListaCuentasDto {
-  cuentas: CuentaDto[];
-  subtotales: SubtotalDto[];
+  saldo_actual: string | number;
 }
 
 export interface CategoriaDto {
@@ -27,36 +18,27 @@ export interface CategoriaDto {
 
 export interface MovimientoDto {
   id: string;
-  cuenta_id: string;
-  tipo: string;
-  monto: string;
-  monto_con_signo: string;
-  monto_vigente?: string;
   fecha: string;
-  categoria_id: string;
-  categoria_nombre: string;
-  nota: string;
-  estado: string;
-  corrige_a?: string;
-  ajustes: string[];
-  monto_correcto?: string;
-}
-
-export interface ComposicionDto {
-  saldo_inicial: string;
-  total_ingresos: string;
-  total_gastos: string;
-  total_ajustes: string;
+  tipo: string;
+  monto: number;
+  categoria: string;
+  descripcion: string;
+  en_orden: boolean;
+  monto_corregido?: number | null;
+  categoria_corregida?: string | null;
 }
 
 export interface DetalleCuentaDto {
-  cuenta: CuentaDto;
-  composicion: ComposicionDto;
+  id: string;
+  nombre: string;
+  tipo: string;
+  moneda: string;
+  saldo_actual: number;
   movimientos: MovimientoDto[];
 }
 
 export interface ErrorCampo {
-  campo?: string;
+  campo: string;
   mensaje: string;
 }
 
@@ -64,58 +46,7 @@ export interface ErroresDto {
   errores: ErrorCampo[];
 }
 
-export async function listarCuentasCommand(): Promise<ListaCuentasDto> {
-  return await invoke<ListaCuentasDto>('listar_cuentas');
-}
-
-export async function crearCuentaCommand(payload: {
-  nombre: string;
-  tipo: string;
-  moneda: string;
-  saldo_inicial: string;
-}): Promise<CuentaDto> {
-  return await invoke<CuentaDto>('crear_cuenta', { datos: payload });
-}
-
-export async function detalleCuentaCommand(cuentaId: string): Promise<DetalleCuentaDto> {
-  return await invoke<DetalleCuentaDto>('detalle_cuenta', { cuenta_id: cuentaId });
-}
-
-export async function listarCategoriasCommand(): Promise<CategoriaDto[]> {
-  return await invoke<CategoriaDto[]>('listar_categorias');
-}
-
-export async function crearCategoriaCommand(nombre: string, tipo: string): Promise<CategoriaDto> {
-  return await invoke<CategoriaDto>('crear_categoria', { datos: { nombre, tipo } });
-}
-
-export async function registrarMovimientoCommand(payload: {
-  cuenta_id: string;
-  tipo: string;
-  monto: string;
-  fecha: string;
-  categoria_id: string;
-  nota: string;
-}): Promise<MovimientoDto> {
-  return await invoke<MovimientoDto>('registrar_movimiento', { datos: payload });
-}
-
-export interface PrevisualizacionDto {
-  saldo_resultante: string;
-  deja_saldo_negativo: boolean;
-}
-
-export async function previsualizarMovimientoCommand(payload: {
-  cuenta_id: string;
-  tipo: string;
-  monto: string;
-  fecha: string;
-  categoria_id: string;
-  nota: string;
-}): Promise<PrevisualizacionDto> {
-  return await invoke<PrevisualizacionDto>('previsualizar_movimiento', { datos: payload });
-}
-
+// --- DTOs Monedas, Tasas y Patrimonio ---
 export interface MonedaDto {
   codigo: string;
   nombre: string;
@@ -123,99 +54,146 @@ export interface MonedaDto {
   decimales: number;
 }
 
-// ---------- Entrega 4: tasas de cambio, moneda base y patrimonio ----------
-
-export interface TasaDto {
-  id: string;
+export interface RegistrarTasaPayload {
   moneda_origen: string;
   moneda_destino: string;
-  valor: string;
+  valor: number | string;
+  fecha: string;
+  fuente: string;
+}
+
+export interface TasaHistorialDto {
+  id: string;
+  par?: string;
+  moneda_origen: string;
+  moneda_destino: string;
+  valor: number | string;
   fecha: string;
   fuente: string;
 }
 
 export interface HistorialParDto {
-  moneda_origen: string;
-  moneda_destino: string;
-  tasas: TasaDto[];
+  par: string;
+  tasas: TasaHistorialDto[];
 }
 
-export interface MonedaBaseDto {
-  moneda: string;
-}
-
-export interface SaldoCuentaDto {
+export interface CuentaPatrimonioDto {
   id: string;
   nombre: string;
   moneda: string;
-  saldo: string;
-  en_moneda_base: string | null;
-}
-
-export interface SubtotalMonedaDto {
-  moneda: string;
-  total: string;
+  saldo_nativo: number;
+  en_moneda_base: number | null;
 }
 
 export interface TasaUsadaDto {
-  moneda_origen: string;
-  moneda_destino: string;
-  valor: string;
+  par: string;
+  valor: number;
   fecha: string;
   fuente: string;
-  inversa: boolean;
+  es_inversa: boolean;
 }
 
-export interface ParFaltanteDto {
-  moneda_origen: string;
-  moneda_destino: string;
-}
+export type TasaFaltanteDto = string | { moneda_origen: string; moneda_destino: string };
 
-export interface PatrimonioDto {
+export interface RespuestaPatrimonioDto {
+  total: number | null;
   moneda_base: string;
-  fecha_consulta: string;
-  cuentas: SaldoCuentaDto[];
-  subtotales: SubtotalMonedaDto[];
-  total: string | null;
+  cuentas: CuentaPatrimonioDto[];
+  subtotales: Record<string, number>;
   tasas_usadas: TasaUsadaDto[];
-  faltantes: ParFaltanteDto[];
+  faltantes: TasaFaltanteDto[];
 }
 
-export async function registrarTasaCommand(payload: {
-  moneda_origen: string;
-  moneda_destino: string;
-  valor: string;
+export interface CrearMonedaPayload {
+  codigo: string;
+  nombre: string;
+  simbolo: string;
+  decimales: number | string;
+}
+
+// --- Comandos Tauri para Cuentas, Categorías y Movimientos ---
+
+export async function listarCuentasCommand(): Promise<CuentaDto[]> {
+  return await invoke<CuentaDto[]>('listar_cuentas');
+}
+
+export async function detalleCuentaCommand(cuentaId: string): Promise<DetalleCuentaDto> {
+  return await invoke<DetalleCuentaDto>('detalle_cuenta', { cuenta_id: cuentaId });
+}
+
+export async function crearCuentaCommand(payload: {
+  nombre: string;
+  tipo: string;
+  moneda: string;
+  saldo_inicial: number;
+}): Promise<CuentaDto> {
+  return await invoke<CuentaDto>('crear_cuenta', { payload });
+}
+
+export async function listarCategoriasCommand(): Promise<CategoriaDto[]> {
+  return await invoke<CategoriaDto[]>('listar_categorias');
+}
+
+export async function crearCategoriaCommand(payload: {
+  nombre: string;
+  tipo: string;
+}): Promise<CategoriaDto> {
+  return await invoke<CategoriaDto>('crear_categoria', { payload });
+}
+
+export async function registrarMovimientoCommand(payload: {
+  cuenta_id: string;
   fecha: string;
-  fuente: string;
-}): Promise<TasaDto> {
-  return await invoke<TasaDto>('registrar_tasa', { datos: payload });
+  tipo: string;
+  monto: number;
+  categoria: string;
+  descripcion?: string;
+}): Promise<void> {
+  return await invoke<void>('registrar_movimiento', { payload });
 }
 
-export async function eliminarTasaCommand(tasaId: string): Promise<void> {
-  await invoke<void>('eliminar_tasa', { tasa_id: tasaId });
+export async function previsualizarMovimientoCommand(payload: any): Promise<any> {
+  return await invoke<any>('previsualizar_movimiento', { payload });
+}
+
+// --- Comandos Tauri para Monedas, Tasas y Patrimonio ---
+
+export async function listarMonedasCommand(): Promise<MonedaDto[]> {
+  return await invoke<MonedaDto[]>('listar_monedas');
+}
+
+export async function registrarTasaCommand(payload: RegistrarTasaPayload): Promise<void> {
+  return await invoke<void>('registrar_tasa', {
+    datos: {
+      ...payload,
+      valor: String(payload.valor).replace(',', '.'), // Fuerza conversión a string para Serde
+    },
+  });
 }
 
 export async function listarTasasCommand(): Promise<HistorialParDto[]> {
   return await invoke<HistorialParDto[]>('listar_tasas');
 }
 
-export async function cambiarMonedaBaseCommand(moneda: string): Promise<MonedaBaseDto> {
-  return await invoke<MonedaBaseDto>('cambiar_moneda_base', { datos: { moneda } });
+export async function eliminarTasaCommand(tasaId: string): Promise<void> {
+  return await invoke<void>('eliminar_tasa', { tasa_id: tasaId });
 }
 
-export async function crearMonedaCommand(payload: {
-  codigo: string;
-  nombre: string;
-  simbolo: string;
-  decimales: string;
-}): Promise<MonedaDto> {
-  return await invoke<MonedaDto>('crear_moneda', { datos: payload });
+export async function consultarPatrimonioCommand(fecha: string): Promise<RespuestaPatrimonioDto> {
+  return await invoke<RespuestaPatrimonioDto>('consultar_patrimonio', {
+    datos: { fecha: fecha.trim().split('T')[0] },
+  });
 }
 
-export async function consultarPatrimonioCommand(fecha = ''): Promise<PatrimonioDto> {
-  return await invoke<PatrimonioDto>('consultar_patrimonio', { datos: { fecha } });
+export async function cambiarMonedaBaseCommand(moneda: string): Promise<void> {
+  return await invoke<void>('cambiar_moneda_base', { datos: { moneda } });
 }
 
-export async function listarMonedasCommand(): Promise<MonedaDto[]> {
-  return await invoke<MonedaDto[]>('listar_monedas');
+export async function crearMonedaCommand(payload: CrearMonedaPayload): Promise<MonedaDto> {
+  return await invoke<MonedaDto>('crear_moneda', {
+    datos: {
+      ...payload,
+      decimales: String(payload.decimales), // Convierte decimales a string para Serde
+    },
+  });
 }

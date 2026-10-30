@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-interface SidebarProps {
+export interface SidebarProps {
   modoOscuro: boolean;
   toggleModoOscuro: () => void;
   pantallaActual: string;
@@ -31,7 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <nav className="flex flex-col gap-2">
           <button
             onClick={() => setPantallaActual('mis-cuentas')}
-            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition ${
+            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
               pantallaActual === 'mis-cuentas'
                 ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
                 : 'hover:bg-white/10 text-purple-200'
@@ -39,9 +39,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             💳 Mis cuentas
           </button>
+          
           <button
             onClick={() => setPantallaActual('detalle-cuenta')}
-            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition ${
+            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
               pantallaActual === 'detalle-cuenta'
                 ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
                 : 'hover:bg-white/10 text-purple-200'
@@ -49,9 +50,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             📊 Detalle de Cuenta
           </button>
+
           <button
             onClick={() => setPantallaActual('tasas')}
-            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition ${
+            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
               pantallaActual === 'tasas'
                 ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
                 : 'hover:bg-white/10 text-purple-200'
@@ -59,9 +61,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             💱 Tasas de Cambio
           </button>
+
           <button
             onClick={() => setPantallaActual('patrimonio')}
-            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition ${
+            className={`text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
               pantallaActual === 'patrimonio'
                 ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
                 : 'hover:bg-white/10 text-purple-200'
@@ -78,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <button
           onClick={toggleModoOscuro}
-          className="px-3 py-1.5 bg-[#9333EA] hover:bg-purple-600 text-white rounded-full font-medium text-[11px] shadow transition"
+          className="px-3 py-1.5 bg-[#9333EA] hover:bg-purple-600 text-white rounded-full font-medium text-[11px] shadow transition cursor-pointer"
         >
           {modoOscuro ? '🌙 Oscuro' : '☀️ Claro'}
         </button>

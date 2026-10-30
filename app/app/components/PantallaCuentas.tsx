@@ -24,7 +24,10 @@ import { ListaMovimientos } from './ListaMovimientos';
 import { FormularioCategoria } from './FormularioCategoria';
 import { FormularioCuenta } from './FormularioCuenta';
 
-async function corregirMovimientoCommand(movimientoId: string, montoCorrecto: string): Promise<MovimientoDto> {
+async function corregirMovimientoCommand(
+  movimientoId: string,
+  montoCorrecto: string
+): Promise<MovimientoDto> {
   return await invoke<MovimientoDto>('corregir_movimiento', {
     datos: {
       movimiento_id: movimientoId,
@@ -36,17 +39,17 @@ async function corregirMovimientoCommand(movimientoId: string, montoCorrecto: st
 function adaptarMovimiento(dto: MovimientoDto): Movimiento {
   return {
     id: dto.id,
-    cuenta_id: dto.cuenta_id,
+    cuenta_id: (dto as any).cuenta_id || '',
     tipo: dto.tipo as 'ingreso' | 'gasto',
-    monto: dto.monto,
-    monto_formateado: dto.monto_con_signo,
+    monto: String(dto.monto),
+    monto_formateado: (dto as any).monto_con_signo || String(dto.monto),
     fecha: dto.fecha,
-    categoria_id: dto.categoria_id,
-    categoria_nombre: dto.categoria_nombre,
-    nota: dto.nota,
-    es_corregido: dto.estado === 'corregido',
-    es_ajuste: dto.estado === 'ajuste',
-    movimiento_referenciado_id: dto.corrige_a,
+    categoria_id: (dto as any).categoria_id || '',
+    categoria_nombre: dto.categoria || (dto as any).categoria_nombre || '',
+    nota: (dto as any).nota || dto.descripcion || '',
+    es_corregido: (dto as any).estado === 'corregido',
+    es_ajuste: (dto as any).estado === 'ajuste',
+    movimiento_referenciado_id: (dto as any).corrige_a,
   };
 }
 
@@ -60,8 +63,9 @@ interface DatosCuentas {
 async function obtenerCuentasYCategorias(): Promise<DatosCuentas> {
   const resLista = await listarCuentasCommand();
   const resCat = await listarCategoriasCommand();
+  const cuentasArray = Array.isArray(resLista) ? resLista : (resLista as any)?.cuentas || [];
   return {
-    lista: resLista.cuentas || [],
+    lista: cuentasArray,
     categorias: resCat || [],
   };
 }
@@ -176,7 +180,7 @@ export function PantallaCuentas({
   const handleCrearCuenta = async (datos: NuevaCuentaDatos) => {
     setErroresCuenta([]);
     try {
-      const nueva = await invoke<CuentaDto>('crear_cuenta', { datos });
+      const nueva = await crearCuentaCommand(datos);
       setMostrarModalCuenta(false);
       await cargarCuentasYCategorias();
       if (nueva && nueva.id) {
@@ -187,7 +191,7 @@ export function PantallaCuentas({
       if (errores) {
         setErroresCuenta(errores);
       } else {
-        setErroresCuenta([{ mensaje: typeof err === 'string' ? err : 'Error al crear la cuenta.' }]);
+        setErroresCuenta([{ campo: 'general', mensaje: typeof err === 'string' ? err : 'Error al crear la cuenta.' }]);
       }
     }
   };
@@ -206,7 +210,12 @@ export function PantallaCuentas({
       return;
     }
 
-    const montoLimpio = montoMov.trim().replace(',', '.');
+    const montoLimpio = parseFloat(montoMov.trim().replace(',', '.'));
+
+    if (isNaN(montoLimpio) || montoLimpio <= 0) {
+      setErroresMov({ monto: 'El monto debe ser un número positivo.' });
+      return;
+    }
 
     if (tipoMov === 'gasto' && !confirmado) {
       try {
@@ -218,7 +227,7 @@ export function PantallaCuentas({
           categoria_id: catMovId,
           nota: notaMov,
         });
-        if (prev.deja_saldo_negativo) {
+        if (prev?.deja_saldo_negativo) {
           setSaldoAdvertencia(prev.saldo_resultante);
           setMostrarAdvertencia(true);
           return;
@@ -232,8 +241,8 @@ export function PantallaCuentas({
         tipo: tipoMov,
         monto: montoLimpio,
         fecha: fechaMov,
-        categoria_id: catMovId,
-        nota: notaMov,
+        categoria: catMovId,
+        descripcion: notaMov,
       });
 
       setMontoMov('');
@@ -274,7 +283,7 @@ export function PantallaCuentas({
   const handleCrearCategoria = async (nombre: string, tipo: 'gasto' | 'ingreso') => {
     setErroresCat({});
     try {
-      const catCreada = await crearCategoriaCommand(nombre, tipo);
+      const catCreada = await crearCategoriaCommand({ nombre, tipo });
       if (catCreada) {
         await cargarCuentasYCategorias();
         setTipoMov(catCreada.tipo as 'gasto' | 'ingreso');
@@ -293,18 +302,20 @@ export function PantallaCuentas({
   };
 
   const cuentaSeleccionada = cuentas.find((c) => c.id === cuentaActivaId);
-  const nombreCuentaReal = cuentaSeleccionada?.nombre || detalleCuenta?.cuenta.nombre || 'Cargando...';
-  const monedaCuentaReal = cuentaSeleccionada?.moneda || detalleCuenta?.cuenta.moneda || '';
+  const nombreCuentaReal = cuentaSeleccionada?.nombre || (detalleCuenta as any)?.cuenta?.nombre || 'Cargando...';
+  const monedaCuentaReal = cuentaSeleccionada?.moneda || (detalleCuenta as any)?.cuenta?.moneda || '';
 
   const movimientosAdaptados: Movimiento[] = (detalleCuenta?.movimientos || []).map(adaptarMovimiento);
   const categoriasFiltradasModal = categorias.filter((c) => c.tipo === tipoMov);
 
-  const bgCard = modoOscuro ? 'bg-[#151C28] border-gray-800/80 text-white' : 'bg-white border-gray-200 text-slate-900';
-  
-  // ✅ FORZAMOS ESTILOS OSCUROS DIRECTOS PARA SELECTS
-  const bgInput = modoOscuro
-    ? 'bg-[#0F1420] border-gray-700 text-white placeholder-gray-500 [&>option]:bg-[#0F1420] [&>option]:text-white'
-    : 'bg-white border-gray-200 text-slate-900 placeholder-gray-400 [&>option]:bg-white [&>option]:text-slate-900';
+  const bgCard = modoOscuro
+    ? 'bg-[#151C28] border-gray-800/80 text-white'
+    : 'bg-white border-gray-200 text-slate-900';
+
+  const estiloInput = modoOscuro
+    ? { backgroundColor: '#0F1420', color: '#ffffff', borderColor: '#374151', colorScheme: 'dark' }
+    : { backgroundColor: '#ffffff', color: '#0f172a', borderColor: '#e2e8f0', colorScheme: 'light' };
+
   const textMuted = modoOscuro ? 'text-gray-400' : 'text-gray-500';
 
   return (
@@ -314,11 +325,13 @@ export function PantallaCuentas({
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-2xl font-bold tracking-tight">Mis cuentas</h2>
-              <p className={`text-xs mt-1 ${textMuted}`}>Selecciona una cuenta para abrir su detalle correspondiente</p>
+              <p className={`text-xs mt-1 ${textMuted}`}>
+                Selecciona una cuenta para abrir su detalle correspondiente
+              </p>
             </div>
             <button
               onClick={() => setMostrarModalCuenta(true)}
-              className="bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-md transition"
+              className="bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-md transition cursor-pointer"
             >
               + Nueva Cuenta
             </button>
@@ -330,7 +343,7 @@ export function PantallaCuentas({
                 <p className="text-sm font-medium">No existen cuentas registradas en la base de datos.</p>
                 <button
                   onClick={() => setMostrarModalCuenta(true)}
-                  className="mt-3 text-xs text-[#9333EA] underline font-semibold"
+                  className="mt-3 text-xs text-[#9333EA] underline font-semibold cursor-pointer"
                 >
                   Crear la primera cuenta
                 </button>
@@ -341,7 +354,9 @@ export function PantallaCuentas({
                   key={c.id}
                   onClick={() => seleccionarCuenta(c.id)}
                   className={`p-6 rounded-2xl cursor-pointer transition-all border shadow-sm ${bgCard} ${
-                    c.id === cuentaActivaId ? 'border-purple-500/80 ring-1 ring-purple-500/30' : 'hover:border-purple-400'
+                    c.id === cuentaActivaId
+                      ? 'border-purple-500/80 ring-1 ring-purple-500/30'
+                      : 'hover:border-purple-400'
                   }`}
                 >
                   <div className="flex justify-between items-start">
@@ -364,8 +379,8 @@ export function PantallaCuentas({
           </div>
         </div>
       ) : (
-        <div className="max-w-6xl mx-auto space-y-6">
-          <div className="flex justify-between items-center">
+        <div className="w-full space-y-6">
+          <div className="flex justify-between items-center flex-wrap gap-3">
             <div>
               <h2 className="text-2xl font-bold tracking-tight">
                 {nombreCuentaReal} ({monedaCuentaReal})
@@ -373,16 +388,16 @@ export function PantallaCuentas({
               <p className={`text-xs mt-0.5 ${textMuted}`}>ID de la cuenta: {cuentaActivaId}</p>
             </div>
 
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap">
               <button
                 onClick={() => abrirModalMovimientoConTipo('gasto')}
-                className="bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition"
+                className="bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition cursor-pointer"
               >
                 − Nuevo Gasto
               </button>
               <button
                 onClick={() => abrirModalMovimientoConTipo('ingreso')}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition cursor-pointer"
               >
                 + Nuevo Ingreso
               </button>
@@ -391,19 +406,11 @@ export function PantallaCuentas({
                 <select
                   value={cuentaActivaId}
                   onChange={(e) => setCuentaActivaId(e.target.value)}
-                  className={`border px-3 py-1.5 rounded-xl text-xs font-medium cursor-pointer ml-2 focus:outline-none appearance-none ${
-                    modoOscuro
-                      ? '!bg-[#0F1420] !border-gray-700 !text-white [&>option]:!bg-[#0F1420] [&>option]:!text-white'
-                      : '!bg-white !border-gray-200 !text-slate-900 [&>option]:!bg-white [&>option]:!text-slate-900'
-                  }`}
-                  style={{
-                    backgroundColor: modoOscuro ? '#0F1420' : '#ffffff',
-                    color: modoOscuro ? '#ffffff' : '#0f172a',
-                    borderColor: modoOscuro ? '#374151' : '#e2e8f0',
-                  }}
+                  style={estiloInput}
+                  className="border px-3 py-1.5 rounded-xl text-xs font-medium cursor-pointer ml-2 focus:outline-none"
                 >
                   {cuentas.map((c) => (
-                    <option key={c.id} value={c.id} style={{ backgroundColor: modoOscuro ? '#0F1420' : '#ffffff', color: modoOscuro ? '#ffffff' : '#0f172a' }}>
+                    <option key={c.id} value={c.id}>
                       {c.nombre} ({c.moneda})
                     </option>
                   ))}
@@ -414,27 +421,53 @@ export function PantallaCuentas({
 
           {detalleCuenta && (
             <div className={`border rounded-2xl p-5 shadow-sm ${bgCard}`}>
-              <h3 className={`text-[11px] font-bold uppercase tracking-wider mb-3 ${textMuted}`}>Composición del Saldo</h3>
+              <h3 className={`text-[11px] font-bold uppercase tracking-wider mb-3 ${textMuted}`}>
+                Composición del Saldo
+              </h3>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
                 <div className={`p-3 rounded-xl ${modoOscuro ? 'bg-slate-800/60' : 'bg-gray-100/70'}`}>
                   <span className={`block text-xs ${textMuted}`}>Saldo Inicial</span>
-                  <span className="font-bold text-xs mt-1 block">{detalleCuenta.composicion.saldo_inicial}</span>
+                  <span className="font-bold text-xs mt-1 block">{(detalleCuenta as any)?.composicion?.saldo_inicial ?? 0}</span>
                 </div>
-                <div className={`p-3 rounded-xl border ${modoOscuro ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900/30' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                <div
+                  className={`p-3 rounded-xl border ${
+                    modoOscuro
+                      ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900/30'
+                      : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                  }`}
+                >
                   <span className="block text-xs font-medium">Ingresos</span>
-                  <span className="font-bold text-xs mt-1 block">+ {detalleCuenta.composicion.total_ingresos}</span>
+                  <span className="font-bold text-xs mt-1 block">+ {(detalleCuenta as any)?.composicion?.total_ingresos ?? 0}</span>
                 </div>
-                <div className={`p-3 rounded-xl border ${modoOscuro ? 'bg-rose-950/30 text-rose-400 border-rose-900/30' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
+                <div
+                  className={`p-3 rounded-xl border ${
+                    modoOscuro
+                      ? 'bg-rose-950/30 text-rose-400 border-rose-900/30'
+                      : 'bg-rose-50 text-rose-600 border-rose-100'
+                  }`}
+                >
                   <span className="block text-xs font-medium">Gastos</span>
-                  <span className="font-bold text-xs mt-1 block">− {detalleCuenta.composicion.total_gastos}</span>
+                  <span className="font-bold text-xs mt-1 block">− {(detalleCuenta as any)?.composicion?.total_gastos ?? 0}</span>
                 </div>
-                <div className={`p-3 rounded-xl border ${modoOscuro ? 'bg-blue-950/30 text-blue-400 border-blue-900/30' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                <div
+                  className={`p-3 rounded-xl border ${
+                    modoOscuro
+                      ? 'bg-blue-950/30 text-blue-400 border-blue-900/30'
+                      : 'bg-blue-50 text-blue-600 border-blue-100'
+                  }`}
+                >
                   <span className="block text-xs font-medium">Ajustes</span>
-                  <span className="font-bold text-xs mt-1 block">{detalleCuenta.composicion.total_ajustes}</span>
+                  <span className="font-bold text-xs mt-1 block">{(detalleCuenta as any)?.composicion?.total_ajustes ?? 0}</span>
                 </div>
-                <div className={`p-3 rounded-xl border ${modoOscuro ? 'bg-purple-950/40 text-purple-300 border-purple-900/40' : 'bg-purple-50 text-[#9333EA] border-purple-100'} font-bold`}>
+                <div
+                  className={`p-3 rounded-xl border ${
+                    modoOscuro
+                      ? 'bg-purple-950/40 text-purple-300 border-purple-900/40'
+                      : 'bg-purple-50 text-[#9333EA] border-purple-100'
+                  } font-bold`}
+                >
                   <span className="block text-xs font-medium">Saldo Actual</span>
-                  <span className="text-xs font-extrabold mt-1 block">{detalleCuenta.cuenta.saldo_actual}</span>
+                  <span className="text-xs font-extrabold mt-1 block">{detalleCuenta.saldo_actual}</span>
                 </div>
               </div>
             </div>
@@ -444,11 +477,15 @@ export function PantallaCuentas({
             <div className="lg:col-span-2 space-y-6">
               <div className={`border rounded-2xl p-5 shadow-sm ${bgCard}`}>
                 <h3 className="text-base font-bold mb-4">Historial de Movimientos</h3>
-                <ListaMovimientos
-                  movimientos={movimientosAdaptados}
-                  onCorregir={(m) => setMovimientoAEditar(m)}
-                  modoOscuro={modoOscuro}
-                />
+                <div className="w-full overflow-x-auto">
+                  <div className="min-w-[620px]">
+                    <ListaMovimientos
+                      movimientos={movimientosAdaptados}
+                      onCorregir={(m) => setMovimientoAEditar(m)}
+                      modoOscuro={modoOscuro}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -537,7 +574,8 @@ export function PantallaCuentas({
                   placeholder="Ej: 50,00"
                   value={montoMov}
                   onChange={(e) => setMontoMov(e.target.value)}
-                  className={`w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500 ${bgInput}`}
+                  style={estiloInput}
+                  className="w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
                 />
                 {erroresMov.monto && <p className="text-rose-400 text-[11px] font-medium mt-1">{erroresMov.monto}</p>}
               </div>
@@ -548,7 +586,8 @@ export function PantallaCuentas({
                   type="date"
                   value={fechaMov}
                   onChange={(e) => setFechaMov(e.target.value)}
-                  className={`w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500 ${bgInput}`}
+                  style={estiloInput}
+                  className="w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
                 />
                 {erroresMov.fecha && <p className="text-rose-400 text-[11px] font-medium mt-1">{erroresMov.fecha}</p>}
               </div>
@@ -558,11 +597,8 @@ export function PantallaCuentas({
                 <select
                   value={catMovId}
                   onChange={(e) => setCatMovId(e.target.value)}
-                  className={`w-full border px-3 py-2 rounded-xl text-xs focus:outline-none cursor-pointer appearance-none ${bgInput}`}
-                  style={{
-                    backgroundColor: modoOscuro ? '#0F1420' : '#ffffff',
-                    color: modoOscuro ? '#ffffff' : '#0f172a',
-                  }}
+                  style={estiloInput}
+                  className="w-full border px-3 py-2 rounded-xl text-xs focus:outline-none cursor-pointer"
                 >
                   {categoriasFiltradasModal.length === 0 ? (
                     <option value="">No hay categorías disponibles...</option>
@@ -570,12 +606,14 @@ export function PantallaCuentas({
                     <option value="">Seleccione categoría...</option>
                   )}
                   {categoriasFiltradasModal.map((c) => (
-                    <option key={c.id} value={c.id} style={{ backgroundColor: modoOscuro ? '#0F1420' : '#ffffff', color: modoOscuro ? '#ffffff' : '#0f172a' }}>
+                    <option key={c.id} value={c.id}>
                       {c.nombre}
                     </option>
                   ))}
                 </select>
-                {erroresMov.categoria && <p className="text-rose-400 text-[11px] font-medium mt-1">{erroresMov.categoria}</p>}
+                {erroresMov.categoria && (
+                  <p className="text-rose-400 text-[11px] font-medium mt-1">{erroresMov.categoria}</p>
+                )}
               </div>
 
               <div>
@@ -585,7 +623,8 @@ export function PantallaCuentas({
                   placeholder="Ej. Mercado del fin de semana"
                   value={notaMov}
                   onChange={(e) => setNotaMov(e.target.value)}
-                  className={`w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500 ${bgInput}`}
+                  style={estiloInput}
+                  className="w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
                 />
               </div>
 
@@ -604,7 +643,7 @@ export function PantallaCuentas({
                 </button>
                 <button
                   type="submit"
-                  className="bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold"
+                  className="bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer"
                 >
                   Guardar
                 </button>
@@ -627,6 +666,7 @@ export function PantallaCuentas({
               onCrear={handleCrearCuenta}
               onCancelar={() => setMostrarModalCuenta(false)}
               errores={erroresCuenta}
+              modoOscuro={modoOscuro}
             />
           </div>
         </div>
