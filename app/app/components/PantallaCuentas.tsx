@@ -10,6 +10,7 @@ import {
   previsualizarMovimientoCommand,
   crearCuentaCommand,
   listarMonedasCommand,
+  normalizarTipoCategoria,
   CuentaDto,
   DetalleCuentaDto,
   CategoriaDto,
@@ -62,9 +63,19 @@ interface DatosCuentas {
 }
 
 async function obtenerCuentasYCategorias(): Promise<DatosCuentas> {
-  const resLista = await listarCuentasCommand();
-  const resCat = await listarCategoriasCommand();
-  const cuentasArray = Array.isArray(resLista) ? resLista : (resLista as any)?.cuentas || [];
+  let resLista: CuentaDto[] | { cuentas?: CuentaDto[] } | null = null;
+  try {
+    resLista = await listarCuentasCommand();
+  } catch (e) {
+    console.error('Error al listar cuentas:', e);
+  }
+  let resCat: CategoriaDto[] | null = null;
+  try {
+    resCat = await listarCategoriasCommand();
+  } catch (e) {
+    console.error('Error al listar categorías:', e);
+  }
+  const cuentasArray = Array.isArray(resLista) ? resLista : (resLista && 'cuentas' in resLista ? resLista.cuentas : []) || [];
   return {
     lista: cuentasArray,
     categorias: resCat || [],
@@ -119,6 +130,7 @@ export function PantallaCuentas({
   const [erroresCuenta, setErroresCuenta] = useState<ErrorCampo[]>([]);
   const [erroresMov, setErroresMov] = useState<Record<string, string>>({});
   const [erroresCat, setErroresCat] = useState<Record<string, string>>({});
+  const [filtroCat, setFiltroCat] = useState<'todas' | 'gasto' | 'ingreso'>('todas');
 
   const aplicarDatos = useCallback((datos: DatosCuentas) => {
     setCuentas(datos.lista);
@@ -201,7 +213,7 @@ export function PantallaCuentas({
     setFechaMov(new Date().toISOString().split('T')[0]);
     setErroresMov({});
 
-    const catsFiltradas = categorias.filter((c) => c.tipo === tipo);
+    const catsFiltradas = categorias.filter((c) => normalizarTipoCategoria(c.tipo) === tipo);
     setCatMovId(catsFiltradas.length > 0 ? catsFiltradas[0].id : '');
 
     setMostrarModalMovimiento(true);
@@ -323,6 +335,9 @@ export function PantallaCuentas({
           mapa[item.campo || 'nombre'] = item.mensaje;
         });
         setErroresCat(mapa);
+      } else {
+        const msg = typeof err === 'string' ? err : (err as any)?.message || 'Error al crear la categoría.';
+        setErroresCat({ general: msg });
       }
     }
   };
@@ -332,7 +347,11 @@ export function PantallaCuentas({
   const monedaCuentaReal = cuentaSeleccionada?.moneda || (detalleCuenta as any)?.cuenta?.moneda || '';
 
   const movimientosAdaptados: Movimiento[] = (detalleCuenta?.movimientos || []).map(adaptarMovimiento);
-  const categoriasFiltradasModal = categorias.filter((c) => c.tipo === tipoMov);
+  const categoriasFiltradasModal = categorias.filter((c) => normalizarTipoCategoria(c.tipo) === tipoMov);
+  const categoriasVisibles = categorias.filter((c) => {
+    if (filtroCat === 'todas') return true;
+    return normalizarTipoCategoria(c.tipo) === filtroCat;
+  });
 
   const bgCard = modoOscuro
     ? 'bg-[#151C28] border-gray-800/80 text-white'
@@ -522,6 +541,88 @@ export function PantallaCuentas({
                 errores={erroresCat}
                 modoOscuro={modoOscuro}
               />
+
+              <div className="mt-6 pt-5 border-t border-gray-700/40">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider">
+                    Categorías ({categorias.length})
+                  </h4>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setFiltroCat('todas')}
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-semibold transition cursor-pointer ${
+                        filtroCat === 'todas'
+                          ? 'bg-[#9333EA] text-white'
+                          : modoOscuro
+                          ? 'text-gray-400 hover:text-white'
+                          : 'text-gray-500 hover:text-gray-900'
+                      }`}
+                    >
+                      Todas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroCat('gasto')}
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-semibold transition cursor-pointer ${
+                        filtroCat === 'gasto'
+                          ? 'bg-rose-600 text-white'
+                          : modoOscuro
+                          ? 'text-gray-400 hover:text-white'
+                          : 'text-gray-500 hover:text-gray-900'
+                      }`}
+                    >
+                      Gastos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroCat('ingreso')}
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-semibold transition cursor-pointer ${
+                        filtroCat === 'ingreso'
+                          ? 'bg-emerald-600 text-white'
+                          : modoOscuro
+                          ? 'text-gray-400 hover:text-white'
+                          : 'text-gray-500 hover:text-gray-900'
+                      }`}
+                    >
+                      Ingresos
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                  {categoriasVisibles.length === 0 ? (
+                    <p className={`text-xs ${textMuted} italic py-2`}>No hay categorías en esta vista.</p>
+                  ) : (
+                    categoriasVisibles.map((cat) => (
+                      <div
+                        key={cat.id}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs ${
+                          modoOscuro ? 'bg-slate-800/60' : 'bg-gray-100/70'
+                        }`}
+                      >
+                        <span className="font-medium truncate mr-2">{cat.nombre}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                              normalizarTipoCategoria(cat.tipo) === 'ingreso'
+                                ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/40'
+                                : 'bg-rose-950/60 text-rose-300 border border-rose-800/40'
+                            }`}
+                          >
+                            {normalizarTipoCategoria(cat.tipo)}
+                          </span>
+                          {cat.de_fabrica && (
+                            <span className="text-[9px] text-gray-400 bg-gray-700/30 px-1 py-0.5 rounded">
+                              fábrica
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -570,7 +671,7 @@ export function PantallaCuentas({
                     checked={tipoMov === 'gasto'}
                     onChange={() => {
                       setTipoMov('gasto');
-                      const cats = categorias.filter((c) => c.tipo === 'gasto');
+                      const cats = categorias.filter((c) => normalizarTipoCategoria(c.tipo) === 'gasto');
                       setCatMovId(cats.length > 0 ? cats[0].id : '');
                     }}
                     className="accent-[#9333EA]"
@@ -584,7 +685,7 @@ export function PantallaCuentas({
                     checked={tipoMov === 'ingreso'}
                     onChange={() => {
                       setTipoMov('ingreso');
-                      const cats = categorias.filter((c) => c.tipo === 'ingreso');
+                      const cats = categorias.filter((c) => normalizarTipoCategoria(c.tipo) === 'ingreso');
                       setCatMovId(cats.length > 0 ? cats[0].id : '');
                     }}
                     className="accent-[#9333EA]"

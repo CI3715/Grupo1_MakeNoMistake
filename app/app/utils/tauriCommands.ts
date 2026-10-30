@@ -154,15 +154,35 @@ export async function crearCuentaCommand(payload: {
   });
 }
 
+export function normalizarTipoCategoria(tipo?: string): 'gasto' | 'ingreso' {
+  const t = (tipo || '').toLowerCase().trim();
+  if (t === 'ingreso') return 'ingreso';
+  return 'gasto';
+}
+
 export async function listarCategoriasCommand(): Promise<CategoriaDto[]> {
-  return await invoke<CategoriaDto[]>('listar_categorias');
+  const res = await invoke<CategoriaDto[]>('listar_categorias');
+  return (res || []).map((cat) => ({
+    ...cat,
+    tipo: normalizarTipoCategoria(cat.tipo),
+  }));
 }
 
 export async function crearCategoriaCommand(payload: {
   nombre: string;
   tipo: string;
 }): Promise<CategoriaDto> {
-  return await invoke<CategoriaDto>('crear_categoria', { datos: payload });
+  const tipoNormalizado = normalizarTipoCategoria(payload.tipo);
+  const resp = await invoke<CategoriaDto>('crear_categoria', {
+    datos: {
+      nombre: payload.nombre.trim(),
+      tipo: tipoNormalizado,
+    },
+  });
+  return {
+    ...resp,
+    tipo: normalizarTipoCategoria(resp?.tipo),
+  };
 }
 
 export async function registrarMovimientoCommand(payload: {

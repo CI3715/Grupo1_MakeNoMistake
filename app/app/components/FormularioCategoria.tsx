@@ -15,12 +15,26 @@ export const FormularioCategoria: React.FC<FormularioCategoriaProps> = ({
 }) => {
   const [nombre, setNombre] = useState('');
   const [tipo, setTipo] = useState<'gasto' | 'ingreso'>('gasto');
+  const [enviando, setEnviando] = useState(false);
+  const [mensajeExito, setMensajeExito] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nombre.trim()) return;
-    await onAgregar(nombre.trim(), tipo);
-    setNombre('');
+    const nombreLimpio = nombre.trim();
+    if (!nombreLimpio || enviando) return;
+
+    setEnviando(true);
+    setMensajeExito('');
+    try {
+      await onAgregar(nombreLimpio, tipo);
+      setNombre('');
+      setMensajeExito(`Categoría "${nombreLimpio}" agregada correctamente.`);
+      setTimeout(() => setMensajeExito(''), 3500);
+    } catch {
+      // Los errores se manejan por props en 'errores'
+    } finally {
+      setEnviando(false);
+    }
   };
 
   const bgInput = modoOscuro
@@ -30,6 +44,18 @@ export const FormularioCategoria: React.FC<FormularioCategoriaProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
+      {mensajeExito && (
+        <div className="p-2 rounded-xl text-[11px] font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
+          {mensajeExito}
+        </div>
+      )}
+
+      {errores.general && (
+        <div className="p-2 rounded-xl text-[11px] font-semibold bg-rose-950/60 text-rose-300 border border-rose-800/40">
+          {errores.general}
+        </div>
+      )}
+
       <div>
         <label className={`block text-[11px] font-semibold mb-1 ${textMuted}`}>Nombre</label>
         <input
@@ -37,6 +63,7 @@ export const FormularioCategoria: React.FC<FormularioCategoriaProps> = ({
           placeholder="Ej. Cine, Mascotas"
           value={nombre}
           onChange={(e) => setNombre(e.target.value)}
+          disabled={enviando}
           className={`w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500 ${bgInput}`}
         />
         {errores.nombre && <p className="text-rose-400 text-[11px] font-medium mt-1">{errores.nombre}</p>}
@@ -47,6 +74,7 @@ export const FormularioCategoria: React.FC<FormularioCategoriaProps> = ({
         <select
           value={tipo}
           onChange={(e) => setTipo(e.target.value as 'gasto' | 'ingreso')}
+          disabled={enviando}
           className={`w-full border px-3 py-2 rounded-xl text-xs focus:outline-none cursor-pointer appearance-none ${bgInput}`}
           style={{
             backgroundColor: modoOscuro ? '#0F1420' : '#ffffff',
@@ -66,9 +94,10 @@ export const FormularioCategoria: React.FC<FormularioCategoriaProps> = ({
 
       <button
         type="submit"
-        className="w-full bg-[#9333EA] text-white py-2 rounded-xl text-xs font-semibold hover:bg-purple-600 transition shadow-md"
+        disabled={enviando || !nombre.trim()}
+        className="w-full bg-[#9333EA] disabled:opacity-50 text-white py-2 rounded-xl text-xs font-semibold hover:bg-purple-600 transition shadow-md cursor-pointer"
       >
-        Añadir Categoría
+        {enviando ? 'Guardando...' : 'Añadir Categoría'}
       </button>
     </form>
   );
