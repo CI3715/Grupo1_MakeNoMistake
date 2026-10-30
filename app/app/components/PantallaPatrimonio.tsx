@@ -294,18 +294,22 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
               {datosPatrimonio.tasas_usadas && datosPatrimonio.tasas_usadas.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-purple-500/30 text-xs text-purple-100 space-y-1">
                   <p className="font-semibold mb-1">Tasas aplicadas para la consolidación:</p>
-                  {datosPatrimonio.tasas_usadas.map((t, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <span>
-                        • {t.par}: {t.valor} ({t.fuente} — {formatearFechaDDMMYYYY(t.fecha)})
-                      </span>
-                      {t.es_inversa && (
-                        <span className="bg-purple-900/80 text-purple-200 px-1.5 py-0.5 rounded text-[10px] font-bold">
-                          Inversa
+                  {datosPatrimonio.tasas_usadas.map((t, idx) => {
+                    const parLabel = t.par || (t.moneda_origen && t.moneda_destino ? `${t.moneda_origen} → ${t.moneda_destino}` : 'Tasa');
+                    const esInversa = Boolean(t.inversa ?? t.es_inversa);
+                    return (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span>
+                          • {parLabel}: {t.valor} ({t.fuente} — {formatearFechaDDMMYYYY(t.fecha)})
                         </span>
-                      )}
-                    </div>
-                  ))}
+                        {esInversa && (
+                          <span className="bg-purple-900/80 text-purple-200 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                            Inversa
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -383,22 +387,25 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
                 Saldos por Cuenta
               </div>
               <div className="divide-y divide-gray-200 dark:divide-gray-800">
-                {datosPatrimonio.cuentas.map((cta) => (
-                  <div key={cta.id} className="p-4 flex justify-between items-center">
-                    <div>
-                      <span className="font-bold text-sm">{cta.nombre}</span>
-                      <span className="ml-2 text-xs font-mono text-gray-400">({cta.moneda})</span>
+                {datosPatrimonio.cuentas.map((cta) => {
+                  const saldoCuenta = cta.saldo ?? (cta as any).saldo_nativo;
+                  return (
+                    <div key={cta.id} className="p-4 flex justify-between items-center">
+                      <div>
+                        <span className="font-bold text-sm">{cta.nombre}</span>
+                        <span className="ml-2 text-xs font-mono text-gray-400">({cta.moneda})</span>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-sm">{formatearMontoTexto(saldoCuenta, cta.moneda)}</div>
+                        {Boolean(cta.en_moneda_base) && cta.moneda !== datosPatrimonio.moneda_base && (
+                          <div className="text-[11px] text-gray-400">
+                            ≈ {formatearMontoTexto(cta.en_moneda_base, datosPatrimonio.moneda_base)}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-bold text-sm">{formatearMontoTexto(cta.saldo_nativo, cta.moneda)}</div>
-                      {cta.en_moneda_base !== null && cta.moneda !== datosPatrimonio.moneda_base && (
-                        <div className="text-[11px] text-gray-400">
-                          ≈ {formatearMontoTexto(cta.en_moneda_base, datosPatrimonio.moneda_base)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

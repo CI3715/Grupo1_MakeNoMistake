@@ -73,7 +73,9 @@ export interface TasaHistorialDto {
 }
 
 export interface HistorialParDto {
-  par: string;
+  moneda_origen?: string;
+  moneda_destino?: string;
+  par?: string;
   tasas: TasaHistorialDto[];
 }
 
@@ -81,25 +83,29 @@ export interface CuentaPatrimonioDto {
   id: string;
   nombre: string;
   moneda: string;
-  saldo_nativo: number;
-  en_moneda_base: number | null;
+  saldo: string;
+  saldo_nativo?: number | string;
+  en_moneda_base: string | null;
 }
 
 export interface TasaUsadaDto {
-  par: string;
-  valor: number;
+  moneda_origen?: string;
+  moneda_destino?: string;
+  par?: string;
+  valor: number | string;
   fecha: string;
   fuente: string;
-  es_inversa: boolean;
+  inversa?: boolean;
+  es_inversa?: boolean;
 }
 
 export type TasaFaltanteDto = string | { moneda_origen: string; moneda_destino: string };
 
 export interface RespuestaPatrimonioDto {
-  total: number | null;
+  total: number | string | null;
   moneda_base: string;
   cuentas: CuentaPatrimonioDto[];
-  subtotales: Record<string, number>;
+  subtotales: Record<string, number> | any;
   tasas_usadas: TasaUsadaDto[];
   faltantes: TasaFaltanteDto[];
 }
@@ -113,8 +119,8 @@ export interface CrearMonedaPayload {
 
 // --- Comandos Tauri para Cuentas, Categorías y Movimientos ---
 
-export async function listarCuentasCommand(): Promise<CuentaDto[]> {
-  return await invoke<CuentaDto[]>('listar_cuentas');
+export async function listarCuentasCommand(): Promise<any> {
+  return await invoke<any>('listar_cuentas');
 }
 
 export async function detalleCuentaCommand(cuentaId: string): Promise<DetalleCuentaDto> {
@@ -125,9 +131,27 @@ export async function crearCuentaCommand(payload: {
   nombre: string;
   tipo: string;
   moneda: string;
-  saldo_inicial: number;
+  saldo_inicial: number | string;
 }): Promise<CuentaDto> {
-  return await invoke<CuentaDto>('crear_cuenta', { payload });
+  let tipoNormalizado = payload.tipo.toLowerCase().trim();
+  if (tipoNormalizado.includes('digital') || tipoNormalizado.includes('billetera')) {
+    tipoNormalizado = 'billetera_digital';
+  } else if (tipoNormalizado.includes('banco') || tipoNormalizado.includes('caja')) {
+    tipoNormalizado = 'banco';
+  } else {
+    tipoNormalizado = 'efectivo';
+  }
+
+  const saldoStr = String(payload.saldo_inicial ?? '0').trim().replace(',', '.');
+
+  return await invoke<CuentaDto>('crear_cuenta', {
+    datos: {
+      nombre: payload.nombre.trim(),
+      tipo: tipoNormalizado,
+      moneda: payload.moneda.trim(),
+      saldo_inicial: saldoStr,
+    },
+  });
 }
 
 export async function listarCategoriasCommand(): Promise<CategoriaDto[]> {
@@ -153,6 +177,7 @@ export async function registrarMovimientoCommand(payload: {
 }): Promise<void> {
   const datos = {
     ...payload,
+    monto: String(payload.monto).replace(',', '.'),
     categoria_id: (payload as any).categoria_id || (payload as any).categoria,
     nota: (payload as any).nota || (payload as any).descripcion || '',
   };
@@ -160,7 +185,13 @@ export async function registrarMovimientoCommand(payload: {
 }
 
 export async function previsualizarMovimientoCommand(payload: any): Promise<any> {
-  return await invoke<any>('previsualizar_movimiento', { payload });
+  const datos = {
+    ...payload,
+    monto: String(payload.monto).replace(',', '.'),
+    categoria_id: payload.categoria_id || payload.categoria,
+    nota: payload.nota || payload.descripcion || '',
+  };
+  return await invoke<any>('previsualizar_movimiento', { datos });
 }
 
 // --- Comandos Tauri para Monedas, Tasas y Patrimonio ---

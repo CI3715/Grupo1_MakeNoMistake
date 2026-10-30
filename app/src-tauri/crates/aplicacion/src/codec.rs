@@ -25,10 +25,11 @@ pub fn tipo_a_texto(tipo: &TipoCuenta) -> &str {
 
 /// Convierte una cadena en `snake_case` a su variante correspondiente de [`TipoCuenta`].
 pub fn texto_a_tipo(texto: &str) -> Result<TipoCuenta, ErrorAplicacion> {
-    match texto.trim() {
+    let limpio = texto.trim().to_lowercase().replace(' ', "_");
+    match limpio.as_str() {
         "efectivo" => Ok(TipoCuenta::Efectivo),
-        "banco" => Ok(TipoCuenta::Banco),
-        "billetera_digital" => Ok(TipoCuenta::BilleteraDigital),
+        "banco" | "caja_de_ahorro" => Ok(TipoCuenta::Banco),
+        "billetera_digital" | "digital" => Ok(TipoCuenta::BilleteraDigital),
         otro => Err(ErrorAplicacion::Interno(format!(
             "Tipo de cuenta desconocido: {otro}"
         ))),

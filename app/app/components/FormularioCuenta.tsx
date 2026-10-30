@@ -51,6 +51,12 @@ export const FormularioCuenta: React.FC<FormularioCuentaProps> = ({
         Nueva Cuenta
       </h3>
 
+      {errorMap.general && (
+        <div className="p-3 mb-3 bg-rose-950/40 border border-rose-800/60 text-rose-300 rounded-xl text-xs">
+          {errorMap.general}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className={`block text-xs font-semibold mb-1 ${textLabel}`}>

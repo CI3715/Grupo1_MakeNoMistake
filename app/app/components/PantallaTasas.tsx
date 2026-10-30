@@ -72,7 +72,8 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
     setErroresForm({});
     setMensajeExito(null);
 
-    const valNum = parseFloat(valor);
+    const valLimpio = valor.trim().replace(',', '.');
+    const valNum = parseFloat(valLimpio);
     const nuevosErrores: Record<string, string> = {};
 
     if (!valor || isNaN(valNum) || valNum <= 0) {
@@ -91,7 +92,7 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
       await registrarTasaCommand({
         moneda_origen: origen,
         moneda_destino: destino,
-        valor: valNum,
+        valor: valLimpio,
         fecha,
         fuente: fuente.trim(),
       });
@@ -269,11 +270,16 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
           <p className="text-xs text-gray-400 text-center py-6">No hay tasas de cambio registradas aún.</p>
         ) : (
           <div className="space-y-4">
-            {historiales.map((h) => (
-              <div key={h.par || Math.random().toString()} className="border border-gray-700/60 rounded-xl overflow-hidden">
-                <div className="bg-gray-500/10 px-4 py-2 font-bold text-xs uppercase tracking-wider text-purple-400">
-                  Par {h.par || `${(h as any).moneda_origen}/${(h as any).moneda_destino}`}
-                </div>
+            {historiales.map((h, idx) => {
+              const origen = (h as any).moneda_origen;
+              const destino = (h as any).moneda_destino;
+              const parLabel = origen && destino ? `${origen} → ${destino}` : h.par || 'Tasas';
+              const parKey = origen && destino ? `${origen}-${destino}` : h.par || `par-${idx}`;
+              return (
+                <div key={parKey} className="border border-gray-700/60 rounded-xl overflow-hidden">
+                  <div className="bg-gray-500/10 px-4 py-2 font-bold text-xs uppercase tracking-wider text-purple-400">
+                    Par {parLabel}
+                  </div>
                 <div className="divide-y divide-gray-800">
                   {Array.isArray(h.tasas) && h.tasas.map((t) => (
                     <div key={t.id} className="p-3 flex items-center justify-between text-xs gap-2">
@@ -294,7 +300,8 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
                   ))}
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         )}
       </div>
