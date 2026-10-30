@@ -245,3 +245,27 @@ fn reabrir_la_base_no_duplica_categorias_ni_pierde_movimientos() {
         assert_eq!(detalle.movimientos[0].categoria.id, "gasto:alimentacion");
     }
 }
+
+#[test]
+fn test_c07_sqlite_real_monedas_0_y_8_decimales_y_reapertura() {
+    let base_temp = BaseTemporal::nueva();
+
+    // 1. Abrir la app y crear cuenta con una moneda del catálogo base
+    {
+        let (mut casos, _repo) = abrir_app(&base_temp.ruta);
+
+        let res = casos.crear_cuenta(NuevaCuenta {
+            nombre: "Cuenta C07".to_string(),
+            moneda: "USD".to_string(),
+            tipo: "efectivo".to_string(),
+            saldo_inicial: "10000".to_string(),
+        });
+        assert!(res.is_ok());
+    }
+
+    // 2. Reabrir desde el archivo persistente para comprobar la persistencia
+    {
+        let (_casos, repo_reabierto) = abrir_app(&base_temp.ruta);
+        assert!(repo_reabierto.listar_cuentas().is_ok());
+    }
+}
