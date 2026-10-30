@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 
 interface FormularioCategoriaProps {
-  onAgregar: (nombre: string, tipo: 'gasto' | 'ingreso') => Promise<void>;
+  /** Devuelve true si la categoría se creó; solo entonces se limpia el campo. */
+  onAgregar: (nombre: string, tipo: 'gasto' | 'ingreso') => Promise<boolean>;
   errores: Record<string, string>;
   modoOscuro: boolean;
 }
@@ -18,9 +19,9 @@ export const FormularioCategoria: React.FC<FormularioCategoriaProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nombre.trim()) return;
-    await onAgregar(nombre.trim(), tipo);
-    setNombre('');
+    // Sin validar aquí: un nombre vacío lo rechaza el dominio y el mensaje se muestra abajo.
+    const creada = await onAgregar(nombre.trim(), tipo);
+    if (creada) setNombre('');
   };
 
   const bgInput = modoOscuro
@@ -63,6 +64,8 @@ export const FormularioCategoria: React.FC<FormularioCategoriaProps> = ({
         </select>
         {errores.tipo && <p className="text-rose-400 text-[11px] font-medium mt-1">{errores.tipo}</p>}
       </div>
+
+      {errores.general && <p className="text-rose-400 text-[11px] font-medium">{errores.general}</p>}
 
       <button
         type="submit"

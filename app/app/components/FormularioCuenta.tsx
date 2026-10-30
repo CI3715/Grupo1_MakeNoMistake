@@ -1,18 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
+import { ErrorCampo, MonedaDto, NuevaCuentaPayload } from '../utils/tauriCommands';
+import { normalizarDecimal } from '../utils/formato';
 
-interface MonedaOption {
-  codigo: string;
-  nombre: string;
-  simbolo: string;
-}
+const CAMPOS_DEL_FORMULARIO = ['nombre', 'tipo', 'moneda', 'saldo_inicial'];
 
 interface FormularioCuentaProps {
-  monedas: MonedaOption[];
-  onCrear: (datos: { nombre: string; tipo: string; moneda: string; saldo_inicial: number }) => void;
+  monedas: MonedaDto[];
+  onCrear: (datos: NuevaCuentaPayload) => void;
   onCancelar: () => void;
-  errores?: { campo?: string; mensaje: string }[];
+  errores?: ErrorCampo[];
   modoOscuro?: boolean;
 }
 
@@ -24,19 +22,27 @@ export const FormularioCuenta: React.FC<FormularioCuentaProps> = ({
   modoOscuro = true,
 }) => {
   const [nombre, setNombre] = useState('');
-  const [tipo, setTipo] = useState('Efectivo');
+  const [tipo, setTipo] = useState('efectivo');
   const [moneda, setMoneda] = useState(monedas[0]?.codigo || 'VES');
   const [saldoInicial, setSaldoInicial] = useState('0.00');
 
-  const errorMap = errores.reduce((acc, err) => {
-    if (err.campo) acc[err.campo] = err.mensaje;
-    return acc;
-  }, {} as Record<string, string>);
+  const errorMap = errores.reduce(
+    (acc, err) => {
+      if (err.campo) acc[err.campo] = err.mensaje;
+      return acc;
+    },
+    {} as Record<string, string>
+  );
+
+  // Errores sin campo (o de un campo que este formulario no muestra): se ven arriba.
+  const erroresGenerales = errores.filter(
+    (err) => !err.campo || !CAMPOS_DEL_FORMULARIO.includes(err.campo)
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const saldoNum = parseFloat(saldoInicial.replace(',', '.')) || 0;
-    onCrear({ nombre, tipo, moneda, saldo_inicial: saldoNum });
+    // El saldo viaja como texto: la validación (negativo, decimales de más) es del dominio.
+    onCrear({ nombre, tipo, moneda, saldo_inicial: normalizarDecimal(saldoInicial) });
   };
 
   const estiloInput = modoOscuro
@@ -50,6 +56,14 @@ export const FormularioCuenta: React.FC<FormularioCuentaProps> = ({
       <h3 className={`text-lg font-bold mb-4 ${modoOscuro ? 'text-white' : 'text-slate-900'}`}>
         Nueva Cuenta
       </h3>
+
+      {erroresGenerales.length > 0 && (
+        <div className="mb-4 p-3 rounded-xl border border-rose-800/60 bg-rose-950/40 text-rose-300 text-xs space-y-1">
+          {erroresGenerales.map((err, i) => (
+            <p key={i}>{err.mensaje}</p>
+          ))}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -78,11 +92,11 @@ export const FormularioCuenta: React.FC<FormularioCuentaProps> = ({
               style={estiloInput}
               className="w-full border px-3 py-2 rounded-xl text-xs font-medium focus:ring-2 focus:ring-purple-500 focus:outline-none cursor-pointer transition"
             >
-              <option value="Efectivo">Efectivo</option>
-              <option value="Banco">Banco</option>
-              <option value="Caja de Ahorro">Caja de Ahorro</option>
-              <option value="Billetera Digital">Billetera Digital</option>
+              <option value="efectivo">Efectivo</option>
+              <option value="banco">Banco</option>
+              <option value="billetera_digital">Billetera digital</option>
             </select>
+            {errorMap.tipo && <p className="text-rose-400 text-[11px] mt-1">{errorMap.tipo}</p>}
           </div>
 
           <div>
@@ -101,6 +115,7 @@ export const FormularioCuenta: React.FC<FormularioCuentaProps> = ({
                 </option>
               ))}
             </select>
+            {errorMap.moneda && <p className="text-rose-400 text-[11px] mt-1">{errorMap.moneda}</p>}
           </div>
         </div>
 

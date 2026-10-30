@@ -25,8 +25,8 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir, mod
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
           {movimientos.map((m) => {
-            const esGasto = m.tipo === 'gasto';
-            const colorMonto = esGasto ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400';
+            const esNegativo = m.monto_formateado.trim().startsWith('-');
+            const colorMonto = esNegativo ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-500 dark:text-emerald-400';
 
             return (
               <tr key={m.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/30 transition">

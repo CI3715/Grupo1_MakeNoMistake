@@ -7,9 +7,10 @@ interface Props {
   movimiento: Movimiento | null;
   onConfirmar: (montoCorrecto: string) => void;
   onCancelar: () => void;
+  error?: string | null;
 }
 
-export const DialogoCorregir: React.FC<Props> = ({ movimiento, onConfirmar, onCancelar }) => {
+export const DialogoCorregir: React.FC<Props> = ({ movimiento, onConfirmar, onCancelar, error = null }) => {
   const [montoCorrecto, setMontoCorrecto] = useState('');
 
   if (!movimiento) return null;
@@ -32,6 +33,7 @@ export const DialogoCorregir: React.FC<Props> = ({ movimiento, onConfirmar, onCa
             onChange={(e) => setMontoCorrecto(e.target.value)}
             className="p-2.5 text-sm border rounded-xl dark:bg-gray-900 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500"
           />
+          {error && <p className="text-rose-500 text-xs font-medium mt-1">{error}</p>}
         </div>
 
         <div className="flex justify-end gap-3 pt-2">

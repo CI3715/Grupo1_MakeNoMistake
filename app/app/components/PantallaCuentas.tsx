@@ -3,81 +3,69 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   listarCuentasCommand,
+  listarMonedasCommand,
   detalleCuentaCommand,
   listarCategoriasCommand,
   crearCategoriaCommand,
+  crearCuentaCommand,
   registrarMovimientoCommand,
   previsualizarMovimientoCommand,
-  crearCuentaCommand,
-  listarMonedasCommand,
+  corregirMovimientoCommand,
+  extraerErrores,
+  mensajeDeError,
   CuentaDto,
+  SubtotalDto,
+  MonedaDto,
   DetalleCuentaDto,
   CategoriaDto,
   MovimientoDto,
   ErrorCampo,
-  ErroresDto,
+  NuevaCuentaPayload,
+  NuevoMovimientoPayload,
 } from '../utils/tauriCommands';
+import { fechaHoyLocal, formatearMontoTexto, normalizarDecimal } from '../utils/formato';
 import { Movimiento } from '../types/cuentas';
-import { invoke } from '@tauri-apps/api/core';
 import { DialogoAdvertencia } from './DialogoAdvertencia';
 import { DialogoCorregir } from './DialogoCorregir';
 import { ListaMovimientos } from './ListaMovimientos';
 import { FormularioCategoria } from './FormularioCategoria';
 import { FormularioCuenta } from './FormularioCuenta';
 
-async function corregirMovimientoCommand(
-  movimientoId: string,
-  montoCorrecto: string
-): Promise<MovimientoDto> {
-  return await invoke<MovimientoDto>('corregir_movimiento', {
-    datos: {
-      movimiento_id: movimientoId,
-      monto_correcto: montoCorrecto,
-    },
-  });
-}
-
-function adaptarMovimiento(dto: MovimientoDto): Movimiento {
+/** Solo traduce el DTO del backend a lo que pinta la tabla; no calcula nada. */
+function adaptarMovimiento(dto: MovimientoDto, moneda: string): Movimiento {
   return {
     id: dto.id,
-    cuenta_id: (dto as any).cuenta_id || '',
-    tipo: dto.tipo as 'ingreso' | 'gasto',
-    monto: String(dto.monto),
-    monto_formateado: (dto as any).monto_con_signo || String(dto.monto),
+    cuenta_id: dto.cuenta_id,
+    tipo: dto.tipo === 'ingreso' ? 'ingreso' : 'gasto',
+    monto: dto.monto,
+    monto_formateado: formatearMontoTexto(dto.monto_con_signo, moneda),
     fecha: dto.fecha,
-    categoria_id: (dto as any).categoria_id || '',
-    categoria_nombre: dto.categoria || (dto as any).categoria_nombre || '',
-    nota: (dto as any).nota || dto.descripcion || '',
-    es_corregido: (dto as any).estado === 'corregido',
-    es_ajuste: (dto as any).estado === 'ajuste',
-    movimiento_referenciado_id: (dto as any).corrige_a,
+    categoria_id: dto.categoria_id,
+    categoria_nombre: dto.categoria_nombre,
+    nota: dto.nota,
+    es_corregido: dto.estado === 'corregido',
+    es_ajuste: dto.estado === 'ajuste',
+    movimiento_referenciado_id: dto.corrige_a ?? undefined,
   };
 }
-
-type NuevaCuentaDatos = Parameters<typeof crearCuentaCommand>[0];
 
 interface DatosCuentas {
-  lista: CuentaDto[];
+  cuentas: CuentaDto[];
+  subtotales: SubtotalDto[];
   categorias: CategoriaDto[];
+  monedas: MonedaDto[];
 }
 
-async function obtenerCuentasYCategorias(): Promise<DatosCuentas> {
-  const resLista = await listarCuentasCommand();
-  const resCat = await listarCategoriasCommand();
-  const cuentasArray = Array.isArray(resLista) ? resLista : (resLista as any)?.cuentas || [];
-  return {
-    lista: cuentasArray,
-    categorias: resCat || [],
-  };
+async function obtenerDatosCuentas(): Promise<DatosCuentas> {
+  const [lista, categorias, monedas] = await Promise.all([
+    listarCuentasCommand(),
+    listarCategoriasCommand(),
+    listarMonedasCommand(),
+  ]);
+  return { cuentas: lista.cuentas, subtotales: lista.subtotales, categorias, monedas };
 }
 
-function extraerErrores(err: unknown): ErrorCampo[] | null {
-  if (err && typeof err === 'object' && 'errores' in err) {
-    const errores = (err as ErroresDto).errores;
-    if (Array.isArray(errores)) return errores;
-  }
-  return null;
-}
+const CAMPOS_MOVIMIENTO = ['monto', 'fecha', 'categoria'];
 
 interface PantallaCuentasProps {
   modoOscuro: boolean;
@@ -92,23 +80,17 @@ export function PantallaCuentas({
 }: PantallaCuentasProps) {
   const [cuentaActivaId, setCuentaActivaId] = useState<string>('');
   const [cuentas, setCuentas] = useState<CuentaDto[]>([]);
+  const [subtotales, setSubtotales] = useState<SubtotalDto[]>([]);
+  const [monedas, setMonedas] = useState<MonedaDto[]>([]);
   const [detalleCuenta, setDetalleCuenta] = useState<DetalleCuentaDto | null>(null);
   const [categorias, setCategorias] = useState<CategoriaDto[]>([]);
-  const [monedasDisponibles, setMonedasDisponibles] = useState<
-    Array<{ codigo: string; nombre: string; simbolo: string }>
-  >([
-    { codigo: 'VES', nombre: 'Bolívares', simbolo: 'Bs.' },
-    { codigo: 'USD', nombre: 'Dólares', simbolo: '$' },
-    { codigo: 'EUR', nombre: 'Euros', simbolo: '€' },
-    { codigo: 'USDT', nombre: 'Tether', simbolo: '₮' },
-  ]);
 
   const [mostrarModalCuenta, setMostrarModalCuenta] = useState(false);
   const [mostrarModalMovimiento, setMostrarModalMovimiento] = useState(false);
 
   const [tipoMov, setTipoMov] = useState<'gasto' | 'ingreso'>('gasto');
   const [montoMov, setMontoMov] = useState('');
-  const [fechaMov, setFechaMov] = useState(new Date().toISOString().split('T')[0]);
+  const [fechaMov, setFechaMov] = useState(fechaHoyLocal);
   const [catMovId, setCatMovId] = useState('');
   const [notaMov, setNotaMov] = useState('');
 
@@ -119,37 +101,40 @@ export function PantallaCuentas({
   const [erroresCuenta, setErroresCuenta] = useState<ErrorCampo[]>([]);
   const [erroresMov, setErroresMov] = useState<Record<string, string>>({});
   const [erroresCat, setErroresCat] = useState<Record<string, string>>({});
+  const [errorCorreccion, setErrorCorreccion] = useState<string | null>(null);
 
   const aplicarDatos = useCallback((datos: DatosCuentas) => {
-    setCuentas(datos.lista);
+    setCuentas(datos.cuentas);
+    setSubtotales(datos.subtotales);
     setCategorias(datos.categorias);
-    setCuentaActivaId((previa) => previa || (datos.lista.length > 0 ? datos.lista[0].id : ''));
+    setMonedas(datos.monedas);
+    setCuentaActivaId((previa) => previa || (datos.cuentas.length > 0 ? datos.cuentas[0].id : ''));
   }, []);
 
-  const cargarCuentasYCategorias = useCallback(async () => {
+  const recargarCuentas = useCallback(async () => {
     try {
-      aplicarDatos(await obtenerCuentasYCategorias());
+      aplicarDatos(await obtenerDatosCuentas());
     } catch (e) {
-      console.error('Error al consultar SQLite:', e);
+      console.error('Error al consultar las cuentas:', e);
     }
   }, [aplicarDatos]);
 
-  const cargarDetalleCuenta = useCallback(async (id: string) => {
+  const recargarDetalle = useCallback(async (id: string) => {
     if (!id) return;
     try {
       setDetalleCuenta(await detalleCuentaCommand(id));
     } catch (e) {
-      console.error('Error al cargar detalle de cuenta:', e);
+      console.error('Error al cargar el detalle de la cuenta:', e);
     }
   }, []);
 
   useEffect(() => {
     let vigente = true;
-    obtenerCuentasYCategorias()
+    obtenerDatosCuentas()
       .then((datos) => {
         if (vigente) aplicarDatos(datos);
       })
-      .catch((e) => console.error('Error al consultar SQLite:', e));
+      .catch((e) => console.error('Error al consultar las cuentas:', e));
     return () => {
       vigente = false;
     };
@@ -162,32 +147,11 @@ export function PantallaCuentas({
       .then((detalle) => {
         if (vigente) setDetalleCuenta(detalle);
       })
-      .catch((e) => console.error('Error al cargar detalle de cuenta:', e));
+      .catch((e) => console.error('Error al cargar el detalle de la cuenta:', e));
     return () => {
       vigente = false;
     };
   }, [cuentaActivaId]);
-
-  const cargarMonedas = async () => {
-    try {
-      const res = await listarMonedasCommand();
-      if (Array.isArray(res) && res.length > 0) {
-        setMonedasDisponibles(
-          res.map((m: any) => ({
-            codigo: m.codigo,
-            nombre: m.nombre,
-            simbolo: m.simbolo,
-          }))
-        );
-      }
-    } catch (e) {
-      console.error('Error al cargar monedas:', e);
-    }
-  };
-
-  useEffect(() => {
-    cargarMonedas();
-  }, []);
 
   const seleccionarCuenta = (id: string) => {
     setCuentaActivaId(id);
@@ -198,7 +162,7 @@ export function PantallaCuentas({
     setTipoMov(tipo);
     setMontoMov('');
     setNotaMov('');
-    setFechaMov(new Date().toISOString().split('T')[0]);
+    setFechaMov(fechaHoyLocal());
     setErroresMov({});
 
     const catsFiltradas = categorias.filter((c) => c.tipo === tipo);
@@ -207,22 +171,20 @@ export function PantallaCuentas({
     setMostrarModalMovimiento(true);
   };
 
-  const handleCrearCuenta = async (datos: NuevaCuentaDatos) => {
+  const abrirModalCuenta = () => {
+    setErroresCuenta([]);
+    setMostrarModalCuenta(true);
+  };
+
+  const handleCrearCuenta = async (datos: NuevaCuentaPayload) => {
     setErroresCuenta([]);
     try {
       const nueva = await crearCuentaCommand(datos);
       setMostrarModalCuenta(false);
-      await cargarCuentasYCategorias();
-      if (nueva && nueva.id) {
-        setCuentaActivaId(nueva.id);
-      }
+      await recargarCuentas();
+      setCuentaActivaId(nueva.id);
     } catch (err) {
-      const errores = extraerErrores(err);
-      if (errores) {
-        setErroresCuenta(errores);
-      } else {
-        setErroresCuenta([{ campo: 'general', mensaje: typeof err === 'string' ? err : 'Error al crear la cuenta.' }]);
-      }
+      setErroresCuenta(extraerErrores(err, 'No se pudo crear la cuenta.'));
     }
   };
 
@@ -230,109 +192,98 @@ export function PantallaCuentas({
     e?.preventDefault();
     setErroresMov({});
 
-    if (!catMovId) {
-      setErroresMov({ categoria: 'Elige una categoría.' });
-      return;
-    }
-
-    if (!montoMov.trim()) {
-      setErroresMov({ monto: 'Ingresa un monto válido.' });
-      return;
-    }
-
-    const montoLimpio = parseFloat(montoMov.trim().replace(',', '.'));
-
-    if (isNaN(montoLimpio) || montoLimpio <= 0) {
-      setErroresMov({ monto: 'El monto debe ser un número positivo.' });
-      return;
-    }
+    // La interfaz solo recoge y envía; el dominio valida (monto, fecha, categoría...).
+    const datos: NuevoMovimientoPayload = {
+      cuenta_id: cuentaActivaId,
+      tipo: tipoMov,
+      monto: normalizarDecimal(montoMov),
+      fecha: fechaMov,
+      categoria_id: catMovId,
+      nota: notaMov.trim(),
+    };
 
     if (tipoMov === 'gasto' && !confirmado) {
       try {
-        const prev = await previsualizarMovimientoCommand({
-          cuenta_id: cuentaActivaId,
-          tipo: tipoMov,
-          monto: montoLimpio,
-          fecha: fechaMov,
-          categoria_id: catMovId,
-          nota: notaMov,
-        });
-        if (prev?.deja_saldo_negativo) {
+        const prev = await previsualizarMovimientoCommand(datos);
+        if (prev.deja_saldo_negativo) {
           setSaldoAdvertencia(prev.saldo_resultante);
           setMostrarAdvertencia(true);
           return;
         }
-      } catch {}
+      } catch {
+        // Si los datos no son válidos, registrar_movimiento devuelve el error por campo.
+      }
     }
 
     try {
-      await registrarMovimientoCommand({
-        cuenta_id: cuentaActivaId,
-        tipo: tipoMov,
-        monto: montoLimpio,
-        fecha: fechaMov,
-        categoria_id: catMovId,
-        nota: notaMov,
-      });
+      await registrarMovimientoCommand(datos);
 
       setMontoMov('');
       setNotaMov('');
       setMostrarAdvertencia(false);
       setMostrarModalMovimiento(false);
 
-      await cargarDetalleCuenta(cuentaActivaId);
-      await cargarCuentasYCategorias();
+      await recargarDetalle(cuentaActivaId);
+      await recargarCuentas();
     } catch (err) {
-      const errores = extraerErrores(err);
-      if (errores) {
-        const mapa: Record<string, string> = {};
-        errores.forEach((item) => {
-          mapa[item.campo || 'monto'] = item.mensaje;
-        });
-        setErroresMov(mapa);
-      } else {
-        setErroresMov({ monto: typeof err === 'string' ? err : 'Error al registrar el movimiento.' });
-      }
+      const mapa: Record<string, string> = {};
+      extraerErrores(err, 'No se pudo registrar el movimiento.').forEach((item) => {
+        mapa[item.campo ?? 'general'] = item.mensaje;
+      });
+      setErroresMov(mapa);
     }
   };
 
   const handleCorregirMovimiento = async (montoCorrecto: string) => {
     if (!movimientoAEditar) return;
-    const montoLimpio = montoCorrecto.trim().replace(',', '.');
+    setErrorCorreccion(null);
 
     try {
-      await corregirMovimientoCommand(movimientoAEditar.id, montoLimpio);
+      await corregirMovimientoCommand({
+        movimiento_id: movimientoAEditar.id,
+        monto_correcto: normalizarDecimal(montoCorrecto),
+      });
       setMovimientoAEditar(null);
-      await cargarDetalleCuenta(cuentaActivaId);
-      await cargarCuentasYCategorias();
+      await recargarDetalle(cuentaActivaId);
+      await recargarCuentas();
     } catch (err) {
-      console.error('Error al corregir movimiento:', err);
+      setErrorCorreccion(mensajeDeError(err, 'No se pudo corregir el movimiento.'));
     }
   };
 
-  const handleCrearCategoria = async (nombre: string, tipo: 'gasto' | 'ingreso') => {
+  /** Devuelve true si la categoría se creó (el formulario solo se limpia en ese caso). */
+  const handleCrearCategoria = async (
+    nombre: string,
+    tipo: 'gasto' | 'ingreso'
+  ): Promise<boolean> => {
     setErroresCat({});
     try {
-      await crearCategoriaCommand({ nombre, tipo });
-      await cargarCuentasYCategorias();
+      const creada = await crearCategoriaCommand({ nombre, tipo });
+      await recargarCuentas();
+      setTipoMov(creada.tipo === 'ingreso' ? 'ingreso' : 'gasto');
+      setCatMovId(creada.id);
+      return true;
     } catch (err) {
-      const errores = extraerErrores(err);
-      if (errores) {
-        const mapa: Record<string, string> = {};
-        errores.forEach((item) => {
-          mapa[item.campo || 'nombre'] = item.mensaje;
-        });
-        setErroresCat(mapa);
-      }
+      const mapa: Record<string, string> = {};
+      extraerErrores(err, 'No se pudo crear la categoría.').forEach((item) => {
+        mapa[item.campo ?? 'general'] = item.mensaje;
+      });
+      setErroresCat(mapa);
+      return false;
     }
   };
 
   const cuentaSeleccionada = cuentas.find((c) => c.id === cuentaActivaId);
-  const nombreCuentaReal = cuentaSeleccionada?.nombre || (detalleCuenta as any)?.cuenta?.nombre || 'Cargando...';
-  const monedaCuentaReal = cuentaSeleccionada?.moneda || (detalleCuenta as any)?.cuenta?.moneda || '';
+  const nombreCuentaReal = cuentaSeleccionada?.nombre ?? detalleCuenta?.cuenta.nombre ?? 'Cargando...';
+  const monedaCuentaReal = cuentaSeleccionada?.moneda ?? detalleCuenta?.cuenta.moneda ?? '';
 
-  const movimientosAdaptados: Movimiento[] = (detalleCuenta?.movimientos || []).map(adaptarMovimiento);
+  const movimientosAdaptados: Movimiento[] = (detalleCuenta?.movimientos ?? []).map((m) =>
+    adaptarMovimiento(m, monedaCuentaReal)
+  );
   const categoriasFiltradasModal = categorias.filter((c) => c.tipo === tipoMov);
+  const otrosErroresMov = Object.entries(erroresMov)
+    .filter(([campo]) => !CAMPOS_MOVIMIENTO.includes(campo))
+    .map(([, mensaje]) => mensaje);
 
   const bgCard = modoOscuro
     ? 'bg-[#151C28] border-gray-800/80 text-white'
@@ -356,7 +307,7 @@ export function PantallaCuentas({
               </p>
             </div>
             <button
-              onClick={() => setMostrarModalCuenta(true)}
+              onClick={() => abrirModalCuenta()}
               className="bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-md transition cursor-pointer"
             >
               + Nueva Cuenta
@@ -368,7 +319,7 @@ export function PantallaCuentas({
               <div className={`p-8 rounded-2xl border text-center col-span-2 ${bgCard}`}>
                 <p className="text-sm font-medium">No existen cuentas registradas en la base de datos.</p>
                 <button
-                  onClick={() => setMostrarModalCuenta(true)}
+                  onClick={() => abrirModalCuenta()}
                   className="mt-3 text-xs text-[#9333EA] underline font-semibold cursor-pointer"
                 >
                   Crear la primera cuenta
@@ -397,12 +348,28 @@ export function PantallaCuentas({
 
                   <div className="mt-8 flex justify-between items-baseline">
                     <span className={`text-xs font-medium ${textMuted}`}>Saldo actual</span>
-                    <span className="text-2xl font-extrabold text-[#9333EA]">{c.saldo_actual}</span>
+                    <span className="text-2xl font-extrabold text-[#9333EA]">{formatearMontoTexto(c.saldo_actual, c.moneda)}</span>
                   </div>
                 </div>
               ))
             )}
           </div>
+
+          {subtotales.length > 0 && (
+            <div className={`p-5 rounded-2xl border shadow-sm ${bgCard}`}>
+              <h3 className={`text-[11px] font-bold uppercase tracking-wider mb-3 ${textMuted}`}>
+                Subtotal por moneda
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {subtotales.map((s) => (
+                  <div key={s.moneda} className="p-3 rounded-xl bg-gray-500/10 border border-gray-500/10">
+                    <span className="text-xs text-gray-400 font-bold block uppercase">{s.moneda}</span>
+                    <span className="text-sm font-extrabold">{formatearMontoTexto(s.total, s.moneda)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="w-full space-y-6">
@@ -453,7 +420,7 @@ export function PantallaCuentas({
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
                 <div className={`p-3 rounded-xl ${modoOscuro ? 'bg-slate-800/60' : 'bg-gray-100/70'}`}>
                   <span className={`block text-xs ${textMuted}`}>Saldo Inicial</span>
-                  <span className="font-bold text-xs mt-1 block">{(detalleCuenta as any)?.composicion?.saldo_inicial ?? 0}</span>
+                  <span className="font-bold text-xs mt-1 block">{formatearMontoTexto(detalleCuenta.composicion.saldo_inicial, monedaCuentaReal)}</span>
                 </div>
                 <div
                   className={`p-3 rounded-xl border ${
@@ -463,7 +430,7 @@ export function PantallaCuentas({
                   }`}
                 >
                   <span className="block text-xs font-medium">Ingresos</span>
-                  <span className="font-bold text-xs mt-1 block">+ {(detalleCuenta as any)?.composicion?.total_ingresos ?? 0}</span>
+                  <span className="font-bold text-xs mt-1 block">{formatearMontoTexto(detalleCuenta.composicion.total_ingresos, monedaCuentaReal)}</span>
                 </div>
                 <div
                   className={`p-3 rounded-xl border ${
@@ -473,7 +440,7 @@ export function PantallaCuentas({
                   }`}
                 >
                   <span className="block text-xs font-medium">Gastos</span>
-                  <span className="font-bold text-xs mt-1 block">− {(detalleCuenta as any)?.composicion?.total_gastos ?? 0}</span>
+                  <span className="font-bold text-xs mt-1 block">{formatearMontoTexto(detalleCuenta.composicion.total_gastos, monedaCuentaReal)}</span>
                 </div>
                 <div
                   className={`p-3 rounded-xl border ${
@@ -483,7 +450,7 @@ export function PantallaCuentas({
                   }`}
                 >
                   <span className="block text-xs font-medium">Ajustes</span>
-                  <span className="font-bold text-xs mt-1 block">{(detalleCuenta as any)?.composicion?.total_ajustes ?? 0}</span>
+                  <span className="font-bold text-xs mt-1 block">{formatearMontoTexto(detalleCuenta.composicion.total_ajustes, monedaCuentaReal)}</span>
                 </div>
                 <div
                   className={`p-3 rounded-xl border ${
@@ -493,7 +460,7 @@ export function PantallaCuentas({
                   } font-bold`}
                 >
                   <span className="block text-xs font-medium">Saldo Actual</span>
-                  <span className="text-xs font-extrabold mt-1 block">{detalleCuenta.saldo_actual}</span>
+                  <span className="text-xs font-extrabold mt-1 block">{formatearMontoTexto(detalleCuenta.cuenta.saldo_actual, monedaCuentaReal)}</span>
                 </div>
               </div>
             </div>
@@ -507,7 +474,10 @@ export function PantallaCuentas({
                   <div className="min-w-[620px]">
                     <ListaMovimientos
                       movimientos={movimientosAdaptados}
-                      onCorregir={(m) => setMovimientoAEditar(m)}
+                      onCorregir={(m) => {
+                        setErrorCorreccion(null);
+                        setMovimientoAEditar(m);
+                      }}
                       modoOscuro={modoOscuro}
                     />
                   </div>
@@ -518,7 +488,7 @@ export function PantallaCuentas({
             <div className={`border rounded-2xl p-5 shadow-sm h-fit ${bgCard}`}>
               <h3 className="text-sm font-bold mb-3">Nueva Categoría</h3>
               <FormularioCategoria
-                onAgregar={(nombre, tipo) => handleCrearCategoria(nombre, tipo)}
+                onAgregar={handleCrearCategoria}
                 errores={erroresCat}
                 modoOscuro={modoOscuro}
               />
@@ -538,9 +508,11 @@ export function PantallaCuentas({
       />
 
       <DialogoCorregir
+        key={movimientoAEditar?.id ?? 'cerrado'}
         movimiento={movimientoAEditar}
         onConfirmar={handleCorregirMovimiento}
         onCancelar={() => setMovimientoAEditar(null)}
+        error={errorCorreccion}
       />
 
       {mostrarModalMovimiento && (
@@ -560,6 +532,14 @@ export function PantallaCuentas({
                 {tipoMov}
               </span>
             </div>
+
+            {otrosErroresMov.length > 0 && (
+              <div className="mb-4 p-3 rounded-xl border border-rose-800/60 bg-rose-950/40 text-rose-300 text-xs space-y-1">
+                {otrosErroresMov.map((m, i) => (
+                  <p key={i}>{m}</p>
+                ))}
+              </div>
+            )}
 
             <form onSubmit={handleAgregarMovimiento} className="space-y-4">
               <div className="flex gap-4 text-xs font-medium">
@@ -683,7 +663,7 @@ export function PantallaCuentas({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className={`w-full max-w-md p-6 rounded-2xl border shadow-xl ${bgCard}`}>
             <FormularioCuenta
-              monedas={monedasDisponibles}
+              monedas={monedas}
               onCrear={handleCrearCuenta}
               onCancelar={() => setMostrarModalCuenta(false)}
               errores={erroresCuenta}

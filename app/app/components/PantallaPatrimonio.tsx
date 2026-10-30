@@ -6,87 +6,86 @@ import {
   consultarPatrimonioCommand,
   cambiarMonedaBaseCommand,
   crearMonedaCommand,
+  extraerErrores,
+  mensajeDeError,
   MonedaDto,
-  RespuestaPatrimonioDto,
+  PatrimonioDto,
 } from '../utils/tauriCommands';
-import { formatearMontoTexto, formatearFechaDDMMYYYY } from '../utils/formato';
+import { fechaHoyLocal, formatearMontoTexto, formatearFechaDDMMYYYY } from '../utils/formato';
 
 interface PantallaPatrimonioProps {
   modoOscuro?: boolean;
 }
 
-const obtenerFechaHoyLocal = (): string => {
-  const hoy = new Date();
-  const a = hoy.getFullYear();
-  const m = String(hoy.getMonth() + 1).padStart(2, '0');
-  const d = String(hoy.getDate()).padStart(2, '0');
-  return `${a}-${m}-${d}`;
-};
+interface ResultadoPatrimonio {
+  /** Clave (fecha + número de recarga) a la que corresponde este resultado. */
+  clave: string;
+  datos: PatrimonioDto | null;
+  error: string | null;
+}
+
+const MONEDA_VACIA = { codigo: '', nombre: '', simbolo: '', decimales: '2' };
 
 export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscuro = true }) => {
-  const [fechaConsulta, setFechaConsulta] = useState<string>(obtenerFechaHoyLocal);
-  const [monedaBase, setMonedaBase] = useState<string>('USD');
+  const [fechaConsulta, setFechaConsulta] = useState<string>(fechaHoyLocal);
+  const [recarga, setRecarga] = useState<number>(0);
   const [monedas, setMonedas] = useState<MonedaDto[]>([]);
-  const [datosPatrimonio, setDatosPatrimonio] = useState<RespuestaPatrimonioDto | null>(null);
-  const [cargando, setCargando] = useState<boolean>(true);
-  const [errorBackend, setErrorBackend] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<ResultadoPatrimonio | null>(null);
+  const [errorBase, setErrorBase] = useState<string | null>(null);
 
   const [mostrarCrearMoneda, setMostrarCrearMoneda] = useState<boolean>(false);
-  const [nuevaMoneda, setNuevaMoneda] = useState({
-    codigo: '',
-    nombre: '',
-    simbolo: '',
-    decimales: 2,
-  });
+  const [nuevaMoneda, setNuevaMoneda] = useState(MONEDA_VACIA);
   const [erroresFormMoneda, setErroresFormMoneda] = useState<Record<string, string>>({});
   const [mensajeExitoMoneda, setMensajeExitoMoneda] = useState<string | null>(null);
 
-  const cargarMonedas = async () => {
-    try {
-      const res = await listarMonedasCommand();
-      setMonedas(res || []);
-    } catch (err) {
-      console.error('Error al cargar monedas:', String(err));
-    }
-  };
-
-  const consultarPatrimonio = async () => {
-    setCargando(true);
-    setErrorBackend(null);
-    try {
-      const fechaLimpia = fechaConsulta.trim().split('T')[0];
-      const res = await consultarPatrimonioCommand(fechaLimpia);
-      setDatosPatrimonio(res);
-      if (res && res.moneda_base) {
-        setMonedaBase(res.moneda_base);
-      }
-    } catch (err: any) {
-      const errStr = typeof err === 'object' ? JSON.stringify(err) : String(err);
-      if (typeof err === 'object' && err !== null && err.errores) {
-        setErrorBackend(err.errores.map((e: any) => e.mensaje).join(', '));
-      } else {
-        setErrorBackend(errStr || 'Error al consultar el patrimonio.');
-      }
-    } finally {
-      setCargando(false);
-    }
-  };
-
+  // Monedas del catálogo (de fábrica + propias).
   useEffect(() => {
-    cargarMonedas();
-  }, []);
+    let vigente = true;
+    listarMonedasCommand()
+      .then((lista) => {
+        if (vigente) setMonedas(lista);
+      })
+      .catch((err) => console.error('Error al cargar monedas:', err));
+    return () => {
+      vigente = false;
+    };
+  }, [recarga]);
 
+  // Patrimonio a la fecha de consulta. Se vuelve a pedir al cambiar la fecha o al
+  // recargar (cambio de moneda base, moneda nueva).
   useEffect(() => {
-    consultarPatrimonio();
-  }, [fechaConsulta]);
+    let vigente = true;
+    const clave = `${fechaConsulta}|${recarga}`;
+    consultarPatrimonioCommand(fechaConsulta)
+      .then((datos) => {
+        if (vigente) setResultado({ clave, datos, error: null });
+      })
+      .catch((err) => {
+        if (vigente) {
+          setResultado({
+            clave,
+            datos: null,
+            error: mensajeDeError(err, 'Error al consultar el patrimonio.'),
+          });
+        }
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [fechaConsulta, recarga]);
+
+  const cargando = resultado === null || resultado.clave !== `${fechaConsulta}|${recarga}`;
+  const datosPatrimonio = resultado?.datos ?? null;
+  const errorBackend = resultado?.error ?? null;
+  const monedaBase = datosPatrimonio?.moneda_base ?? '';
 
   const handleCambiarMonedaBase = async (nuevaBase: string) => {
+    setErrorBase(null);
     try {
       await cambiarMonedaBaseCommand(nuevaBase);
-      setMonedaBase(nuevaBase);
-      await consultarPatrimonio();
+      setRecarga((r) => r + 1);
     } catch (err) {
-      console.error('Error al cambiar moneda base:', String(err));
+      setErrorBase(mensajeDeError(err, 'No se pudo cambiar la moneda base.'));
     }
   };
 
@@ -97,21 +96,16 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
     try {
       await crearMonedaCommand(nuevaMoneda);
       setMostrarCrearMoneda(false);
-      setNuevaMoneda({ codigo: '', nombre: '', simbolo: '', decimales: 2 });
+      setNuevaMoneda(MONEDA_VACIA);
       setMensajeExitoMoneda('Moneda creada exitosamente.');
-      await cargarMonedas();
-      await consultarPatrimonio();
+      setRecarga((r) => r + 1);
       setTimeout(() => setMensajeExitoMoneda(null), 4000);
-    } catch (err: any) {
-      if (typeof err === 'object' && err !== null && err.errores) {
-        const mapa: Record<string, string> = {};
-        err.errores.forEach((item: any) => {
-          mapa[item.campo || 'general'] = item.mensaje;
-        });
-        setErroresFormMoneda(mapa);
-      } else {
-        setErroresFormMoneda({ general: String(err) });
-      }
+    } catch (err) {
+      const mapa: Record<string, string> = {};
+      extraerErrores(err, 'No se pudo crear la moneda.').forEach((item) => {
+        mapa[item.campo ?? 'general'] = item.mensaje;
+      });
+      setErroresFormMoneda(mapa);
     }
   };
 
@@ -139,7 +133,7 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
             id="fecha-consulta"
             type="date"
             value={fechaConsulta}
-            max={obtenerFechaHoyLocal()}
+            max={fechaHoyLocal()}
             onChange={(e) => setFechaConsulta(e.target.value)}
             style={estiloInput}
             className="border px-3 py-1.5 rounded-xl text-xs font-medium focus:ring-2 focus:ring-purple-500 focus:outline-none"
@@ -150,6 +144,12 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
       {mensajeExitoMoneda && (
         <div className="p-3 bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 rounded-xl text-xs font-semibold">
           ✓ {mensajeExitoMoneda}
+        </div>
+      )}
+
+      {errorBase && (
+        <div className="p-3 bg-rose-950/40 border border-rose-800/60 text-rose-300 rounded-xl text-xs">
+          {errorBase}
         </div>
       )}
 
@@ -220,6 +220,7 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
                   className="w-full border px-3 py-2 rounded-xl text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none"
                   placeholder="Ej. Bolívar Soberano"
                 />
+                {erroresFormMoneda.nombre && <span className="text-[11px] text-rose-400 mt-1 block">{erroresFormMoneda.nombre}</span>}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -236,6 +237,7 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
                     className="w-full border px-3 py-2 rounded-xl text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none"
                     placeholder="Ej. Bs."
                   />
+                  {erroresFormMoneda.simbolo && <span className="text-[11px] text-rose-400 mt-1 block">{erroresFormMoneda.simbolo}</span>}
                 </div>
                 <div>
                   <label htmlFor="decimales-moneda" className="block text-xs font-semibold text-gray-400 mb-1">
@@ -243,14 +245,14 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
                   </label>
                   <input
                     id="decimales-moneda"
-                    type="number"
-                    min={0}
-                    max={8}
+                    type="text"
+                    inputMode="numeric"
                     value={nuevaMoneda.decimales}
-                    onChange={(e) => setNuevaMoneda({ ...nuevaMoneda, decimales: parseInt(e.target.value) || 0 })}
+                    onChange={(e) => setNuevaMoneda({ ...nuevaMoneda, decimales: e.target.value })}
                     style={estiloInput}
                     className="w-full border px-3 py-2 rounded-xl text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none"
                   />
+                  {erroresFormMoneda.decimales && <span className="text-[11px] text-rose-400 mt-1 block">{erroresFormMoneda.decimales}</span>}
                 </div>
               </div>
 
@@ -282,7 +284,7 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
         </div>
       ) : datosPatrimonio ? (
         <div className="space-y-6">
-          {datosPatrimonio.total !== null && datosPatrimonio.total !== undefined ? (
+          {datosPatrimonio.total !== null ? (
             <div className="p-6 rounded-2xl bg-gradient-to-r from-purple-700 to-indigo-800 text-white shadow-lg border border-purple-600/30">
               <h2 className="text-xs uppercase tracking-wider text-purple-200 font-bold">
                 Patrimonio Total Consolidado ({datosPatrimonio.moneda_base})
@@ -291,15 +293,19 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
                 {formatearMontoTexto(datosPatrimonio.total, datosPatrimonio.moneda_base)}
               </div>
 
-              {datosPatrimonio.tasas_usadas && datosPatrimonio.tasas_usadas.length > 0 && (
+              {datosPatrimonio.tasas_usadas.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-purple-500/30 text-xs text-purple-100 space-y-1">
                   <p className="font-semibold mb-1">Tasas aplicadas para la consolidación:</p>
-                  {datosPatrimonio.tasas_usadas.map((t, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
+                  {datosPatrimonio.tasas_usadas.map((t) => (
+                    <div
+                      key={`${t.moneda_origen}-${t.moneda_destino}-${t.fecha}`}
+                      className="flex items-center gap-2"
+                    >
                       <span>
-                        • {t.par}: {t.valor} ({t.fuente} — {formatearFechaDDMMYYYY(t.fecha)})
+                        • 1 {t.moneda_origen} = {formatearMontoTexto(t.valor, t.moneda_destino)} (
+                        {t.fuente} — {formatearFechaDDMMYYYY(t.fecha)})
                       </span>
-                      {t.es_inversa && (
+                      {t.inversa && (
                         <span className="bg-purple-900/80 text-purple-200 px-1.5 py-0.5 rounded text-[10px] font-bold">
                           Inversa
                         </span>
@@ -312,72 +318,36 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
           ) : (
             <div className={`p-5 rounded-2xl border ${modoOscuro ? 'bg-amber-950/40 border-amber-800/70 text-amber-200' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
               <h3 className="font-bold text-sm mb-1">No se puede calcular el Total Consolidado</h3>
-              <p className="text-xs mb-2">Faltan las siguientes tasas de cambio con fecha igual o anterior al {formatearFechaDDMMYYYY(fechaConsulta)}:</p>
               <ul className="list-disc list-inside text-xs space-y-1 font-semibold">
-                {(datosPatrimonio.faltantes || []).map((item, idx) => (
-                  <li key={idx}>
-                    {typeof item === 'object' && item !== null
-                      ? `Falta una tasa de ${item.moneda_origen} a ${item.moneda_destino} con fecha igual o anterior al ${formatearFechaDDMMYYYY(fechaConsulta)}.`
-                      : String(item)}
+                {datosPatrimonio.faltantes.map((item) => (
+                  <li key={`${item.moneda_origen}-${item.moneda_destino}`}>
+                    Falta una tasa de {item.moneda_origen} a {item.moneda_destino} con fecha igual o anterior al{' '}
+                    {formatearFechaDDMMYYYY(datosPatrimonio.fecha_consulta)}
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          {/* Subtotales por Moneda con parseo flexible */}
-          {datosPatrimonio.subtotales && (
-            <div className={`p-5 rounded-2xl border shadow-sm ${bgCard}`}>
-              <h3 className="text-sm font-bold mb-3">Subtotales por Moneda</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {(() => {
-                  const subt = datosPatrimonio.subtotales;
-                  let listaSubtotales: { moneda: string; monto: any }[] = [];
-
-                  if (Array.isArray(subt)) {
-                    listaSubtotales = subt.map((item: any) => {
-                      if (Array.isArray(item)) {
-                        return { moneda: String(item[0]), monto: item[1] };
-                      }
-                      return {
-                        moneda: item.moneda || item.codigo || item.moneda_codigo || 'Divisa',
-                        monto: item.monto ?? item.total ?? item.saldo ?? 0,
-                      };
-                    });
-                  } else if (typeof subt === 'object' && subt !== null) {
-                    listaSubtotales = Object.entries(subt).map(([m, monto]) => ({
-                      moneda: m,
-                      monto,
-                    }));
-                  }
-
-                  if (listaSubtotales.length === 0) {
-                    return (
-                      <p className="text-xs text-gray-400 col-span-full">
-                        No hay subtotales disponibles.
-                      </p>
-                    );
-                  }
-
-                  return listaSubtotales.map(({ moneda, monto }, idx) => (
-                    <div
-                      key={moneda || idx}
-                      className="p-3 rounded-xl bg-gray-500/10 border border-gray-500/10"
-                    >
-                      <span className="text-xs text-gray-400 font-bold block uppercase">
-                        {moneda}
-                      </span>
-                      <span className="text-sm font-extrabold">
-                        {formatearMontoTexto(monto, moneda)}
-                      </span>
-                    </div>
-                  ));
-                })()}
-              </div>
+          <div className={`p-5 rounded-2xl border shadow-sm ${bgCard}`}>
+            <h3 className="text-sm font-bold mb-3">Subtotales por Moneda</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {datosPatrimonio.subtotales.length === 0 ? (
+                <p className="text-xs text-gray-400 col-span-full">No hay subtotales disponibles.</p>
+              ) : (
+                datosPatrimonio.subtotales.map((sub) => (
+                  <div key={sub.moneda} className="p-3 rounded-xl bg-gray-500/10 border border-gray-500/10">
+                    <span className="text-xs text-gray-400 font-bold block uppercase">{sub.moneda}</span>
+                    <span className="text-sm font-extrabold">
+                      {formatearMontoTexto(sub.total, sub.moneda)}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
-          )}
+          </div>
 
-          {datosPatrimonio.cuentas && (
+          {datosPatrimonio.cuentas.length > 0 && (
             <div className={`rounded-2xl shadow-sm border overflow-hidden ${bgCard}`}>
               <div className="p-4 border-b border-gray-200 dark:border-gray-800 font-bold text-sm">
                 Saldos por Cuenta
@@ -390,7 +360,7 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
                       <span className="ml-2 text-xs font-mono text-gray-400">({cta.moneda})</span>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-sm">{formatearMontoTexto(cta.saldo_nativo, cta.moneda)}</div>
+                      <div className="font-bold text-sm">{formatearMontoTexto(cta.saldo, cta.moneda)}</div>
                       {cta.en_moneda_base !== null && cta.moneda !== datosPatrimonio.moneda_base && (
                         <div className="text-[11px] text-gray-400">
                           ≈ {formatearMontoTexto(cta.en_moneda_base, datosPatrimonio.moneda_base)}
