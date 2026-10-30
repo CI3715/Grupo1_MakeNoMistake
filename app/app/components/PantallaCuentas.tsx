@@ -9,6 +9,7 @@ import {
   registrarMovimientoCommand,
   previsualizarMovimientoCommand,
   crearCuentaCommand,
+  listarMonedasCommand,
   CuentaDto,
   DetalleCuentaDto,
   CategoriaDto,
@@ -93,6 +94,14 @@ export function PantallaCuentas({
   const [cuentas, setCuentas] = useState<CuentaDto[]>([]);
   const [detalleCuenta, setDetalleCuenta] = useState<DetalleCuentaDto | null>(null);
   const [categorias, setCategorias] = useState<CategoriaDto[]>([]);
+  const [monedasDisponibles, setMonedasDisponibles] = useState<
+    Array<{ codigo: string; nombre: string; simbolo: string }>
+  >([
+    { codigo: 'VES', nombre: 'Bolívares', simbolo: 'Bs.' },
+    { codigo: 'USD', nombre: 'Dólares', simbolo: '$' },
+    { codigo: 'EUR', nombre: 'Euros', simbolo: '€' },
+    { codigo: 'USDT', nombre: 'Tether', simbolo: '₮' },
+  ]);
 
   const [mostrarModalCuenta, setMostrarModalCuenta] = useState(false);
   const [mostrarModalMovimiento, setMostrarModalMovimiento] = useState(false);
@@ -158,6 +167,27 @@ export function PantallaCuentas({
       vigente = false;
     };
   }, [cuentaActivaId]);
+
+  const cargarMonedas = async () => {
+    try {
+      const res = await listarMonedasCommand();
+      if (Array.isArray(res) && res.length > 0) {
+        setMonedasDisponibles(
+          res.map((m: any) => ({
+            codigo: m.codigo,
+            nombre: m.nombre,
+            simbolo: m.simbolo,
+          }))
+        );
+      }
+    } catch (e) {
+      console.error('Error al cargar monedas:', e);
+    }
+  };
+
+  useEffect(() => {
+    cargarMonedas();
+  }, []);
 
   const seleccionarCuenta = (id: string) => {
     setCuentaActivaId(id);
@@ -241,8 +271,8 @@ export function PantallaCuentas({
         tipo: tipoMov,
         monto: montoLimpio,
         fecha: fechaMov,
-        categoria: catMovId,
-        descripcion: notaMov,
+        categoria_id: catMovId,
+        nota: notaMov,
       });
 
       setMontoMov('');
@@ -283,12 +313,8 @@ export function PantallaCuentas({
   const handleCrearCategoria = async (nombre: string, tipo: 'gasto' | 'ingreso') => {
     setErroresCat({});
     try {
-      const catCreada = await crearCategoriaCommand({ nombre, tipo });
-      if (catCreada) {
-        await cargarCuentasYCategorias();
-        setTipoMov(catCreada.tipo as 'gasto' | 'ingreso');
-        setCatMovId(catCreada.id);
-      }
+      await crearCategoriaCommand({ nombre, tipo });
+      await cargarCuentasYCategorias();
     } catch (err) {
       const errores = extraerErrores(err);
       if (errores) {
@@ -657,12 +683,7 @@ export function PantallaCuentas({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className={`w-full max-w-md p-6 rounded-2xl border shadow-xl ${bgCard}`}>
             <FormularioCuenta
-              monedas={[
-                { codigo: 'VES', nombre: 'Bolívares', simbolo: 'Bs.' },
-                { codigo: 'USD', nombre: 'Dólares', simbolo: '$' },
-                { codigo: 'EUR', nombre: 'Euros', simbolo: '€' },
-                { codigo: 'USDT', nombre: 'Tether', simbolo: '₮' },
-              ]}
+              monedas={monedasDisponibles}
               onCrear={handleCrearCuenta}
               onCancelar={() => setMostrarModalCuenta(false)}
               errores={erroresCuenta}

@@ -138,18 +138,25 @@ export async function crearCategoriaCommand(payload: {
   nombre: string;
   tipo: string;
 }): Promise<CategoriaDto> {
-  return await invoke<CategoriaDto>('crear_categoria', { payload });
+  return await invoke<CategoriaDto>('crear_categoria', { datos: payload });
 }
 
 export async function registrarMovimientoCommand(payload: {
   cuenta_id: string;
   fecha: string;
   tipo: string;
-  monto: number;
-  categoria: string;
+  monto: string | number;
+  categoria?: string;
+  categoria_id?: string;
   descripcion?: string;
+  nota?: string;
 }): Promise<void> {
-  return await invoke<void>('registrar_movimiento', { payload });
+  const datos = {
+    ...payload,
+    categoria_id: (payload as any).categoria_id || (payload as any).categoria,
+    nota: (payload as any).nota || (payload as any).descripcion || '',
+  };
+  return await invoke<void>('registrar_movimiento', { datos });
 }
 
 export async function previsualizarMovimientoCommand(payload: any): Promise<any> {
