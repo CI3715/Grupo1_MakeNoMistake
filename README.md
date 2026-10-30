@@ -22,6 +22,7 @@ El servidor **nunca** recibe ni almacena cuentas, saldos, movimientos ni categor
 | 1 | Ambiente de desarrollo: aplicación Tauri + Next.js y servidor FastAPI con `GET /ping`. | Terminada |
 | 2 | Crear y guardar cuentas en el dispositivo (SQLite embebido, sin internet). | En desarrollo |
 | 3 | Registrar gastos e ingresos, corregirlos con ajustes y ver saldos, todo en el dispositivo. | En desarrollo |
+| 4 | Monedas propias, tasas de cambio con fecha y fuente, moneda base y patrimonio consolidado, todo en el dispositivo. | En desarrollo |
 
 ## Estructura del repositorio
 
@@ -110,6 +111,8 @@ Las cuentas se guardan únicamente en un archivo SQLite dentro del directorio de
 La ruta de Linux está comprobada; las de macOS y Windows siguen la convención de Tauri 2. Al arrancar en modo desarrollo, la aplicación escribe la ruta real en el registro (`Base de datos local lista en ...`). Junto al archivo pueden aparecer `cuentas_claras.db-wal` y `cuentas_claras.db-shm`, que son parte normal de SQLite. Para empezar de cero basta con cerrar la aplicación y borrar esos archivos.
 
 Desde la Entrega 3 el mismo archivo guarda también los movimientos y las categorías. Los movimientos son inmutables: nunca se modifican ni se eliminan, y una corrección se registra como un ajuste que referencia al original. El saldo siempre se calcula a partir de los movimientos. El ejemplo del enunciado (1.000,00 → 1.800,00 → 1.300,00 → 1.750,00) se reproduce paso a paso, tanto en la aplicación como con una prueba automatizada, en `app/README.md`, sección «Movimientos, saldos y el ejemplo 2.2».
+
+Desde la Entrega 4 el mismo archivo guarda también las tasas de cambio, la moneda base y las monedas propias, como eventos inmutables (eliminar una tasa es un evento nuevo, no un borrado). Los montos se guardan como enteros en la unidad menor de cada moneda y las tasas como enteros por 10^8, sin coma flotante, y nada de esto se envía al servidor. El patrimonio consolidado nunca suma monedas distintas sin una tasa con fecha: si falta una, muestra los subtotales por moneda y nombra el par que falta. El ejemplo del enunciado (316.100,00 VES; con base USD falta la tasa USDT a USD y al registrarla el total es 350,00 USD) se reproduce paso a paso, en la aplicación y con una prueba automatizada, en app/README.md, sección «Monedas, tasas de cambio y patrimonio (Entrega 4)».
 
 ## Cómo contribuir
 
