@@ -5,6 +5,8 @@ import { Sidebar } from './components/Sidebar';
 import { PantallaCuentas } from './components/PantallaCuentas';
 import { PantallaTasas } from './components/PantallaTasas';
 import { PantallaPatrimonio } from './components/PantallaPatrimonio';
+import { PantallaSesion } from './components/sesion/PantallaSesion';
+import { BienvenidaPrimerAcceso } from './components/sesion/BienvenidaPrimerAcceso';
 
 export default function Home() {
   const [pantallaActual, setPantallaActual] = useState<string>('mis-cuentas');
@@ -49,8 +51,16 @@ export default function Home() {
           {pantallaActual === 'patrimonio' && (
             <PantallaPatrimonio modoOscuro={modoOscuro} />
           )}
+          {(pantallaActual === 'inicio-sesion' || pantallaActual === 'registro') && (
+            <PantallaSesion
+              modoOscuro={modoOscuro}
+              vista={pantallaActual}
+              setPantallaActual={setPantallaActual}
+            />
+          )}
         </div>
       </main>
+      <BienvenidaPrimerAcceso modoOscuro={modoOscuro} setPantallaActual={setPantallaActual} />
     </div>
   );
 }

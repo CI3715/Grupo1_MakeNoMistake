@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import { LogoCuentasClaras } from './LogoCuentasClaras';
+import { BotonIniciarSesion } from './sesion/BotonIniciarSesion';
 
 export interface SidebarProps {
   modoOscuro: boolean;
@@ -23,9 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
       <div>
         <div className="flex items-center gap-2 border-b border-purple-800/60 pb-4 mb-6">
-          <span className="text-xl font-bold tracking-wide text-white">
-            Cuentas Claras
-          </span>
+          <LogoCuentasClaras tono="claro" />
         </div>
 
         <nav className="flex flex-col gap-2">
@@ -75,16 +75,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      <div className="pt-4 border-t border-purple-800/60 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
-          <span className="text-purple-300">{modoOscuro ? 'Oscuro' : 'Claro'}</span>
+      <div className="pt-4 border-t border-purple-800/60 flex flex-col gap-3">
+        <BotonIniciarSesion
+          activo={pantallaActual === 'inicio-sesion' || pantallaActual === 'registro'}
+          onClick={() => setPantallaActual('inicio-sesion')}
+        />
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-purple-300">{modoOscuro ? 'Oscuro' : 'Claro'}</span>
+          </div>
+          <button
+            onClick={toggleModoOscuro}
+            className="px-3 py-1.5 bg-[#9333EA] hover:bg-purple-600 text-white rounded-full font-medium text-[11px] shadow transition cursor-pointer"
+          >
+            {modoOscuro ? '🌙 Oscuro' : '☀️ Claro'}
+          </button>
         </div>
-        <button
-          onClick={toggleModoOscuro}
-          className="px-3 py-1.5 bg-[#9333EA] hover:bg-purple-600 text-white rounded-full font-medium text-[11px] shadow transition cursor-pointer"
-        >
-          {modoOscuro ? '🌙 Oscuro' : '☀️ Claro'}
-        </button>
       </div>
     </aside>
   );
