@@ -3,7 +3,8 @@
 //! Fallan si se rompe la regla de dependencia (RNF-13), si aparece coma
 //! flotante (tipos, conversiones o literales como `1.5`) en el dominio o en la
 //! aplicación (INV-03), si los comandos de
-//! cuentas y movimientos tocan la red (INV-16, RNF-01) o si el código ejecuta
+//! cuentas, movimientos y tasas tocan la red (INV-16, RNF-01), si una estructura
+//! de sesión lleva datos financieros (INV-16, RES-02) o si el código ejecuta
 //! UPDATE o DELETE sobre la tabla `eventos` (INV-04).
 //! Corren con `cargo test --workspace`.
 
@@ -12,8 +13,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Dependencias externas que `dominio` y `aplicacion` no pueden usar.
-const EXTERNAS: [&str; 3] = ["rusqlite", "tauri", "reqwest"];
+/// Dependencias externas que `dominio` y `aplicacion` no pueden usar. `keyring`
+/// (almacén de secretos del sistema, Entrega 5) vive solo en el crate `app`.
+const EXTERNAS: [&str; 4] = ["rusqlite", "tauri", "reqwest", "keyring"];
 
 /// Métodos que convierten desde o hacia coma flotante sin nombrar `f32`/`f64`
 /// como palabra suelta (por ejemplo `Decimal::from_f64`).
@@ -26,7 +28,8 @@ const METODOS_FLOTANTES: [&str; 6] = [
     "from_f32_retain",
 ];
 
-/// Nombres que delatan acceso a la red (en minúsculas). Solo `ping.rs` puede usarlos.
+/// Nombres que delatan acceso a la red (en minúsculas). Solo los archivos de
+/// `ARCHIVOS_CON_RED` pueden usarlos.
 const RED_PROHIBIDA: [&str; 9] = [
     "reqwest",
     "hyper",
@@ -589,24 +592,33 @@ fn aplicacion_no_usa_coma_flotante() {
 
 // ---------- INV-16 / RNF-01: sin red en cuentas, movimientos y DTO (D-06) ----------
 
-/// Solo el comando del ping puede hablar con el servidor.
-const ARCHIVO_CON_RED: &str = "ping.rs";
+/// Archivos de `src/` que pueden hablar con el servidor: el ping (Entrega 1) y la
+/// sesión (Entrega 5). Cualquier otro archivo de `src/` tiene la red prohibida.
+const ARCHIVOS_CON_RED: [&str; 2] = ["ping.rs", "sesion.rs"];
+
+/// Archivos que deben existir y no pueden usar la red: el libro personal.
+const ARCHIVOS_SIN_RED: [&str; 4] = ["cuentas.rs", "movimientos.rs", "tasas.rs", "dto.rs"];
 
 #[test]
 fn comandos_y_dto_no_usan_la_red() {
     let src = raiz().join("src");
+    // `ping.rs` es obligatorio; `sesion.rs` puede no existir todavía.
     assert!(
-        src.join(ARCHIVO_CON_RED).exists(),
-        "{ARCHIVO_CON_RED} ya no existe: actualiza esta prueba"
+        src.join("ping.rs").exists(),
+        "ping.rs ya no existe: actualiza esta prueba"
     );
 
     let archivos: Vec<PathBuf> = lista_rs(&src)
         .into_iter()
-        .filter(|r| r.file_name().is_some_and(|n| n != ARCHIVO_CON_RED))
+        .filter(|r| {
+            !r.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| ARCHIVOS_CON_RED.contains(&n))
+        })
         .collect();
 
     // Que la prueba no pase en vacío si alguien renombra los archivos.
-    for esperado in ["cuentas.rs", "dto.rs"] {
+    for esperado in ARCHIVOS_SIN_RED {
         assert!(
             archivos.iter().any(|r| r.ends_with(esperado)),
             "No se encontró {esperado} en src/: actualiza esta prueba"
@@ -623,8 +635,179 @@ fn comandos_y_dto_no_usan_la_red() {
     }
     assert!(
         infracciones.is_empty(),
-        "Solo {ARCHIVO_CON_RED} puede usar la red (INV-16, RNF-01):\n{}",
+        "Solo {ARCHIVOS_CON_RED:?} pueden usar la red (INV-16, RNF-01):\n{}",
         infracciones.join("\n")
+    );
+}
+
+// ---------- INV-16 / RES-02: lo que viaja al servidor no lleva datos financieros ----------
+
+/// Raíces de palabras que delatan datos financieros. Ninguna estructura de sesión
+/// puede tener un campo, un tipo o un nombre serializado que las mencione.
+const DATOS_FINANCIEROS: &[&str] = &[
+    "cuenta",
+    "movimiento",
+    "saldo",
+    "tasa",
+    "categoria",
+    "categoría",
+    "patrimonio",
+    "moneda",
+];
+
+/// Partes del nombre que identifican una estructura de sesión dentro de `dto.rs`.
+const NOMBRES_DE_SESION: [&str; 5] = ["usuario", "sesion", "perfil", "credencial", "token"];
+
+fn empieza_con_palabra(c: &[char], i: usize, palabra: &str) -> bool {
+    let p: Vec<char> = palabra.chars().collect();
+    c[i..].starts_with(&p)
+        && es_inicio_de_palabra(c, i)
+        && !c
+            .get(i + p.len())
+            .is_some_and(|x| x.is_alphanumeric() || *x == '_')
+}
+
+/// Estructuras y enumeraciones de un código: (nombre, contenido con sus llaves o
+/// paréntesis). Hay que pasarle código ya sin comentarios. Ignora `struct Vacia;`.
+fn definiciones_de_datos(codigo: &str) -> Vec<(String, String)> {
+    let c: Vec<char> = codigo.chars().collect();
+    let mut halladas = Vec::new();
+    let mut i = 0;
+
+    while i < c.len() {
+        let largo = if empieza_con_palabra(&c, i, "struct") {
+            6
+        } else if empieza_con_palabra(&c, i, "enum") {
+            4
+        } else {
+            i += 1;
+            continue;
+        };
+
+        // Nombre de la definición.
+        let mut j = i + largo;
+        while c.get(j).is_some_and(|x| x.is_whitespace()) {
+            j += 1;
+        }
+        let inicio_nombre = j;
+        while c.get(j).is_some_and(|x| x.is_alphanumeric() || *x == '_') {
+            j += 1;
+        }
+        let nombre: String = c[inicio_nombre..j].iter().collect();
+
+        // Hasta donde abre su contenido: `{`, `(` o `;` (sin contenido).
+        while j < c.len() && !matches!(c[j], '{' | '(' | ';') {
+            j += 1;
+        }
+        let (abre, cierra) = match c.get(j) {
+            Some('{') => ('{', '}'),
+            Some('(') => ('(', ')'),
+            _ => {
+                i = (j + 1).max(i + largo);
+                continue;
+            }
+        };
+
+        // Contenido, con llaves o paréntesis balanceados.
+        let mut profundidad = 0;
+        let mut k = j;
+        while k < c.len() {
+            if c[k] == abre {
+                profundidad += 1;
+            } else if c[k] == cierra {
+                profundidad -= 1;
+                if profundidad == 0 {
+                    break;
+                }
+            }
+            k += 1;
+        }
+        let fin = k.min(c.len());
+        halladas.push((nombre, c[j..fin].iter().collect()));
+        i = fin.max(i + largo);
+    }
+    halladas
+}
+
+/// Raíces financieras que aparecen en `texto`.
+fn nombres_financieros(texto: &str) -> Vec<&'static str> {
+    let minusculas = texto.to_lowercase();
+    DATOS_FINANCIEROS
+        .iter()
+        .copied()
+        .filter(|palabra| minusculas.contains(palabra))
+        .collect()
+}
+
+fn es_nombre_de_sesion(nombre: &str) -> bool {
+    let minusculas = nombre.to_lowercase();
+    NOMBRES_DE_SESION.iter().any(|p| minusculas.contains(p))
+}
+
+/// Código de un archivo de `src/` sin comentarios y sin su módulo de pruebas;
+/// `None` si el archivo no existe todavía.
+fn codigo_de_produccion(nombre: &str, quitar_textos: bool) -> Option<String> {
+    let ruta = raiz().join("src").join(nombre);
+    ruta.exists()
+        .then(|| limpiar_codigo(&leer(&ruta), quitar_textos, true))
+}
+
+#[test]
+fn las_estructuras_de_sesion_no_llevan_datos_financieros() {
+    let mut infracciones = Vec::new();
+    let mut revisadas = 0;
+
+    // `sesion.rs`: todas sus estructuras. `dto.rs`: solo las que parecen de sesión.
+    // Los textos se conservan para ver nombres serializados (`rename = "..."`).
+    for (archivo, solo_de_sesion) in [("sesion.rs", false), ("dto.rs", true)] {
+        let Some(codigo) = codigo_de_produccion(archivo, false) else {
+            continue;
+        };
+        for (nombre, contenido) in definiciones_de_datos(&codigo) {
+            if solo_de_sesion && !es_nombre_de_sesion(&nombre) {
+                continue;
+            }
+            revisadas += 1;
+            for palabra in nombres_financieros(&format!("{nombre} {contenido}")) {
+                infracciones.push(format!(
+                    "{archivo}: `{nombre}` menciona `{palabra}` y viaja al servidor"
+                ));
+            }
+        }
+    }
+
+    // Una vez que existe `sesion.rs`, debe tener estructuras que revisar.
+    if codigo_de_produccion("sesion.rs", true).is_some() {
+        assert!(revisadas > 0, "sesion.rs no define ninguna estructura");
+    }
+    assert!(
+        infracciones.is_empty(),
+        "Ningún dato financiero puede viajar al servidor (INV-16, RES-02):\n{}",
+        infracciones.join("\n")
+    );
+}
+
+#[test]
+fn sesion_no_toca_el_libro_personal() {
+    let Some(codigo) = codigo_de_produccion("sesion.rs", true) else {
+        return;
+    };
+    let prohibidas = [
+        "dominio",
+        "aplicacion",
+        "infraestructura",
+        "CasosDeUso",
+        "EstadoCasosDeUso",
+    ];
+    let halladas: Vec<&str> = prohibidas
+        .iter()
+        .copied()
+        .filter(|p| contiene_palabra(&codigo, p))
+        .collect();
+    assert!(
+        halladas.is_empty(),
+        "sesion.rs no puede usar el libro personal: menciona {} (INV-16, RES-02)",
+        halladas.join(", ")
     );
 }
 
@@ -860,4 +1043,37 @@ fn el_limpiador_omite_elementos_de_pruebas_sin_cuerpo_o_anidados() {
 fn sin_omitir_las_pruebas_se_ve_todo() {
     let fuente = "#[cfg(test)]\nmod p { const Q: &str = \"DELETE FROM eventos\"; }\n";
     assert!(limpiar_codigo(fuente, false, false).contains("DELETE FROM eventos"));
+}
+
+#[test]
+fn extrae_las_estructuras_y_sus_campos() {
+    let codigo = "#[derive(Debug)]\npub struct A { pub x: String, pub y: u32 }\nstruct B(String);\nenum C { Uno, Dos { z: i32 } }\nfn f(estructura: u8) {}\nstruct Vacia;\n";
+    let definiciones = definiciones_de_datos(codigo);
+    let nombres: Vec<&str> = definiciones.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(nombres, vec!["A", "B", "C"]);
+    assert!(definiciones[0].1.contains("pub y: u32"));
+    assert!(definiciones[1].1.contains("String"));
+    assert!(definiciones[2].1.contains("z: i32"));
+}
+
+#[test]
+fn detecta_datos_financieros_en_estructuras() {
+    assert!(!nombres_financieros("pub saldo_total: String").is_empty());
+    assert!(!nombres_financieros("pub items: Vec<CuentaDto>").is_empty());
+    assert!(!nombres_financieros("#[serde(rename = \"Categoría\")]").is_empty());
+    assert!(
+        nombres_financieros(
+            "pub nombre_usuario: String, pub contrasena: String, pub vence_en: String"
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn reconoce_las_estructuras_de_sesion_por_su_nombre() {
+    assert!(es_nombre_de_sesion("RegistroUsuarioDto"));
+    assert!(es_nombre_de_sesion("RespuestaSesion"));
+    assert!(es_nombre_de_sesion("PerfilDto"));
+    assert!(!es_nombre_de_sesion("CuentaDto"));
+    assert!(!es_nombre_de_sesion("MovimientoDto"));
 }
