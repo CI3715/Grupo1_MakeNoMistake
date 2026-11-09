@@ -75,3 +75,14 @@ def test_documentacion_disponible() -> None:
     rutas = client.get("/openapi.json").json()["paths"]
 
     assert "/ping" in rutas
+
+
+def test_openapi_documenta_rutas_de_la_entrega_5_sin_422() -> None:
+    esquema = client.get("/openapi.json").json()
+    rutas = esquema["paths"]
+
+    assert set(rutas) == {"/ping", "/usuarios", "/sesiones", "/usuarios/yo"}
+    assert set(rutas["/usuarios"]["post"]["responses"]) == {"201", "400", "409"}
+    assert set(rutas["/sesiones"]["post"]["responses"]) == {"200", "400", "401"}
+    assert set(rutas["/usuarios/yo"]["get"]["responses"]) == {"200", "401"}
+    assert rutas["/usuarios/yo"]["get"]["security"] == [{"tokenBearer": []}]
