@@ -22,9 +22,16 @@ info:
       `contrasena`.
  
     ## Fechas
- 
+
     Todas van en UTC con el formato `AAAA-MM-DDThh:mm:ssZ`, igual que `/ping`.
- 
+
+    ## Tipos de PostgreSQL
+
+    El contrato refleja el esquema de la tabla `usuarios`: `id` es `UUID`,
+    `fecha_alta` es `TIMESTAMPTZ` en UTC, y los textos usan `VARCHAR(n)` con
+    los límites indicados (`nombre_usuario` 30, `nombre_visible` 50 y `correo`
+    254). El hash de la contraseña es `TEXT` y nunca aparece en una respuesta.
+
 servers:
   - url: http://localhost:8000
     description: Entorno local (HTTP permitido solo aquí; todo despliegue exige HTTPS, RNF-06).
@@ -82,8 +89,9 @@ paths:
         "400":
           description: >-
             Datos inválidos: nombre de usuario fuera de formato, nombre visible
-            vacío, correo mal formado, contraseña de menos de 10 caracteres o
-            campo ausente. Se informan todos los campos que fallan a la vez.
+            vacío, correo mal formado, contraseña de menos de 10 o más de 128
+            caracteres, o campo ausente. Se informan todos los campos que fallan
+            a la vez.
           content:
             application/json:
               schema:
@@ -209,7 +217,10 @@ components:
  
     FechaHoraUtc:
       type: string
-      description: Fecha y hora en UTC, formato `AAAA-MM-DDThh:mm:ssZ`.
+      format: date-time
+      description: >-
+        Fecha y hora en UTC, formato `AAAA-MM-DDThh:mm:ssZ`. Cuando se persiste
+        en la base, la columna es `TIMESTAMPTZ`.
       pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
       example: "2026-11-10T10:00:00Z"
  
@@ -219,26 +230,39 @@ components:
       properties:
         nombre_usuario:
           type: string
-          description: De 3 a 30 caracteres; solo letras minúsculas, dígitos, punto y guion bajo.
+          description: >-
+            De 3 a 30 caracteres; solo letras minúsculas, dígitos, punto y guion
+            bajo. Columna `VARCHAR(30)` con índice único.
+          minLength: 3
+          maxLength: 30
           pattern: "^[a-z0-9._]{3,30}$"
           example: ana.perez
         nombre_visible:
           type: string
-          description: El que verán sus amigos más adelante. Se recorta y no puede quedar vacío.
+          description: >-
+            El que verán sus amigos más adelante. Se recorta y no puede quedar
+            vacío. Columna `VARCHAR(50)`.
           minLength: 1
           maxLength: 50
           example: Ana Pérez
         correo:
           type: string
           format: email
-          description: Se guarda y se compara en minúsculas.
+          maxLength: 254
+          description: >-
+            Se guarda en minúsculas en una columna `VARCHAR(254)`. La unicidad
+            no distingue mayúsculas: `Ana@Example.com` y `ana@example.com` son
+            el mismo correo.
           example: ana@example.com
         contrasena:
           type: string
           format: password
           writeOnly: true
           minLength: 10
-          description: Al menos 10 caracteres. Nunca se devuelve ni se registra en logs.
+          maxLength: 128
+          description: >-
+            Entre 10 y 128 caracteres. Se guarda solo como hash argon2id en una
+            columna `TEXT`. Nunca se devuelve ni se registra en logs.
           example: una-clave-larga-123
  
     Credenciales:
@@ -247,30 +271,46 @@ components:
       properties:
         correo:
           type: string
+          format: email
+          maxLength: 254
+          description: Se compara sin distinguir mayúsculas.
           example: ana@example.com
         contrasena:
           type: string
           format: password
           writeOnly: true
+          minLength: 1
+          maxLength: 128
           example: una-clave-larga-123
  
     Usuario:
       type: object
-      description: Usuario sin contraseña ni hash.
+      description: >-
+        Fila de la tabla `usuarios` sin contraseña ni hash. `id` es `UUID` y
+        `fecha_alta` es `TIMESTAMPTZ` en UTC.
       required: [id, nombre_usuario, nombre_visible, correo, fecha_alta]
       properties:
         id:
           type: string
+          format: uuid
+          maxLength: 36
+          description: Clave primaria `UUID`.
           example: 3f2b8c1e-6a4d-4b7e-9c10-2d5e7a9b0c11
         nombre_usuario:
           type: string
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-z0-9._]{3,30}$"
           example: ana.perez
         nombre_visible:
           type: string
+          minLength: 1
+          maxLength: 50
           example: Ana Pérez
         correo:
           type: string
           format: email
+          maxLength: 254
           example: ana@example.com
         fecha_alta:
           $ref: "#/components/schemas/FechaHoraUtc"
