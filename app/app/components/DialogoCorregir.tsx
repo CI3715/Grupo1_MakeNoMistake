@@ -8,44 +8,70 @@ interface Props {
   onConfirmar: (montoCorrecto: string) => void;
   onCancelar: () => void;
   error?: string | null;
+  modoOscuro?: boolean;
 }
 
-export const DialogoCorregir: React.FC<Props> = ({ movimiento, onConfirmar, onCancelar, error = null }) => {
+export const DialogoCorregir: React.FC<Props> = ({
+  movimiento,
+  onConfirmar,
+  onCancelar,
+  error = null,
+  modoOscuro = true,
+}) => {
   const [montoCorrecto, setMontoCorrecto] = useState('');
 
   if (!movimiento) return null;
 
+  // Mismos estilos que las demás ventanas (nuevo movimiento, nueva cuenta).
+  const bgCard = modoOscuro
+    ? 'bg-[#151C28] border-gray-800/80 text-white'
+    : 'bg-white border-gray-200 text-slate-900';
+
+  const estiloInput = modoOscuro
+    ? { backgroundColor: '#0F1420', color: '#ffffff', borderColor: '#374151', colorScheme: 'dark' as const }
+    : { backgroundColor: '#ffffff', color: '#0f172a', borderColor: '#e2e8f0', colorScheme: 'light' as const };
+
+  const textMuted = modoOscuro ? 'text-gray-400' : 'text-gray-500';
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl max-w-md w-full shadow-xl flex flex-col gap-4">
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white">Corregir Movimiento</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Movimiento original: <strong className="text-gray-800 dark:text-gray-200">{movimiento.categoria_nombre}</strong> ({movimiento.monto_formateado}).
-          El ajuste se calculará sobre la diferencia.
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className={`w-full max-w-md p-6 rounded-2xl border shadow-xl ${bgCard}`}>
+        <h3 className="text-lg font-bold mb-2">Corregir Movimiento</h3>
+        <p className={`text-xs mb-4 ${textMuted}`}>
+          Movimiento a corregir:{' '}
+          <strong className={modoOscuro ? 'text-gray-100' : 'text-slate-800'}>
+            {movimiento.categoria_nombre}
+          </strong>{' '}
+          ({movimiento.monto_formateado}). El ajuste se calculará sobre la diferencia.
         </p>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Monto Correcto</label>
+        <div>
+          <label className={`block text-xs font-semibold mb-1 ${textMuted}`}>Monto Correcto</label>
           <input
             type="text"
             placeholder="Ej: 50,00 (0 para anular efecto)"
             value={montoCorrecto}
             onChange={(e) => setMontoCorrecto(e.target.value)}
-            className="p-2.5 text-sm border rounded-xl dark:bg-gray-900 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            style={estiloInput}
+            className="w-full border px-3 py-2 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
           />
-          {error && <p className="text-rose-500 text-xs font-medium mt-1">{error}</p>}
+          {error && <p className="text-rose-400 text-[11px] font-medium mt-1">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-3 pt-2">
+        <div className="flex gap-3 justify-end pt-4">
           <button
+            type="button"
             onClick={onCancelar}
-            className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+            className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
+              modoOscuro ? 'border-gray-700 hover:bg-slate-800' : 'border-gray-300 hover:bg-gray-100'
+            }`}
           >
             Cancelar
           </button>
           <button
+            type="button"
             onClick={() => onConfirmar(montoCorrecto)}
-            className="px-4 py-2 text-sm bg-[#9333EA] hover:bg-purple-600 text-white rounded-xl font-semibold transition"
+            className="bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer"
           >
             Guardar Corrección
           </button>

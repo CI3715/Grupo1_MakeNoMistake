@@ -24,6 +24,7 @@ import {
   NuevoMovimientoPayload,
 } from '../utils/tauriCommands';
 import { fechaHoyLocal, formatearMontoTexto, normalizarDecimal } from '../utils/formato';
+import { ordenarOtrosAlFinal } from '../utils/categorias';
 import { Movimiento } from '../types/cuentas';
 import { DialogoAdvertencia } from './DialogoAdvertencia';
 import { DialogoCorregir } from './DialogoCorregir';
@@ -165,7 +166,7 @@ export function PantallaCuentas({
     setFechaMov(fechaHoyLocal());
     setErroresMov({});
 
-    const catsFiltradas = categorias.filter((c) => c.tipo === tipo);
+    const catsFiltradas = ordenarOtrosAlFinal(categorias.filter((c) => c.tipo === tipo));
     setCatMovId(catsFiltradas.length > 0 ? catsFiltradas[0].id : '');
 
     setMostrarModalMovimiento(true);
@@ -280,7 +281,7 @@ export function PantallaCuentas({
   const movimientosAdaptados: Movimiento[] = (detalleCuenta?.movimientos ?? []).map((m) =>
     adaptarMovimiento(m, monedaCuentaReal)
   );
-  const categoriasFiltradasModal = categorias.filter((c) => c.tipo === tipoMov);
+  const categoriasFiltradasModal = ordenarOtrosAlFinal(categorias.filter((c) => c.tipo === tipoMov));
   const otrosErroresMov = Object.entries(erroresMov)
     .filter(([campo]) => !CAMPOS_MOVIMIENTO.includes(campo))
     .map(([, mensaje]) => mensaje);
@@ -498,6 +499,7 @@ export function PantallaCuentas({
       )}
 
       <DialogoAdvertencia
+        modoOscuro={modoOscuro}
         visible={mostrarAdvertencia}
         montoResultante={saldoAdvertencia}
         onConfirmar={() => {
@@ -509,6 +511,7 @@ export function PantallaCuentas({
 
       <DialogoCorregir
         key={movimientoAEditar?.id ?? 'cerrado'}
+        modoOscuro={modoOscuro}
         movimiento={movimientoAEditar}
         onConfirmar={handleCorregirMovimiento}
         onCancelar={() => setMovimientoAEditar(null)}
@@ -550,7 +553,7 @@ export function PantallaCuentas({
                     checked={tipoMov === 'gasto'}
                     onChange={() => {
                       setTipoMov('gasto');
-                      const cats = categorias.filter((c) => c.tipo === 'gasto');
+                      const cats = ordenarOtrosAlFinal(categorias.filter((c) => c.tipo === 'gasto'));
                       setCatMovId(cats.length > 0 ? cats[0].id : '');
                     }}
                     className="accent-[#9333EA]"
@@ -564,7 +567,7 @@ export function PantallaCuentas({
                     checked={tipoMov === 'ingreso'}
                     onChange={() => {
                       setTipoMov('ingreso');
-                      const cats = categorias.filter((c) => c.tipo === 'ingreso');
+                      const cats = ordenarOtrosAlFinal(categorias.filter((c) => c.tipo === 'ingreso'));
                       setCatMovId(cats.length > 0 ? cats[0].id : '');
                     }}
                     className="accent-[#9333EA]"
