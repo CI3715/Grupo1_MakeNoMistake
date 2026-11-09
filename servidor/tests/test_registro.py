@@ -4,15 +4,23 @@ Cubre los requerimientos RF-SOC-01, RNF-05, INV-16 y los criterios de la
 sección 3 de la especificación de la Entrega 5.
 """
 
-import pytest
+import sqlite3
+from pathlib import Path
+
+from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 
-PENDIENTE_ENDPOINT = (
-    "Pendiente de integración del endpoint POST /usuarios por John y Alejandro"
-)
+
+def hash_guardado(bd_prueba: Path, nombre_usuario: str) -> str:
+    with sqlite3.connect(bd_prueba) as conexion:
+        fila = conexion.execute(
+            "SELECT hash_contrasena FROM usuarios WHERE nombre_usuario = ?",
+            (nombre_usuario,),
+        ).fetchone()
+    assert fila is not None
+    return str(fila[0])
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_valido_retorna_201_y_datos_sin_contrasena(
     cliente: TestClient,
 ) -> None:
@@ -41,7 +49,6 @@ def test_registro_valido_retorna_201_y_datos_sin_contrasena(
     assert "hash" not in datos
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_usuario_menor_a_3_caracteres_retorna_400(
     cliente: TestClient,
 ) -> None:
@@ -58,7 +65,6 @@ def test_registro_nombre_usuario_menor_a_3_caracteres_retorna_400(
     assert any(e.get("campo") == "nombre_usuario" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_usuario_mayor_a_30_caracteres_retorna_400(
     cliente: TestClient,
 ) -> None:
@@ -75,7 +81,6 @@ def test_registro_nombre_usuario_mayor_a_30_caracteres_retorna_400(
     assert any(e.get("campo") == "nombre_usuario" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_usuario_con_mayusculas_retorna_400(
     cliente: TestClient,
 ) -> None:
@@ -92,7 +97,6 @@ def test_registro_nombre_usuario_con_mayusculas_retorna_400(
     assert any(e.get("campo") == "nombre_usuario" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_usuario_con_caracteres_invalidos_retorna_400(
     cliente: TestClient,
 ) -> None:
@@ -110,7 +114,6 @@ def test_registro_nombre_usuario_con_caracteres_invalidos_retorna_400(
         assert any(e.get("campo") == "nombre_usuario" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_visible_vacio_retorna_400(cliente: TestClient) -> None:
     """Nombre visible vacío se rechaza con 400."""
     cuerpo = {
@@ -125,7 +128,6 @@ def test_registro_nombre_visible_vacio_retorna_400(cliente: TestClient) -> None:
     assert any(e.get("campo") == "nombre_visible" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_visible_solo_espacios_retorna_400(
     cliente: TestClient,
 ) -> None:
@@ -142,7 +144,6 @@ def test_registro_nombre_visible_solo_espacios_retorna_400(
     assert any(e.get("campo") == "nombre_visible" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_visible_mayor_a_50_caracteres_retorna_400(
     cliente: TestClient,
 ) -> None:
@@ -159,7 +160,6 @@ def test_registro_nombre_visible_mayor_a_50_caracteres_retorna_400(
     assert any(e.get("campo") == "nombre_visible" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_correo_sin_arroba_retorna_400(cliente: TestClient) -> None:
     """Correo sin arroba se rechaza con 400."""
     cuerpo = {
@@ -174,7 +174,6 @@ def test_registro_correo_sin_arroba_retorna_400(cliente: TestClient) -> None:
     assert any(e.get("campo") == "correo" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_correo_sin_dominio_retorna_400(cliente: TestClient) -> None:
     """Correo sin dominio después de la arroba se rechaza con 400."""
     cuerpo = {
@@ -189,7 +188,6 @@ def test_registro_correo_sin_dominio_retorna_400(cliente: TestClient) -> None:
     assert any(e.get("campo") == "correo" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_contrasena_menor_a_10_caracteres_retorna_400(
     cliente: TestClient,
 ) -> None:
@@ -206,7 +204,6 @@ def test_registro_contrasena_menor_a_10_caracteres_retorna_400(
     assert any(e.get("campo") == "contrasena" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_multiples_campos_invalidos_informa_todos(
     cliente: TestClient,
 ) -> None:
@@ -226,7 +223,6 @@ def test_registro_multiples_campos_invalidos_informa_todos(
     )
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_nombre_usuario_repetido_retorna_409(cliente: TestClient) -> None:
     """Registrar un nombre de usuario ya existente responde 409 indicando el campo."""
     cuerpo1 = {
@@ -250,7 +246,6 @@ def test_registro_nombre_usuario_repetido_retorna_409(cliente: TestClient) -> No
     assert any(e.get("campo") == "nombre_usuario" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_correo_repetido_retorna_409(cliente: TestClient) -> None:
     """Registrar un correo ya existente responde 409 indicando el campo correo."""
     cuerpo1 = {
@@ -274,7 +269,6 @@ def test_registro_correo_repetido_retorna_409(cliente: TestClient) -> None:
     assert any(e.get("campo") == "correo" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_correo_repetido_distinta_capitalizacion_retorna_409(
     cliente: TestClient,
 ) -> None:
@@ -300,9 +294,8 @@ def test_registro_correo_repetido_distinta_capitalizacion_retorna_409(
     assert any(e.get("campo") == "correo" for e in errores)
 
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
 def test_registro_contrasena_guardada_como_hash_argon2id_con_sal_unica(
-    cliente: TestClient,
+    cliente: TestClient, bd_prueba: Path
 ) -> None:
     """Misma contraseña produce hashes distintos en usuarios diferentes."""
     cuerpo1 = {
@@ -322,10 +315,15 @@ def test_registro_contrasena_guardada_como_hash_argon2id_con_sal_unica(
     assert resp1.status_code == 201
     assert resp2.status_code == 201
 
+    hash1 = hash_guardado(bd_prueba, "usuario.uno")
+    hash2 = hash_guardado(bd_prueba, "usuario.dos")
+    assert hash1.startswith("$argon2id$")
+    assert hash2.startswith("$argon2id$")
+    assert hash1 != hash2
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
+
 def test_registro_contrasena_guardada_no_es_recuperable(
-    cliente: TestClient,
+    cliente: TestClient, bd_prueba: Path
 ) -> None:
     """La contraseña almacenada es un hash unidireccional y no puede descifrarse."""
     cuerpo = {
@@ -337,8 +335,11 @@ def test_registro_contrasena_guardada_no_es_recuperable(
     resp = cliente.post("/usuarios", json=cuerpo)
     assert resp.status_code == 201
 
+    guardado = hash_guardado(bd_prueba, "carlos.ruiz")
+    assert "clave-super-secreta-1234" not in guardado
+    assert PasswordHasher().verify(guardado, "clave-super-secreta-1234")
 
-@pytest.mark.skip(reason=PENDIENTE_ENDPOINT)
+
 def test_registro_no_repite_contrasena_en_respuestas_ni_errores(
     cliente: TestClient,
 ) -> None:
@@ -352,3 +353,87 @@ def test_registro_no_repite_contrasena_en_respuestas_ni_errores(
     }
     resp = cliente.post("/usuarios", json=cuerpo)
     assert clave_secreta not in resp.text
+
+
+def test_registro_invalido_no_repite_contrasena_en_errores(
+    cliente: TestClient,
+) -> None:
+    """Ni el 400 propio ni el de tipos repiten el valor enviado (RNF-05)."""
+    clave = "clave-que-no-debe-salir-1234"
+    cuerpos = [
+        {"nombre_usuario": "x", "correo": "malo", "contrasena": clave},
+        {"nombre_usuario": 123, "correo": ["a"], "contrasena": clave},
+    ]
+    for cuerpo in cuerpos:
+        resp = cliente.post("/usuarios", json=cuerpo)
+        assert resp.status_code == 400
+        assert clave not in resp.text
+        assert "input" not in resp.text
+
+
+def test_registro_campo_con_tipo_incorrecto_retorna_400_y_no_422(
+    cliente: TestClient,
+) -> None:
+    cuerpo = {
+        "nombre_usuario": 123,
+        "nombre_visible": "Ana",
+        "correo": "ana@example.com",
+        "contrasena": "clave-segura-1234",
+    }
+    resp = cliente.post("/usuarios", json=cuerpo)
+    assert resp.status_code == 400
+    assert resp.json() == {
+        "errores": [
+            {"campo": "nombre_usuario", "mensaje": "Este campo debe ser texto."}
+        ]
+    }
+
+
+def test_registro_cuerpo_no_json_retorna_400(cliente: TestClient) -> None:
+    resp = cliente.post(
+        "/usuarios",
+        content=b"esto no es json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["errores"][0]["campo"] == "cuerpo"
+
+
+def test_registro_campos_ausentes_se_informan_todos(cliente: TestClient) -> None:
+    resp = cliente.post("/usuarios", json={})
+    assert resp.status_code == 400
+    campos = {e["campo"] for e in resp.json()["errores"]}
+    assert campos == {"nombre_usuario", "nombre_visible", "correo", "contrasena"}
+
+
+def test_registro_normaliza_correo_y_recorta_nombre_visible(
+    cliente: TestClient,
+) -> None:
+    cuerpo = {
+        "nombre_usuario": "ana_p",
+        "nombre_visible": "  Ana Pérez  ",
+        "correo": "  Ana@Example.COM ",
+        "contrasena": "clave-segura-1234",
+    }
+    resp = cliente.post("/usuarios", json=cuerpo)
+    assert resp.status_code == 201
+    assert resp.json()["correo"] == "ana@example.com"
+    assert resp.json()["nombre_visible"] == "Ana Pérez"
+
+
+def test_registro_usuario_y_correo_repetidos_informa_ambos(
+    cliente: TestClient,
+) -> None:
+    cuerpo = {
+        "nombre_usuario": "ana.perez",
+        "nombre_visible": "Ana",
+        "correo": "ana@example.com",
+        "contrasena": "clave-segura-1234",
+    }
+    assert cliente.post("/usuarios", json=cuerpo).status_code == 201
+    resp = cliente.post("/usuarios", json=cuerpo)
+    assert resp.status_code == 409
+    assert {e["campo"] for e in resp.json()["errores"]} == {
+        "nombre_usuario",
+        "correo",
+    }
