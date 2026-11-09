@@ -150,8 +150,8 @@ CREATE UNIQUE INDEX usuarios_nombre_usuario_unico ON usuarios (nombre_usuario);
 
 ## Estado
 
-Aceptado. Sustituye el punto 3 de ADR-001, que dejaba la base de datos del
-servidor «por definir».
+Aceptado (final). Sustituye el punto 3 de ADR-001, que dejaba la base de datos
+del servidor «por definir».
 
 ## Fecha
 

@@ -1,8 +1,9 @@
 # Servidor - Cuentas Claras
 
-Backend de Cuentas Claras, hecho con Python y FastAPI. En la Entrega 1
-expone un único endpoint, `GET /ping`, para verificar la comunicación
-con la aplicación cliente.
+Backend de Cuentas Claras, hecho con Python y FastAPI. Mantiene `GET /ping`
+para verificar la comunicación con la aplicación cliente y, para la Entrega 5,
+define el contrato de registro, inicio de sesión y perfil. La implementación de
+esos endpoints está en curso: hoy solo `/ping` está activo.
 
 ## Prerrequisitos
 
@@ -66,14 +67,21 @@ Para detenerlo, presiona `Ctrl + C`.
 
 ## Base de datos y configuración
 
-El servidor usa PostgreSQL 17 y crea la tabla `usuarios` al arrancar. La
-conexión se lee de variables de entorno; el archivo `servidor/.env` no se
+El servidor usa PostgreSQL 17 y crea la tabla `usuarios` al arrancar. Toda la
+configuración se lee de variables de entorno; el archivo `servidor/.env` no se
 sube a Git.
 
-1. Copia el ejemplo y ajusta los valores:
+### Dónde se colocan las variables
+
+El archivo debe estar en **`servidor/.env`**, junto a `main.py`, porque
+`configuracion.py` carga exactamente esa ruta. No sirve ponerlo en la raíz del
+repositorio ni dentro de `app/`: el servidor no lo leería.
+
+1. Copia la plantilla y ajusta los valores:
 
 ```bash
    cp .env.example .env
+   chmod 600 .env
 ```
 
 2. Si no tienes PostgreSQL configurado, levanta el clúster local incluido.
@@ -105,17 +113,100 @@ sube a Git.
 | `CUENTAS_CLARAS_MINUTOS_TOKEN` | No | `60` | Vigencia del token en minutos. |
 | `CUENTAS_CLARAS_DB_URL_PRUEBAS` | No | — | Base para las pruebas de integración del repositorio. Si falta, se omiten. |
 
-Genera el secreto con:
+#### `CUENTAS_CLARAS_DB_URL` (obligatoria)
+
+Indica a qué PostgreSQL se conecta el servidor. Formato:
+
+```text
+postgresql://usuario:clave@host:puerto/base
+```
+
+Con el clúster local incluido:
+
+```env
+CUENTAS_CLARAS_DB_URL=postgresql://cuentas_claras:cuentas_claras@127.0.0.1:55432/cuentas_claras
+```
+
+Si usas un PostgreSQL propio en el puerto habitual, cambia el puerto a `5432`
+y el resto de datos de conexión. Si esta variable falta o está vacía, el
+servidor no arranca.
+
+#### `CUENTAS_CLARAS_SECRETO_JWT` (obligatoria)
+
+Secreto con el que se firman y verifican los tokens de sesión. No es la
+contraseña de una persona usuaria: es una clave privada del servidor.
+
+- Mínimo **32 caracteres**.
+- Debe ser distinto en desarrollo y en un despliegue real.
+- No se comparte ni se sube a Git.
+
+Genera uno con:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
+#### `CUENTAS_CLARAS_MINUTOS_TOKEN` (opcional)
+
+Vigencia de los tokens en minutos. Se expresa como número entero positivo. Si
+se omite, vale `60`:
+
+```env
+CUENTAS_CLARAS_MINUTOS_TOKEN=60
+```
+
+#### `CUENTAS_CLARAS_DB_URL_PRUEBAS` (opcional, solo pruebas)
+
+Base que usan las pruebas de integración del repositorio. Apunta a una base
+separada, porque las pruebas vacían la tabla `usuarios`:
+
+```env
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://cuentas_claras:cuentas_claras@127.0.0.1:55432/cuentas_claras_pruebas
+```
+
+Si no la defines, `uv run pytest` sigue funcionando y las pruebas de
+integración se omiten.
+
+### Ejemplo de `.env` local
+
+```env
+CUENTAS_CLARAS_DB_URL=postgresql://cuentas_claras:cuentas_claras@127.0.0.1:55432/cuentas_claras
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://cuentas_claras:cuentas_claras@127.0.0.1:55432/cuentas_claras_pruebas
+CUENTAS_CLARAS_SECRETO_JWT=<secreto-generado-de-al-menos-32-caracteres>
+CUENTAS_CLARAS_MINUTOS_TOKEN=60
+```
+
+### Cómo arrancar el servidor con estas variables
+
+No hace falta exportar nada si usas `servidor/.env`: `configuracion.py` lo
+carga automáticamente al iniciar. El orden es:
+
+```bash
+cd servidor
+cp .env.example .env      # solo la primera vez; después edita .env
+chmod 600 .env
+bash scripts/base_datos_local.sh iniciar
+uv run uvicorn main:app --reload --port 8000
+```
+
+Las variables exportadas en la terminal tienen prioridad sobre `.env`, porque
+`load_dotenv` no sobrescribe las que ya existen. Por ejemplo, para ejecutar
+solo las pruebas contra otra base:
+
+```bash
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://... uv run pytest
+```
+
+En un despliegue no se usa `.env`: se configuran las mismas variables en el
+panel del proveedor o en el entorno del proceso. La cadena de conexión cambia
+a la del PostgreSQL de producción (por ejemplo, Neon) y el secreto debe ser
+propio de ese entorno.
+
 > Si falta `CUENTAS_CLARAS_DB_URL` o el secreto es corto, el servidor no
 > arranca. Es intencional: el error aparece al iniciar y no en la primera
 > petición.
 
-## Endpoint
+## Endpoints
 
 ### `GET /ping`
 
@@ -143,6 +234,56 @@ curl http://localhost:8000/ping
 
 En PowerShell, usa `curl.exe` en lugar de `curl`. También se puede
 abrir `http://localhost:8000/ping` directamente en el navegador.
+
+### Endpoints del contrato de la Entrega 5
+
+El contrato completo está en [`openapi.yaml`](openapi.yaml). Además de `/ping`,
+define estos endpoints para la identidad de las personas usuarias:
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `POST /usuarios` | Registro. Crea la persona usuaria y devuelve sus datos sin contraseña ni hash. | `201`; `400` si los datos no son válidos; `409` si el correo o el nombre de usuario ya existen. |
+| `POST /sesiones` | Inicio de sesión. Con credenciales válidas entrega un JWT (`Authorization: Bearer <token>`). | `200`; `400` si falta correo o contraseña; `401` si las credenciales no son correctas. |
+| `GET /usuarios/yo` | Perfil de la persona autenticada. Requiere el token en la cabecera `Authorization`. | `200`; `401` si el token falta, es inválido o está vencido. |
+
+La vigencia del token la fija `CUENTAS_CLARAS_MINUTOS_TOKEN` y el secreto con
+el que se firma es `CUENTAS_CLARAS_SECRETO_JWT`.
+
+Forma de los errores:
+
+- `400` y `409`: `{"errores": [{"campo": "...", "mensaje": "..."}]}`.
+- `401`: `{"mensaje": "..."}`.
+- Los mensajes nunca repiten el valor enviado ni incluyen la contraseña.
+
+> **Estado de implementación:** hoy `main.py` solo expone `/ping`. Los tres
+> endpoints de identidad están definidos en el contrato y tienen el repositorio
+> de PostgreSQL preparado, pero todavía no están conectados. Cuando se
+> implementen, esta sección y `/openapi.json` deben coincidir con
+> `openapi.yaml`.
+
+## HTTP en local y HTTPS en despliegue (RNF-06)
+
+En desarrollo se usa **HTTP** porque el servidor escucha únicamente en la
+máquina local (`http://localhost:8000`) y el tráfico no sale de ella:
+
+```bash
+uv run uvicorn main:app --reload --port 8000
+```
+
+**Cualquier despliegue exige HTTPS** (RNF-06), incluido un entorno de pruebas
+accesible por red. El correo, la contraseña y el token de sesión nunca deben
+viajar por HTTP sin cifrar.
+
+- La aplicación cliente debe apuntar a una URL `https://...`, no a
+  `http://...`.
+- `uvicorn` por sí solo no termina TLS. En producción se coloca detrás de un
+  proxy con certificado (Caddy, Nginx) o se usa el TLS que ofrece la plataforma
+  de despliegue.
+- No se permite contenido mixto: si la interfaz se sirve por HTTPS, todas las
+  llamadas al servidor también deben ser HTTPS.
+- El certificado debe ser válido y estar vigente; una redirección permanente
+  de HTTP a HTTPS en el borde es la forma habitual de cerrar la entrada sin
+  cifrar.
 
 ## Documentación interactiva
 
@@ -247,7 +388,9 @@ servidor/
 │   ├── test_main.py            # Pruebas automatizadas de /ping
 │   ├── test_configuracion.py   # Pruebas de las variables de entorno
 │   └── test_repositorio_usuarios.py  # Pruebas de PostgreSQL (opcionales)
+├── .env                        # Configuración local (no se versiona)
 ├── .env.example                # Plantilla de configuración
+├── .postgres/                  # Clúster PostgreSQL local generado (no se versiona)
 ├── openapi.yaml                # Contrato de la API
 ├── pyproject.toml              # Dependencias y configuración de pytest, ruff y mypy
 ├── uv.lock                     # Versiones fijadas de todas las dependencias
