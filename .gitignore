@@ -329,6 +329,9 @@ debug/
 .venv/
 __pycache__/
 *.pyc
+
+# Clúster PostgreSQL local del servidor (servidor/scripts/base_datos_local.sh)
+servidor/.postgres/
 # Base de usuarios del servidor (desarrollo)
 servidor/usuarios.db
 servidor/usuarios.db-journal

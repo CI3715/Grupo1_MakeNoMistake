@@ -11,6 +11,8 @@ están en [ADR-010](../docs/adr/ADR-010-sesion-con-token-firmado.md).
 ## Prerrequisitos
 
 - [uv](https://docs.astral.sh/uv/) 0.12 o superior
+- PostgreSQL 17 (puedes usar el clúster local incluido, que necesita los
+  binarios de PostgreSQL instalados)
 - Git
 
 `uv` se encarga de instalar y gestionar la versión de Python que
@@ -81,6 +83,169 @@ Para detenerlo, presiona `Ctrl + C`.
 
 > El puerto es 8000 (y no 3000) para no chocar con Next.js, que usa el
 > 3000 por defecto en desarrollo.
+>
+> La primera vez necesitas configurar PostgreSQL y el archivo `.env`; lo
+> explica la sección «Base de datos y configuración» más abajo.
+
+## Base de datos y configuración
+
+El servidor usa PostgreSQL 17 y crea la tabla `usuarios` al arrancar. Toda la
+configuración se lee de variables de entorno; el archivo `servidor/.env` no se
+sube a Git.
+
+### Dónde se colocan las variables
+
+El archivo debe estar en **`servidor/.env`**, junto a `main.py`, porque
+`configuracion.py` carga exactamente esa ruta. No sirve ponerlo en la raíz del
+repositorio ni dentro de `app/`: el servidor no lo leería.
+
+1. Copia la plantilla y ajusta los valores:
+
+```bash
+   cp .env.example .env
+   chmod 600 .env
+```
+
+2. Si no tienes PostgreSQL configurado, levanta el clúster local incluido.
+   Crea la base de desarrollo y la de pruebas en el puerto 55432, sin Docker
+   ni permisos de superusuario:
+
+```bash
+   bash scripts/base_datos_local.sh iniciar
+```
+
+   Para detenerlo:
+
+```bash
+   bash scripts/base_datos_local.sh detener
+```
+
+3. Arranca el servidor:
+
+```bash
+   uv run uvicorn main:app --reload --port 8000
+```
+
+### Variables de entorno
+
+| Variable | Obligatoria | Valor por defecto | Para qué sirve |
+|---|---|---|---|
+| `CUENTAS_CLARAS_DB_URL` | Sí | — | Cadena de conexión a PostgreSQL (`postgresql://usuario:clave@host:puerto/base`). |
+| `CUENTAS_CLARAS_SECRETO_JWT` | Sí | — | Secreto para firmar los JWT. Mínimo 32 caracteres. |
+| `CUENTAS_CLARAS_MINUTOS_TOKEN` | No | `60` | Vigencia del token en minutos. |
+| `CUENTAS_CLARAS_DB_URL_PRUEBAS` | No | — | Base para las pruebas de integración del repositorio. Si falta, se omiten. |
+| `CUENTAS_CLARAS_DB_USUARIO` | Solo script local | — | Usuario con el que el script crea el rol del clúster local. |
+| `CUENTAS_CLARAS_DB_CLAVE` | Solo script local | — | Clave de ese usuario. |
+
+#### `CUENTAS_CLARAS_DB_URL` (obligatoria)
+
+Indica a qué PostgreSQL se conecta el servidor. Formato:
+
+```text
+postgresql://usuario:clave@host:puerto/base
+```
+
+Con el clúster local incluido:
+
+```env
+CUENTAS_CLARAS_DB_URL=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras
+```
+
+Si usas un PostgreSQL propio en el puerto habitual, cambia el puerto a `5432`
+y el resto de datos de conexión. Si esta variable falta o está vacía, el
+servidor no arranca.
+
+#### `CUENTAS_CLARAS_DB_USUARIO` y `CUENTAS_CLARAS_DB_CLAVE` (solo script local)
+
+El servidor no las lee. Las usa `scripts/base_datos_local.sh` para crear el
+rol y las bases del clúster local. Deben coincidir con el usuario y la clave
+de `CUENTAS_CLARAS_DB_URL`.
+
+El script las busca primero en el entorno y, si no están, en `servidor/.env`.
+Si faltan, se detiene con un mensaje claro en lugar de usar credenciales
+hardcodeadas.
+
+#### `CUENTAS_CLARAS_SECRETO_JWT` (obligatoria)
+
+Secreto con el que se firman y verifican los tokens de sesión. No es la
+contraseña de una persona usuaria: es una clave privada del servidor.
+
+- Mínimo **32 caracteres**.
+- Debe ser distinto en desarrollo y en un despliegue real.
+- No se comparte ni se sube a Git.
+
+Genera uno con:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+#### `CUENTAS_CLARAS_MINUTOS_TOKEN` (opcional)
+
+Vigencia de los tokens en minutos. Se expresa como número entero positivo. Si
+se omite, vale `60`:
+
+```env
+CUENTAS_CLARAS_MINUTOS_TOKEN=60
+```
+
+#### `CUENTAS_CLARAS_DB_URL_PRUEBAS` (opcional, solo pruebas)
+
+Base que usan las pruebas de integración del repositorio. Apunta a una base
+separada, porque las pruebas vacían la tabla `usuarios`:
+
+```env
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras_pruebas
+```
+
+Si no la defines, `uv run pytest` sigue funcionando y las pruebas de
+integración se omiten.
+
+### Ejemplo de `.env` local
+
+```env
+CUENTAS_CLARAS_DB_URL=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras_pruebas
+CUENTAS_CLARAS_DB_USUARIO=usuario
+CUENTAS_CLARAS_DB_CLAVE=clave
+CUENTAS_CLARAS_SECRETO_JWT=<secreto-generado-de-al-menos-32-caracteres>
+CUENTAS_CLARAS_MINUTOS_TOKEN=60
+```
+
+### Cómo arrancar el servidor con estas variables
+
+No hace falta exportar nada si usas `servidor/.env`: `configuracion.py` lo
+carga automáticamente al iniciar. El orden es:
+
+```bash
+cd servidor
+cp .env.example .env      # solo la primera vez; después edita .env
+chmod 600 .env
+bash scripts/base_datos_local.sh iniciar
+uv run uvicorn main:app --reload --port 8000
+```
+
+El script del clúster local lee `CUENTAS_CLARAS_DB_USUARIO` y
+`CUENTAS_CLARAS_DB_CLAVE` de `.env` o del entorno, y crea el rol con esas
+credenciales. Deben coincidir con las de `CUENTAS_CLARAS_DB_URL`; si faltan,
+el script se detiene con un mensaje claro.
+
+Las variables exportadas en la terminal tienen prioridad sobre `.env`, porque
+`load_dotenv` no sobrescribe las que ya existen. Por ejemplo, para ejecutar
+solo las pruebas contra otra base:
+
+```bash
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://... uv run pytest
+```
+
+En un despliegue no se usa `.env`: se configuran las mismas variables en el
+panel del proveedor o en el entorno del proceso. La cadena de conexión cambia
+a la del PostgreSQL de producción (por ejemplo, Neon) y el secreto debe ser
+propio de ese entorno.
+
+> Si falta `CUENTAS_CLARAS_DB_URL` o el secreto es corto, el servidor no
+> arranca. Es intencional: el error aparece al iniciar y no en la primera
+> petición.
 
 ## Endpoints
 
@@ -144,6 +309,56 @@ curl http://localhost:8000/ping
 
 En PowerShell, usa `curl.exe` en lugar de `curl`. También se puede
 abrir `http://localhost:8000/ping` directamente en el navegador.
+
+### Endpoints del contrato de la Entrega 5
+
+El contrato completo está en [`openapi.yaml`](openapi.yaml). Además de `/ping`,
+define estos endpoints para la identidad de las personas usuarias:
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `POST /usuarios` | Registro. Crea la persona usuaria y devuelve sus datos sin contraseña ni hash. | `201`; `400` si los datos no son válidos; `409` si el correo o el nombre de usuario ya existen. |
+| `POST /sesiones` | Inicio de sesión. Con credenciales válidas entrega un JWT (`Authorization: Bearer <token>`). | `200`; `400` si falta correo o contraseña; `401` si las credenciales no son correctas. |
+| `GET /usuarios/yo` | Perfil de la persona autenticada. Requiere el token en la cabecera `Authorization`. | `200`; `401` si el token falta, es inválido o está vencido. |
+
+La vigencia del token la fija `CUENTAS_CLARAS_MINUTOS_TOKEN` y el secreto con
+el que se firma es `CUENTAS_CLARAS_SECRETO_JWT`.
+
+Forma de los errores:
+
+- `400` y `409`: `{"errores": [{"campo": "...", "mensaje": "..."}]}`.
+- `401`: `{"mensaje": "..."}`.
+- Los mensajes nunca repiten el valor enviado ni incluyen la contraseña.
+
+> **Estado de implementación:** hoy `main.py` solo expone `/ping`. Los tres
+> endpoints de identidad están definidos en el contrato y tienen el repositorio
+> de PostgreSQL preparado, pero todavía no están conectados. Cuando se
+> implementen, esta sección y `/openapi.json` deben coincidir con
+> `openapi.yaml`.
+
+## HTTP en local y HTTPS en despliegue (RNF-06)
+
+En desarrollo se usa **HTTP** porque el servidor escucha únicamente en la
+máquina local (`http://localhost:8000`) y el tráfico no sale de ella:
+
+```bash
+uv run uvicorn main:app --reload --port 8000
+```
+
+**Cualquier despliegue exige HTTPS** (RNF-06), incluido un entorno de pruebas
+accesible por red. El correo, la contraseña y el token de sesión nunca deben
+viajar por HTTP sin cifrar.
+
+- La aplicación cliente debe apuntar a una URL `https://...`, no a
+  `http://...`.
+- `uvicorn` por sí solo no termina TLS. En producción se coloca detrás de un
+  proxy con certificado (Caddy, Nginx) o se usa el TLS que ofrece la plataforma
+  de despliegue.
+- No se permite contenido mixto: si la interfaz se sirve por HTTPS, todas las
+  llamadas al servidor también deben ser HTTPS.
+- El certificado debe ser válido y estar vigente; una redirección permanente
+  de HTTP a HTTPS en el borde es la forma habitual de cerrar la entrada sin
+  cifrar.
 
 ## Documentación interactiva
 
@@ -221,6 +436,20 @@ Para `/ping` (`test_main.py`) comprueban que:
 - `POST /ping` es rechazado con `405` (el endpoint es de solo lectura);
 - `/docs` y `/openapi.json` están disponibles y documentan `/ping`.
 
+Además, `tests/test_configuracion.py` comprueba que el servidor rechaza una
+configuración incompleta o inválida, y `tests/test_repositorio_usuarios.py`
+prueba el repositorio contra PostgreSQL: correo en minúsculas, búsqueda sin
+distinguir mayúsculas, duplicados por campo y creación idempotente del esquema.
+Estas últimas se omiten si no defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que
+`uv run pytest` funcione en un clon limpio sin base de datos.
+
+Con el clúster local, ejecútalas así:
+
+```bash
+   bash scripts/base_datos_local.sh iniciar
+   CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras_pruebas uv run pytest
+```
+
 ### Configuración
 
 La configuración de `pytest`, `ruff` y `mypy` está en `pyproject.toml`.
@@ -231,28 +460,35 @@ de desarrollo en el grupo `dev` de `[dependency-groups]`, también en
 [ADR-003](../docs/adr/ADR-003-herramientas-de-calidad-servidor.md).
 
 ## Estructura
-
 ```
 servidor/
-├── main.py                # Aplicación FastAPI, rutas y manejador de errores 400
-├── reglas.py              # Reglas de registro (funciones puras)
-├── contrasenas.py         # Hash argon2id y hash falso
-├── token_sesion.py        # Crear y verificar el JWT; lee JWT_SECRET y JWT_MINUTOS
-├── bd.py                  # Tabla de usuarios en SQLite
-├── openapi.yaml           # Contrato de la API, escrito a mano
+├── main.py                            # Aplicación FastAPI, rutas y manejo de errores
+├── configuracion.py                   # Lectura y validación de variables de entorno
+├── base_datos.py                      # Conexión a PostgreSQL y creación del esquema
+├── repositorio_usuarios.py            # Consultas de la tabla usuarios
+├── reglas.py                          # Reglas de registro (funciones puras)
+├── contrasenas.py                     # Hash argon2id y hash falso
+├── token_sesion.py                    # Creación y verificación del JWT
+├── scripts/
+│   └── base_datos_local.sh            # Clúster PostgreSQL local para desarrollo
 ├── tests/
-│   ├── conftest.py        # Secreto de prueba y base temporal por prueba
-│   ├── test_main.py       # /ping y documentación
-│   ├── test_reglas.py
-│   ├── test_seguridad.py
-│   ├── test_registro.py
-│   └── test_sesion.py
-├── pyproject.toml         # Dependencias y configuración de pytest, ruff y mypy
-├── uv.lock                # Versiones fijadas de todas las dependencias
-├── .python-version        # Versión de Python que usa uv
+│   ├── conftest.py                    # Fixtures: secreto de prueba y base temporal
+│   ├── test_main.py                   # /ping y documentación
+│   ├── test_configuracion.py          # Variables de entorno
+│   ├── test_repositorio_usuarios.py   # PostgreSQL (se omiten sin CUENTAS_CLARAS_DB_URL_PRUEBAS)
+│   ├── test_reglas.py                 # Reglas de registro
+│   ├── test_seguridad.py              # Hash de contraseñas
+│   ├── test_registro.py               # Registro de usuarios
+│   └── test_sesion.py                 # Inicio de sesión y JWT
+├── .env                               # Configuración local (no se versiona)
+├── .env.example                       # Plantilla de configuración
+├── .postgres/                         # Clúster PostgreSQL local generado (no se versiona)
+├── openapi.yaml                       # Contrato de la API
+├── pyproject.toml                     # Dependencias y configuración de pytest, ruff y mypy
+├── uv.lock                            # Versiones fijadas de todas las dependencias
+├── .python-version                    # Versión de Python que usa uv
 └── README.md
 ```
-
 ## Problemas comunes
 
 - **`uvicorn` no se reconoce como comando:** usa siempre
