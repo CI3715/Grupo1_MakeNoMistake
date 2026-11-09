@@ -15,6 +15,10 @@ import contrasenas
 import reglas
 import token_sesion
 
+from base_datos import BaseDatos
+from configuracion import cargar_configuracion
+from repositorio_usuarios import RepositorioUsuarios
+
 VERSION = "0.1.0"
 FORMATO_FECHA = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -42,6 +46,27 @@ app = FastAPI(title="Cuentas Claras API", version=VERSION, lifespan=ciclo_de_vid
 esquema_bearer = HTTPBearer(auto_error=False, scheme_name="tokenBearer")
 
 
+
+@asynccontextmanager
+async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
+    """Prepara la base de datos al arrancar y la deja disponible en `app.state`.
+
+    Si falta configuración o PostgreSQL no responde, el servidor no arranca.
+    El esquema es idempotente: se puede ejecutar en cada inicio.
+    """
+
+    configuracion = cargar_configuracion()
+    base_datos = BaseDatos(configuracion.url_base_datos)
+    base_datos.crear_esquema()
+
+    app.state.configuracion = configuracion
+    app.state.base_datos = base_datos
+    app.state.repositorio_usuarios = RepositorioUsuarios(base_datos)
+
+    yield
+
+
+app = FastAPI(title="Cuentas Claras API", version=VERSION, lifespan=ciclo_de_vida)
 # ---------------------------------------------------------------- Modelos
 
 
