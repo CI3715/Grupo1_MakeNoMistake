@@ -329,3 +329,6 @@ debug/
 .venv/
 __pycache__/
 *.pyc
+# Base de usuarios del servidor (desarrollo)
+servidor/usuarios.db
+servidor/usuarios.db-journal

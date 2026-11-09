@@ -1,168 +1,138 @@
-"""Pruebas unitarias de seguridad, criptografía y aislamiento INV-16.
+"""Pruebas unitarias del hash de contraseñas, del token firmado y de INV-16."""
 
-Verifica RNF-05 (argon2id con sal única, contraseñas no recuperables),
-RF-SOC-02/RES-07 (tokens JWT seguros) e INV-16 (aislamiento de datos financieros).
-"""
-
+import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import jwt
 import pytest
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
-from base_datos import (
-    buscar_usuario_por_correo,
-    buscar_usuario_por_id,
-    buscar_usuario_por_nombre,
-    conectar,
-    inicializar_base_datos,
-    insertar_usuario,
-)
+import bd
+import contrasenas
+import token_sesion
 from main import app
-from seguridad import (
-    TokenInvalidoError,
-    TokenVencidoError,
-    crear_token_sesion,
-    decodificar_token_sesion,
-    hashear_contrasena,
-    verificar_contrasena,
-)
+
+# ---------------------------------------------------------------- Hash
 
 
-def test_hash_usa_argon2id_con_sal_unica() -> None:
-    """Verifica que el hash usa argon2id y sal única por ejecución."""
-    clave = "clave-segura-1234"
-    hash1 = hashear_contrasena(clave)
-    hash2 = hashear_contrasena(clave)
-
-    assert hash1.startswith("$argon2id$")
-    assert hash2.startswith("$argon2id$")
-    # Sal única: dos llamadas con la misma clave generan hashes distintos
-    assert hash1 != hash2
+def test_hash_es_argon2id_y_verifica() -> None:
+    hash_ = contrasenas.hashear("una-clave-larga-123")
+    assert hash_.startswith("$argon2id$")
+    assert "una-clave-larga-123" not in hash_
+    assert contrasenas.verificar(hash_, "una-clave-larga-123")
+    assert not contrasenas.verificar(hash_, "otra-clave-larga-123")
 
 
-def test_contrasena_guardada_no_es_recuperable() -> None:
-    """Comprueba que el hash es unidireccional y no contiene la clave (RNF-05)."""
-    clave = "mi-clave-super-secreta-4321"
-    hash_generado = hashear_contrasena(clave)
-
-    assert clave not in hash_generado
-    assert verificar_contrasena(clave, hash_generado) is True
-    assert verificar_contrasena("otra-clave-diferente", hash_generado) is False
-    assert verificar_contrasena(clave.upper(), hash_generado) is False
-
-
-def test_creacion_y_validacion_token_jwt() -> None:
-    """Crea un token JWT válido y comprueba la extracción del usuario_id."""
-    usuario_id = "usr-uuid-5678"
-    token, vence_en = crear_token_sesion(usuario_id, minutos=30)
-
-    assert isinstance(token, str) and len(token) > 0
-    assert isinstance(vence_en, str) and "T" in vence_en and vence_en.endswith("Z")
-
-    usuario_recuperado = decodificar_token_sesion(token)
-    assert usuario_recuperado == usuario_id
-
-
-def test_token_vencido_lanza_excepcion() -> None:
-    """Un token con fecha de expiración en el pasado produce TokenVencidoError."""
-    token_vencido, _ = crear_token_sesion("usr-expirado", minutos=-10)
-    with pytest.raises(TokenVencidoError):
-        decodificar_token_sesion(token_vencido)
-
-
-def test_token_alterado_o_invalido_lanza_excepcion() -> None:
-    """Un token manipulado produce TokenInvalidoError."""
-    token_valido, _ = crear_token_sesion("usr-valido", minutos=15)
-    token_corrupto = token_valido[:-4] + "ZZZZ"
-    with pytest.raises(TokenInvalidoError):
-        decodificar_token_sesion(token_corrupto)
-
-
-def test_token_firmado_con_otro_secreto_lanza_excepcion() -> None:
-    """Un token firmado con una clave secreta ajena produce TokenInvalidoError."""
-    token_ajeno, _ = crear_token_sesion(
-        "usr-ajeno",
-        secreto="otro-secreto-totalmente-distinto-y-muy-largo-para-pruebas",
-    )
-    with pytest.raises(TokenInvalidoError):
-        decodificar_token_sesion(token_ajeno)
-
-
-def test_base_datos_insercion_y_consultas(bd_prueba: Path) -> None:
-    """Prueba la creación de un usuario y su búsqueda por ID, nombre y correo."""
-    usuario = insertar_usuario(
-        id_usuario="usr-1",
-        nombre_usuario="juan.perez",
-        nombre_visible="Juan Pérez",
-        correo="juan@example.com",
-        hash_contrasena=hashear_contrasena("clave-juan-123"),
-        fecha_alta="2026-11-09T12:00:00Z",
-        ruta=bd_prueba,
+def test_hash_tiene_sal_unica() -> None:
+    assert contrasenas.hashear("misma-clave-123") != contrasenas.hashear(
+        "misma-clave-123"
     )
 
-    assert usuario["id"] == "usr-1"
-    assert usuario["correo"] == "juan@example.com"
 
-    por_id = buscar_usuario_por_id("usr-1", ruta=bd_prueba)
-    assert por_id is not None
-    assert por_id["nombre_usuario"] == "juan.perez"
-
-    por_nombre = buscar_usuario_por_nombre("juan.perez", ruta=bd_prueba)
-    assert por_nombre is not None
-    assert por_nombre["id"] == "usr-1"
-
-    por_correo_mayus = buscar_usuario_por_correo("JUAN@EXAMPLE.COM", ruta=bd_prueba)
-    assert por_correo_mayus is not None
-    assert por_correo_mayus["id"] == "usr-1"
+def test_verificar_hash_malformado_devuelve_false() -> None:
+    assert not contrasenas.verificar("no-es-un-hash", "lo-que-sea-123")
 
 
-def test_base_datos_unicidad_nombre_usuario_y_correo(bd_prueba: Path) -> None:
-    """Verifica que la base rechaza nombres de usuario o correos duplicados."""
-    insertar_usuario(
-        id_usuario="usr-1",
-        nombre_usuario="pedro",
-        nombre_visible="Pedro",
-        correo="pedro@example.com",
-        hash_contrasena=hashear_contrasena("clave-123456"),
-        fecha_alta="2026-11-09T12:00:00Z",
-        ruta=bd_prueba,
-    )
+def test_hash_falso_no_coincide_con_nada_comun() -> None:
+    assert contrasenas.HASH_FALSO.startswith("$argon2id$")
+    assert not contrasenas.verificar(contrasenas.HASH_FALSO, "")
+    assert not contrasenas.verificar(contrasenas.HASH_FALSO, "clave-segura-1234")
 
-    # Nombre de usuario repetido
-    with pytest.raises(sqlite3.IntegrityError):
-        insertar_usuario(
-            id_usuario="usr-2",
-            nombre_usuario="pedro",
-            nombre_visible="Otro Pedro",
-            correo="pedro2@example.com",
-            hash_contrasena=hashear_contrasena("clave-123456"),
-            fecha_alta="2026-11-09T12:00:00Z",
-            ruta=bd_prueba,
-        )
 
-    # Correo repetido (incluso con diferente combinación de mayúsculas)
-    with pytest.raises(sqlite3.IntegrityError):
-        insertar_usuario(
-            id_usuario="usr-3",
-            nombre_usuario="pedro3",
-            nombre_visible="Tercer Pedro",
-            correo="PEDRO@EXAMPLE.COM",
-            hash_contrasena=hashear_contrasena("clave-123456"),
-            fecha_alta="2026-11-09T12:00:00Z",
-            ruta=bd_prueba,
-        )
+# ---------------------------------------------------------------- Token
+
+
+def test_token_ida_y_vuelta() -> None:
+    emitido = token_sesion.crear_token("usuario-1")
+    assert token_sesion.verificar_token(emitido.token) == "usuario-1"
+
+
+def test_token_vence_segun_jwt_minutos(monkeypatch: pytest.MonkeyPatch) -> None:
+    ahora = datetime(2026, 11, 9, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    monkeypatch.setenv("JWT_MINUTOS", "1")
+    emitido = token_sesion.crear_token("u", ahora=ahora)
+    assert emitido.vence_en == datetime(2026, 11, 9, 12, 1, 0, tzinfo=timezone.utc)
+
+
+def test_token_60_minutos_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JWT_MINUTOS")
+    ahora = datetime(2026, 11, 9, 12, 0, 0, tzinfo=timezone.utc)
+    emitido = token_sesion.crear_token("u", ahora=ahora)
+    assert emitido.vence_en - ahora == timedelta(minutes=60)
+
+
+def test_token_alterado_se_rechaza() -> None:
+    token = token_sesion.crear_token("usuario-1").token
+    cabecera, carga, firma = token.split(".")
+    otra_carga = jwt.utils.base64url_encode(b'{"sub":"usuario-2","exp":9999999999}')
+    alterado = f"{cabecera}.{otra_carga.decode()}.{firma}"
+    assert token_sesion.verificar_token(alterado) is None
+
+
+def test_token_vencido_se_rechaza() -> None:
+    hace_dos_horas = datetime.now(timezone.utc) - timedelta(hours=2)
+    token = token_sesion.crear_token("u", ahora=hace_dos_horas).token
+    assert token_sesion.verificar_token(token) is None
+
+
+def test_token_con_otro_secreto_se_rechaza(monkeypatch: pytest.MonkeyPatch) -> None:
+    token = token_sesion.crear_token("u").token
+    monkeypatch.setenv("JWT_SECRET", "otro-secreto-igual-de-largo-que-el-de-prueba")
+    assert token_sesion.verificar_token(token) is None
+
+
+def test_token_algoritmo_none_se_rechaza() -> None:
+    vence = datetime.now(timezone.utc) + timedelta(minutes=5)
+    token = jwt.encode({"sub": "u", "exp": vence}, key=None, algorithm="none")
+    assert token_sesion.verificar_token(token) is None
+
+
+def test_token_sin_sub_se_rechaza() -> None:
+    vence = datetime.now(timezone.utc) + timedelta(minutes=5)
+    token = jwt.encode({"exp": vence}, os.environ["JWT_SECRET"], algorithm="HS256")
+    assert token_sesion.verificar_token(token) is None
+
+
+@pytest.mark.parametrize("secreto", [None, "", "corto"])
+def test_secreto_obligatorio_y_sin_valor_por_defecto(
+    monkeypatch: pytest.MonkeyPatch, secreto: str | None
+) -> None:
+    if secreto is None:
+        monkeypatch.delenv("JWT_SECRET")
+    else:
+        monkeypatch.setenv("JWT_SECRET", secreto)
+    with pytest.raises(token_sesion.ConfiguracionInvalida):
+        token_sesion.crear_token("u")
+
+
+@pytest.mark.parametrize("minutos", ["0", "-5", "uno"])
+def test_minutos_invalidos(monkeypatch: pytest.MonkeyPatch, minutos: str) -> None:
+    monkeypatch.setenv("JWT_MINUTOS", minutos)
+    with pytest.raises(token_sesion.ConfiguracionInvalida):
+        token_sesion.comprobar_configuracion()
+
+
+def test_servidor_no_arranca_sin_secreto(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JWT_SECRET")
+    with pytest.raises(token_sesion.ConfiguracionInvalida), TestClient(app):
+        pass
+
+
+# ---------------------------------------------------------------- INV-16
 
 
 def test_servidor_respeta_inv16_sin_tablas_financieras(bd_prueba: Path) -> None:
     """Verifica que la base del servidor no contenga tablas financieras (INV-16)."""
-    inicializar_base_datos(bd_prueba)
-    with conectar(bd_prueba) as conn:
+    bd.inicializar()
+    with sqlite3.connect(bd.ruta_bd()) as conn:
         cursor = conn.execute(
             "SELECT name FROM sqlite_master "
             "WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
         )
-        tablas = [fila["name"] for fila in cursor.fetchall()]
+        tablas = [fila[0] for fila in cursor.fetchall()]
 
     assert tablas == ["usuarios"]
     prohibidas = {
