@@ -19,7 +19,8 @@ info:
       Nunca repiten el valor enviado (la contraseña no aparece en ningún error).
     - **401** devuelve `{"mensaje": ...}`.
     - Los nombres de campo son `nombre_usuario`, `nombre_visible`, `correo` y
-      `contrasena`.
+      `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON).
+    - Nunca se responde 422: los errores de tipo también son 400 por campo.
  
     ## Fechas
 
@@ -334,7 +335,10 @@ components:
       properties:
         campo:
           type: string
-          enum: [nombre_usuario, nombre_visible, correo, contrasena]
+          enum: [nombre_usuario, nombre_visible, correo, contrasena, cuerpo]
+          description: >-
+            Campo que falla. `cuerpo` solo aparece si el cuerpo de la petición no
+            es un objeto JSON.
         mensaje:
           type: string
           description: En español, sin trazas técnicas y sin el valor enviado.

@@ -12,3 +12,4 @@ Este directorio contiene las Architecture Decision Records (ADRs) del proyecto.
 - [ADR-006: Almacenamiento Local de Eventos con SQLite y rusqlite](./ADR-006-almacenamiento-sqlite.md)
 - [ADR-008: Modelado de tasas de cambio, monedas configurables y consolidación con redondeo único](./ADR-008-tasa-moneda-base-y-consolidacion.md)
 - [ADR-009: Base de datos del servidor con PostgreSQL](./ADR-009-base-de-datos-del-servidor.md)
+- [ADR-010: Sesión con token firmado, vigencia configurable y mensaje idéntico ante credenciales incorrectas](./ADR-010-sesion-con-token-firmado.md)
