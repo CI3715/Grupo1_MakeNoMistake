@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -14,7 +15,6 @@ import bd
 import contrasenas
 import reglas
 import token_sesion
-
 from base_datos import BaseDatos
 from configuracion import cargar_configuracion
 from repositorio_usuarios import RepositorioUsuarios
@@ -33,40 +33,27 @@ MENSAJE_DUPLICADO = {
 
 
 @asynccontextmanager
-async def ciclo_de_vida(_: FastAPI) -> AsyncIterator[None]:
-    # Sin secreto válido el servidor no arranca: mejor fallar aquí que al
-    # emitir el primer token.
+async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
+    """Inicializa la sesión y bases de datos al arrancar."""
     token_sesion.comprobar_configuracion()
     bd.inicializar()
+
+    url_pg = os.environ.get("CUENTAS_CLARAS_DB_URL")
+    if url_pg:
+        configuracion = cargar_configuracion()
+        base_datos = BaseDatos(configuracion.url_base_datos)
+        base_datos.crear_esquema()
+
+        app.state.configuracion = configuracion
+        app.state.base_datos = base_datos
+        app.state.repositorio_usuarios = RepositorioUsuarios(base_datos)
+
     yield
 
 
 app = FastAPI(title="Cuentas Claras API", version=VERSION, lifespan=ciclo_de_vida)
 
 esquema_bearer = HTTPBearer(auto_error=False, scheme_name="tokenBearer")
-
-
-
-@asynccontextmanager
-async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
-    """Prepara la base de datos al arrancar y la deja disponible en `app.state`.
-
-    Si falta configuración o PostgreSQL no responde, el servidor no arranca.
-    El esquema es idempotente: se puede ejecutar en cada inicio.
-    """
-
-    configuracion = cargar_configuracion()
-    base_datos = BaseDatos(configuracion.url_base_datos)
-    base_datos.crear_esquema()
-
-    app.state.configuracion = configuracion
-    app.state.base_datos = base_datos
-    app.state.repositorio_usuarios = RepositorioUsuarios(base_datos)
-
-    yield
-
-
-app = FastAPI(title="Cuentas Claras API", version=VERSION, lifespan=ciclo_de_vida)
 # ---------------------------------------------------------------- Modelos
 
 

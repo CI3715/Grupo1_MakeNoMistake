@@ -33,7 +33,11 @@ class TokenEmitido:
 
 
 def leer_secreto() -> str:
-    secreto = os.environ.get("JWT_SECRET", "")
+    secreto = (
+        os.environ.get("JWT_SECRET")
+        or os.environ.get("CUENTAS_CLARAS_SECRETO_JWT")
+        or ""
+    )
     if len(secreto) < LONGITUD_MINIMA_SECRETO:
         raise ConfiguracionInvalida(
             "La variable de entorno JWT_SECRET es obligatoria y debe tener "
@@ -43,7 +47,12 @@ def leer_secreto() -> str:
 
 
 def leer_minutos() -> int:
-    texto = os.environ.get("JWT_MINUTOS", "").strip()
+    env_minutos = (
+        os.environ.get("JWT_MINUTOS")
+        or os.environ.get("CUENTAS_CLARAS_MINUTOS_TOKEN")
+        or ""
+    )
+    texto = env_minutos.strip()
     if texto == "":
         return MINUTOS_POR_DEFECTO
     try:
