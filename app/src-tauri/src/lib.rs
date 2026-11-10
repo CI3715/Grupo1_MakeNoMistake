@@ -2,6 +2,7 @@ mod cuentas;
 mod dto;
 mod movimientos;
 mod ping;
+mod sesion;
 mod tasas;
 
 use std::sync::{Arc, Mutex};
@@ -46,6 +47,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             ping::ping_servidor,
+            sesion::registrar_usuario,
+            sesion::iniciar_sesion,
+            sesion::obtener_perfil,
+            sesion::cerrar_sesion,
+            sesion::estado_sesion,
             cuentas::listar_monedas,
             cuentas::listar_cuentas,
             cuentas::crear_cuenta,
