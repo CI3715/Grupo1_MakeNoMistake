@@ -1,12 +1,16 @@
-"""Pruebas unitarias del hash de contraseñas y del token firmado."""
+"""Pruebas unitarias del hash de contraseñas, del token firmado y de INV-16."""
 
 import os
+import sqlite3
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import jwt
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+import bd
 import contrasenas
 import token_sesion
 from main import app
@@ -115,3 +119,46 @@ def test_servidor_no_arranca_sin_secreto(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.delenv("JWT_SECRET")
     with pytest.raises(token_sesion.ConfiguracionInvalida), TestClient(app):
         pass
+
+
+# ---------------------------------------------------------------- INV-16
+
+
+def test_servidor_respeta_inv16_sin_tablas_financieras(bd_prueba: Path) -> None:
+    """Verifica que la base del servidor no contenga tablas financieras (INV-16)."""
+    bd.inicializar()
+    with sqlite3.connect(bd.ruta_bd()) as conn:
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
+        )
+        tablas = [fila[0] for fila in cursor.fetchall()]
+
+    assert tablas == ["usuarios"]
+    prohibidas = {
+        "cuentas",
+        "movimientos",
+        "saldos",
+        "tasas",
+        "categorias",
+        "patrimonio",
+    }
+    assert set(tablas).isdisjoint(prohibidas)
+
+
+def test_servidor_respeta_inv16_en_rutas_expuestas() -> None:
+    """Verifica que las rutas de FastAPI no expongan entidades financieras (INV-16)."""
+    rutas = [ruta.path for ruta in app.routes if isinstance(ruta, APIRoute)]
+    terminos_prohibidos = [
+        "cuenta",
+        "movimiento",
+        "saldo",
+        "tasa",
+        "categoria",
+        "patrimonio",
+    ]
+    for ruta in rutas:
+        for termino in terminos_prohibidos:
+            assert termino not in ruta.lower(), (
+                f"Ruta {ruta} viola INV-16 con término {termino}"
+            )
