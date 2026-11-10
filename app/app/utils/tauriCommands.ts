@@ -324,3 +324,237 @@ export async function cerrarSesionCommand(): Promise<void> {
 export async function estadoSesionCommand(): Promise<SesionDto> {
   return await invoke<SesionDto>('estado_sesion');
 }
+
+// ---------- Comandos: amistades, grupos y gastos compartidos (Entrega 6) ----------
+// Montos y porcentajes viajan como TEXTO con punto decimal ("100.00"). A las personas
+// se las identifica por su nombre de usuario; nunca viaja el correo ni nada del libro
+// personal (cuentas, movimientos, saldos, tasas). Los errores llegan como ErroresDto.
+
+export type RespuestaInvitacion = 'aceptar' | 'rechazar';
+export type EstadoInvitacion = 'pendiente' | 'aceptada' | 'rechazada';
+export type RolGrupo = 'administrador' | 'miembro';
+export type ReglaDivision = 'partes_iguales' | 'porcentajes' | 'montos_fijos';
+
+// --- Personas y amistades ---
+
+export interface BuscarUsuarioPayload {
+  usuario: string;
+}
+
+export interface UsuarioPublicoDto {
+  nombre_usuario: string;
+  nombre_visible: string;
+}
+
+export interface InvitarAmigoPayload {
+  usuario: string;
+}
+
+export interface ResponderAmistadPayload {
+  amistad_id: string;
+  respuesta: RespuestaInvitacion;
+}
+
+export interface AmigoDto {
+  amistad_id: string;
+  usuario: UsuarioPublicoDto;
+}
+
+export interface InvitacionAmistadDto {
+  id: string;
+  /** La otra persona: a quien se invitó (enviadas) o quien invitó (recibidas). */
+  usuario: UsuarioPublicoDto;
+  estado: EstadoInvitacion;
+}
+
+export interface ListaAmistadesDto {
+  amigos: AmigoDto[];
+  enviadas: InvitacionAmistadDto[];
+  recibidas: InvitacionAmistadDto[];
+}
+
+// --- Grupos y miembros ---
+
+export interface NuevoGrupoPayload {
+  nombre: string;
+  /** Opcional ("" si no hay). */
+  descripcion: string;
+  /** Código de 3 letras. */
+  moneda: string;
+  /** Fecha o actividad asociada, por ejemplo "Viaje a Mérida, marzo". */
+  actividad: string;
+}
+
+export interface GrupoResumenDto {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  moneda: string;
+  actividad: string;
+  rol: RolGrupo;
+  cantidad_miembros: number;
+}
+
+export interface InvitacionGrupoDto {
+  grupo_id: string;
+  nombre: string;
+  moneda: string;
+  actividad: string;
+  invitado_por: UsuarioPublicoDto;
+}
+
+export interface ListaGruposDto {
+  grupos: GrupoResumenDto[];
+  invitaciones: InvitacionGrupoDto[];
+}
+
+export interface InvitarAlGrupoPayload {
+  grupo_id: string;
+  usuario: string;
+}
+
+export interface InvitadoDto {
+  usuario: string;
+  nombre_visible: string;
+  estado: EstadoInvitacion;
+}
+
+export interface ResponderInvitacionGrupoPayload {
+  grupo_id: string;
+  respuesta: RespuestaInvitacion;
+}
+
+// --- Gastos compartidos y división ---
+
+export interface ParticipantePayload {
+  usuario: string;
+  /** Porcentaje ("50") o monto ("40.00") según la regla; "" en partes iguales. */
+  valor: string;
+}
+
+export interface NuevoGastoGrupoPayload {
+  grupo_id: string;
+  concepto: string;
+  monto: string;
+  /** AAAA-MM-DD */
+  fecha: string;
+  /** Nombre de usuario de un miembro del grupo. */
+  pagador: string;
+  regla: ReglaDivision;
+  participantes: ParticipantePayload[];
+}
+
+export interface ParteDto {
+  usuario: string;
+  monto: string;
+  /** Verdadero si recibió céntimos del residuo («incluye 0,01 de redondeo»). */
+  incluye_redondeo: boolean;
+}
+
+export interface GastoGrupoDto {
+  id: string;
+  concepto: string;
+  monto: string;
+  fecha: string;
+  pagador: string;
+  regla: ReglaDivision;
+  partes: ParteDto[];
+}
+
+export interface PrevisualizarDivisionPayload {
+  monto: string;
+  regla: ReglaDivision;
+  participantes: ParticipantePayload[];
+}
+
+export interface PrevisualizacionDivisionDto {
+  /** Vacío si no cuadra. */
+  partes: ParteDto[];
+  /** Suma de los céntimos de residuo repartidos ("0.01"). */
+  residuo: string;
+  cuadra: boolean;
+  /** Mensaje exacto si no cuadra: «Los porcentajes suman 95; faltan 5.» */
+  diferencia: string | null;
+}
+
+// --- Detalle del grupo ---
+
+export interface MiembroDto {
+  usuario: string;
+  nombre_visible: string;
+  rol: RolGrupo;
+}
+
+export interface BalanceDto {
+  usuario: string;
+  pago: string;
+  le_corresponde: string;
+  /** Positivo: le deben; negativo ("-48.33"): debe. La suma de todos es "0.00". */
+  balance: string;
+}
+
+export interface GrupoDetalleDto {
+  grupo: GrupoResumenDto;
+  miembros: MiembroDto[];
+  gastos: GastoGrupoDto[];
+  balances: BalanceDto[];
+}
+
+// --- Llamadas a los comandos ---
+
+export async function buscarUsuarioCommand(datos: BuscarUsuarioPayload): Promise<UsuarioPublicoDto> {
+  return await invoke<UsuarioPublicoDto>('buscar_usuario', { datos });
+}
+
+export async function invitarAmigoCommand(datos: InvitarAmigoPayload): Promise<InvitacionAmistadDto> {
+  return await invoke<InvitacionAmistadDto>('invitar_amigo', { datos });
+}
+
+export async function responderAmistadCommand(
+  datos: ResponderAmistadPayload
+): Promise<InvitacionAmistadDto> {
+  return await invoke<InvitacionAmistadDto>('responder_amistad', { datos });
+}
+
+export async function listarAmistadesCommand(): Promise<ListaAmistadesDto> {
+  return await invoke<ListaAmistadesDto>('listar_amistades');
+}
+
+export async function eliminarAmistadCommand(amistadId: string): Promise<void> {
+  return await invoke<void>('eliminar_amistad', { amistad_id: amistadId });
+}
+
+export async function crearGrupoCommand(datos: NuevoGrupoPayload): Promise<GrupoResumenDto> {
+  return await invoke<GrupoResumenDto>('crear_grupo', { datos });
+}
+
+export async function listarGruposCommand(): Promise<ListaGruposDto> {
+  return await invoke<ListaGruposDto>('listar_grupos');
+}
+
+export async function invitarAlGrupoCommand(datos: InvitarAlGrupoPayload): Promise<InvitadoDto> {
+  return await invoke<InvitadoDto>('invitar_al_grupo', { datos });
+}
+
+export async function responderInvitacionGrupoCommand(
+  datos: ResponderInvitacionGrupoPayload
+): Promise<GrupoResumenDto> {
+  return await invoke<GrupoResumenDto>('responder_invitacion_grupo', { datos });
+}
+
+export async function registrarGastoGrupoCommand(
+  datos: NuevoGastoGrupoPayload
+): Promise<GastoGrupoDto> {
+  return await invoke<GastoGrupoDto>('registrar_gasto_grupo', { datos });
+}
+
+export async function verGrupoCommand(grupoId: string): Promise<GrupoDetalleDto> {
+  return await invoke<GrupoDetalleDto>('ver_grupo', { grupo_id: grupoId });
+}
+
+/** Cálculo local con decimales exactos; no usa la red. */
+export async function previsualizarDivisionCommand(
+  datos: PrevisualizarDivisionPayload
+): Promise<PrevisualizacionDivisionDto> {
+  return await invoke<PrevisualizacionDivisionDto>('previsualizar_division', { datos });
+}
