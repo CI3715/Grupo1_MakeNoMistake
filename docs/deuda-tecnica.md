@@ -21,3 +21,12 @@
 * Impacto si no se paga: RNF-11 (soporte multiplataforma en Windows, Linux y Android desde la misma base de código) y ESC-11 no se cumplen. Problemas específicos de móviles (rutas del almacenamiento de datos local, adaptación de pantalla a 360px) aparecerían tarde en el ciclo.
 * Cómo resolverla: Instalar la cadena de herramientas de Android, ejecutar `cargo tauri android init`, ajustar `app_data_dir` para plataformas móviles y crear el flujo de integración continua `release.yml` con firma digital del APK — estimación: 6 h
 * Condición de disparo: Antes de la entrega que exija instaladores publicados (Release), o antes de la entrega final.
+## Respaldo del almacén de secretos (Entrega 5)
+
+La sesión (token, vencimiento y nombre visible) se guarda con el crate `keyring`
+(Secret Service en Linux, Keychain en macOS, Credential Manager en Windows). Si el
+sistema no lo ofrece (por ejemplo, Linux sin servicio de secretos activo), la app
+guarda el mismo JSON en `sesion.json` dentro del directorio de datos de la app, con
+permisos 0600 en Unix. Ese archivo no está cifrado: es la deuda. El token vence en
+60 minutos, lo que limita el riesgo. Mejora pendiente: cifrar el archivo o exigir el
+almacén del sistema.
