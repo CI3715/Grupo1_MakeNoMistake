@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { DatosInicioSesion, DatosRegistro } from '../types/sesion';
 
 /*
  * Capa de comandos: es el único lugar del frontend que conoce los nombres de los
@@ -283,4 +284,43 @@ export async function crearMonedaCommand(datos: NuevaMonedaPayload): Promise<Mon
 /** `fecha` vacía significa «hoy» (lo resuelve el backend). */
 export async function consultarPatrimonioCommand(fecha: string): Promise<PatrimonioDto> {
   return await invoke<PatrimonioDto>('consultar_patrimonio', { datos: { fecha } });
+}
+
+// ---------- Comandos: registro e inicio de sesión (Entrega 5) ----------
+// El token nunca llega a la interfaz: se queda en Rust y en el almacén de secretos.
+
+export type EstadoSesion = 'sin_sesion' | 'vigente' | 'vencida';
+
+export interface SesionDto {
+  estado: EstadoSesion;
+  nombre_visible: string | null;
+  vence_en: string | null;
+}
+
+export interface UsuarioDto {
+  id: string;
+  nombre_usuario: string;
+  nombre_visible: string;
+  correo: string;
+  fecha_alta: string;
+}
+
+export async function registrarUsuarioCommand(datos: DatosRegistro): Promise<UsuarioDto> {
+  return await invoke<UsuarioDto>('registrar_usuario', { datos });
+}
+
+export async function iniciarSesionCommand(datos: DatosInicioSesion): Promise<SesionDto> {
+  return await invoke<SesionDto>('iniciar_sesion', { datos });
+}
+
+export async function obtenerPerfilCommand(): Promise<UsuarioDto> {
+  return await invoke<UsuarioDto>('obtener_perfil');
+}
+
+export async function cerrarSesionCommand(): Promise<void> {
+  await invoke<void>('cerrar_sesion');
+}
+
+export async function estadoSesionCommand(): Promise<SesionDto> {
+  return await invoke<SesionDto>('estado_sesion');
 }
