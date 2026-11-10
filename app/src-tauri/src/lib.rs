@@ -1,8 +1,10 @@
 mod cuentas;
 mod dto;
+mod dto_social;
 mod movimientos;
 mod ping;
 mod sesion;
+mod social;
 mod tasas;
 
 use std::sync::{Arc, Mutex};
@@ -52,6 +54,18 @@ pub fn run() {
             sesion::obtener_perfil,
             sesion::cerrar_sesion,
             sesion::estado_sesion,
+            social::buscar_usuario,
+            social::invitar_amigo,
+            social::responder_amistad,
+            social::listar_amistades,
+            social::eliminar_amistad,
+            social::crear_grupo,
+            social::listar_grupos,
+            social::invitar_al_grupo,
+            social::responder_invitacion_grupo,
+            social::registrar_gasto_grupo,
+            social::ver_grupo,
+            social::previsualizar_division,
             cuentas::listar_monedas,
             cuentas::listar_cuentas,
             cuentas::crear_cuenta,
