@@ -54,28 +54,22 @@ Todos los comandos se ejecutan desde la carpeta `servidor/`.
 
 ## Configuración
 
-El servidor se configura con variables de entorno:
+El servidor se configura con variables de entorno, normalmente en
+`servidor/.env`. Las obligatorias son `CUENTAS_CLARAS_DB_URL` (PostgreSQL) y
+`CUENTAS_CLARAS_SECRETO_JWT`; la lista completa y cómo crear el `.env` están
+en «Base de datos y configuración», más abajo.
 
-| Variable | Obligatoria | Por defecto | Uso |
-|---|---|---|---|
-| `JWT_SECRET` | Sí | (ninguno) | Secreto para firmar los tokens. Al menos 32 caracteres. Sin él, el servidor no arranca. |
-| `JWT_MINUTOS` | No | `60` | Vigencia del token en minutos. Usa `1` para la demostración del vencimiento. |
-| `BD_USUARIOS_PATH` | No | `usuarios.db` | Archivo SQLite de usuarios (se crea solo). |
-
-Nunca subas el secreto al repositorio. Para generar uno:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
+`JWT_SECRET` y `JWT_MINUTOS`, los nombres anteriores, se siguen aceptando para
+firmar el token y, si están definidos, tienen prioridad sobre
+`CUENTAS_CLARAS_SECRETO_JWT` y `CUENTAS_CLARAS_MINUTOS_TOKEN`. Aun así,
+`CUENTAS_CLARAS_SECRETO_JWT` es obligatoria para arrancar.
 
 ## Ejecutar en modo desarrollo
 
 ```bash
-   export JWT_SECRET="<el secreto generado>"
+   bash scripts/base_datos_local.sh iniciar   # si usas el clúster local
    uv run uvicorn main:app --reload --port 8000
 ```
-
-En PowerShell: `$env:JWT_SECRET = "<el secreto generado>"`.
 
 El servidor queda disponible en `http://localhost:8000`. La opción
 `--reload` reinicia el servidor automáticamente al guardar cambios.
@@ -414,8 +408,10 @@ uv audit
 ### Qué verifican las pruebas
 
 Las pruebas usan el `TestClient` de FastAPI, así que no hace falta
-levantar el servidor. `tests/conftest.py` pone un secreto de prueba y una
-base SQLite temporal distinta para cada prueba.
+levantar el servidor. `tests/conftest.py` pone un secreto de prueba y da a
+cada prueba un almacén de usuarios en memoria nuevo
+(`tests/repositorio_en_memoria.py`), que imita al repositorio de PostgreSQL.
+Así las pruebas de las rutas corren sin base de datos.
 
 - `test_reglas.py`: reglas de registro, sin HTTP ni base.
 - `test_seguridad.py`: hash argon2id (sal única) y token (alterado,
@@ -440,7 +436,11 @@ Además, `tests/test_configuracion.py` comprueba que el servidor rechaza una
 configuración incompleta o inválida, y `tests/test_repositorio_usuarios.py`
 prueba el repositorio contra PostgreSQL: correo en minúsculas, búsqueda sin
 distinguir mayúsculas, duplicados por campo y creación idempotente del esquema.
-Estas últimas se omiten si no defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que
+`tests/test_integracion_postgres.py` arranca la app conectada a PostgreSQL y
+recorre registro, inicio de sesión y perfil: fecha en UTC aunque la base use
+otra zona horaria, 409 con todos los campos repetidos, duplicado detectado por
+la restricción `UNIQUE` y que la base solo tenga la tabla `usuarios` (INV-16).
+Estas dos se omiten si no defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que
 `uv run pytest` funcione en un clon limpio sin base de datos.
 
 Con el clúster local, ejecútalas así:
@@ -472,12 +472,14 @@ servidor/
 ├── scripts/
 │   └── base_datos_local.sh            # Clúster PostgreSQL local para desarrollo
 ├── tests/
-│   ├── conftest.py                    # Fixtures: secreto de prueba y base temporal
+│   ├── conftest.py                    # Fixtures: secreto de prueba y almacén en memoria
+│   ├── repositorio_en_memoria.py      # Almacén de usuarios falso para las rutas
 │   ├── test_main.py                   # /ping y documentación
 │   ├── test_configuracion.py          # Variables de entorno
 │   ├── test_repositorio_usuarios.py   # PostgreSQL (se omiten sin CUENTAS_CLARAS_DB_URL_PRUEBAS)
+│   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL (ídem)
 │   ├── test_reglas.py                 # Reglas de registro
-│   ├── test_seguridad.py              # Hash de contraseñas
+│   ├── test_seguridad.py              # Hash, token, arranque e INV-16
 │   ├── test_registro.py               # Registro de usuarios
 │   └── test_sesion.py                 # Inicio de sesión y JWT
 ├── .env                               # Configuración local (no se versiona)
