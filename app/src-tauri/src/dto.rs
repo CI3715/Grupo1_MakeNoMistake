@@ -745,7 +745,6 @@ pub struct IniciarSesionDto {
 /// Estado de la sesión del dispositivo.
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)] // Vigente y Vencida se construyen al conectar la sesión real
 pub enum EstadoSesion {
     SinSesion,
     Vigente,
