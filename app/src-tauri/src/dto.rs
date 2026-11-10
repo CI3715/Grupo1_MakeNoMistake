@@ -712,3 +712,60 @@ mod tests {
         );
     }
 }
+
+// ---------- Entrega 5: registro e inicio de sesión ----------
+//
+// - Las estructuras con contraseña NO derivan `Debug`: así ningún `{:?}`,
+//   `dbg!` ni log puede imprimirla (RNF-05).
+// - El token nunca llega a la interfaz: se queda en Rust y en el almacén de
+//   secretos. La interfaz solo recibe el estado de la sesión.
+
+/// Formulario de registro (y cuerpo de POST /usuarios).
+#[derive(Deserialize, Serialize)]
+pub struct RegistroDto {
+    #[serde(default)]
+    pub nombre_usuario: String,
+    #[serde(default)]
+    pub nombre_visible: String,
+    #[serde(default)]
+    pub correo: String,
+    #[serde(default)]
+    pub contrasena: String,
+}
+
+/// Formulario de inicio de sesión (y cuerpo de POST /sesiones).
+#[derive(Deserialize, Serialize)]
+pub struct IniciarSesionDto {
+    #[serde(default)]
+    pub correo: String,
+    #[serde(default)]
+    pub contrasena: String,
+}
+
+/// Estado de la sesión del dispositivo.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[allow(dead_code)] // Vigente y Vencida se construyen al conectar la sesión real
+pub enum EstadoSesion {
+    SinSesion,
+    Vigente,
+    Vencida,
+}
+
+/// Lo único de la sesión que ve la interfaz (nunca el token).
+#[derive(Serialize, Debug, Clone)]
+pub struct SesionDto {
+    pub estado: EstadoSesion,
+    pub nombre_visible: Option<String>,
+    pub vence_en: Option<String>,
+}
+
+/// Usuario que devuelven el registro y el perfil (nunca lleva contraseña ni hash).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsuarioDto {
+    pub id: String,
+    pub nombre_usuario: String,
+    pub nombre_visible: String,
+    pub correo: String,
+    pub fecha_alta: String,
+}
