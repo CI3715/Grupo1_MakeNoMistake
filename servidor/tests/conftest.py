@@ -1,38 +1,51 @@
 """Fixtures y configuración compartida para las pruebas del servidor.
 
-Provee aislamiento de base de datos SQLite por prueba, variables de entorno
-falsas para JWT y clientes de prueba tipados.
+Cada prueba recibe un almacén de usuarios en memoria nuevo, variables de
+entorno falsas para el JWT y un cliente de pruebas. Las pruebas contra
+PostgreSQL real están en ``test_repositorio_usuarios.py`` y
+``test_integracion_postgres.py``.
 """
 
 from collections.abc import Generator
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from repositorio_en_memoria import RepositorioEnMemoria
 
 from main import app
 
 SECRETO_PRUEBA = "secreto-de-prueba-muy-seguro-para-la-entrega-5"
 MINUTOS_PRUEBA = 60
 
-
-@pytest.fixture(autouse=True)
-def entorno_prueba(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> Generator[None, None, None]:
-    """Configura las variables de entorno de prueba para aislar cada ejecución."""
-    ruta_bd = tmp_path / "usuarios_prueba.db"
-    monkeypatch.setenv("JWT_SECRET", SECRETO_PRUEBA)
-    monkeypatch.setenv("JWT_MINUTOS", str(MINUTOS_PRUEBA))
-    monkeypatch.setenv("BD_USUARIOS_PATH", str(ruta_bd))
-    monkeypatch.setenv("SQLITE_DB_PATH", str(ruta_bd))
-    yield
+# Variables que pueden llegar desde servidor/.env (algunas pruebas lo cargan) y
+# que cambiarían el resultado de las pruebas de configuración del token.
+VARIABLES_AJENAS = (
+    "CUENTAS_CLARAS_DB_URL",
+    "CUENTAS_CLARAS_SECRETO_JWT",
+    "CUENTAS_CLARAS_MINUTOS_TOKEN",
+)
 
 
 @pytest.fixture
-def bd_prueba(tmp_path: Path) -> Path:
-    """Retorna la ruta al archivo de base de datos temporal de la prueba."""
-    return tmp_path / "usuarios_prueba.db"
+def repositorio_falso() -> RepositorioEnMemoria:
+    """Almacén en memoria que usan las rutas durante la prueba."""
+    return RepositorioEnMemoria()
+
+
+@pytest.fixture(autouse=True)
+def entorno_prueba(
+    monkeypatch: pytest.MonkeyPatch, repositorio_falso: RepositorioEnMemoria
+) -> Generator[None, None, None]:
+    """Aísla cada prueba: entorno propio y ninguna conexión a PostgreSQL."""
+    for variable in VARIABLES_AJENAS:
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("JWT_SECRET", SECRETO_PRUEBA)
+    monkeypatch.setenv("JWT_MINUTOS", str(MINUTOS_PRUEBA))
+    # Con un almacén ya presente, el arranque de la app no abre conexiones.
+    monkeypatch.setattr(
+        app.state, "repositorio_usuarios", repositorio_falso, raising=False
+    )
+    yield
 
 
 @pytest.fixture
