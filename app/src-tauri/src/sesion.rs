@@ -432,3 +432,6 @@ pub async fn cerrar_sesion(app: tauri::AppHandle) -> Result<(), ErroresDto> {
 pub async fn estado_sesion(app: tauri::AppHandle) -> Result<SesionDto, ErroresDto> {
     Ok(estado(&almacen_de(&app)?, &ahora_iso()))
 }
+
+#[cfg(test)]
+mod pruebas;
