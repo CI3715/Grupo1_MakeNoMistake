@@ -54,38 +54,10 @@ Todos los comandos se ejecutan desde la carpeta `servidor/`.
 
 ## Configuración
 
-El servidor se configura con variables de entorno:
-
-| Variable | Obligatoria | Por defecto | Uso |
-|---|---|---|---|
-| `JWT_SECRET` | Sí | (ninguno) | Secreto para firmar los tokens. Al menos 32 caracteres. Sin él, el servidor no arranca. |
-| `JWT_MINUTOS` | No | `60` | Vigencia del token en minutos. Usa `1` para la demostración del vencimiento. |
-| `BD_USUARIOS_PATH` | No | `usuarios.db` | Archivo SQLite de usuarios (se crea solo). |
-
-Nunca subas el secreto al repositorio. Para generar uno:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-## Ejecutar en modo desarrollo
-
-```bash
-   export JWT_SECRET="<el secreto generado>"
-   uv run uvicorn main:app --reload --port 8000
-```
-
-En PowerShell: `$env:JWT_SECRET = "<el secreto generado>"`.
-
-El servidor queda disponible en `http://localhost:8000`. La opción
-`--reload` reinicia el servidor automáticamente al guardar cambios.
-Para detenerlo, presiona `Ctrl + C`.
-
-> El puerto es 8000 (y no 3000) para no chocar con Next.js, que usa el
-> 3000 por defecto en desarrollo.
->
-> La primera vez necesitas configurar PostgreSQL y el archivo `.env`; lo
-> explica la sección «Base de datos y configuración» más abajo.
+El servidor se configura con variables de entorno y necesita PostgreSQL
+para arrancar. La lista completa de variables, los valores de ejemplo y los
+pasos para iniciarlo están en la sección
+[Base de datos y configuración](#base-de-datos-y-configuración).
 
 ## Base de datos y configuración
 
@@ -414,8 +386,9 @@ uv audit
 ### Qué verifican las pruebas
 
 Las pruebas usan el `TestClient` de FastAPI, así que no hace falta
-levantar el servidor. `tests/conftest.py` pone un secreto de prueba y una
-base SQLite temporal distinta para cada prueba.
+levantar el servidor. `tests/conftest.py` pone un secreto de prueba y usa la
+base PostgreSQL de pruebas, vaciando la tabla `usuarios` antes de cada prueba
+que toca el servidor.
 
 - `test_reglas.py`: reglas de registro, sin HTTP ni base.
 - `test_seguridad.py`: hash argon2id (sal única) y token (alterado,
@@ -440,8 +413,9 @@ Además, `tests/test_configuracion.py` comprueba que el servidor rechaza una
 configuración incompleta o inválida, y `tests/test_repositorio_usuarios.py`
 prueba el repositorio contra PostgreSQL: correo en minúsculas, búsqueda sin
 distinguir mayúsculas, duplicados por campo y creación idempotente del esquema.
-Estas últimas se omiten si no defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que
-`uv run pytest` funcione en un clon limpio sin base de datos.
+Las pruebas que tocan PostgreSQL se omiten si no defines
+`CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en un clon
+limpio sin base de datos.
 
 Con el clúster local, ejecútalas así:
 

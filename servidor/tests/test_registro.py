@@ -4,21 +4,20 @@ Cubre los requerimientos RF-SOC-01, RNF-05, INV-16 y los criterios de la
 sección 3 de la especificación de la Entrega 5.
 """
 
-import sqlite3
-from pathlib import Path
-
 from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 
+from base_datos import BaseDatos
 
-def hash_guardado(bd_prueba: Path, nombre_usuario: str) -> str:
-    with sqlite3.connect(bd_prueba) as conexion:
+
+def hash_guardado(base_datos: BaseDatos, nombre_usuario: str) -> str:
+    with base_datos.conexion() as conexion:
         fila = conexion.execute(
-            "SELECT hash_contrasena FROM usuarios WHERE nombre_usuario = ?",
+            "SELECT hash_contrasena FROM usuarios WHERE nombre_usuario = %s",
             (nombre_usuario,),
         ).fetchone()
     assert fila is not None
-    return str(fila[0])
+    return str(fila["hash_contrasena"])
 
 
 def test_registro_valido_retorna_201_y_datos_sin_contrasena(
@@ -295,7 +294,7 @@ def test_registro_correo_repetido_distinta_capitalizacion_retorna_409(
 
 
 def test_registro_contrasena_guardada_como_hash_argon2id_con_sal_unica(
-    cliente: TestClient, bd_prueba: Path
+    cliente: TestClient, base_datos_prueba: BaseDatos
 ) -> None:
     """Misma contraseña produce hashes distintos en usuarios diferentes."""
     cuerpo1 = {
@@ -315,15 +314,15 @@ def test_registro_contrasena_guardada_como_hash_argon2id_con_sal_unica(
     assert resp1.status_code == 201
     assert resp2.status_code == 201
 
-    hash1 = hash_guardado(bd_prueba, "usuario.uno")
-    hash2 = hash_guardado(bd_prueba, "usuario.dos")
+    hash1 = hash_guardado(base_datos_prueba, "usuario.uno")
+    hash2 = hash_guardado(base_datos_prueba, "usuario.dos")
     assert hash1.startswith("$argon2id$")
     assert hash2.startswith("$argon2id$")
     assert hash1 != hash2
 
 
 def test_registro_contrasena_guardada_no_es_recuperable(
-    cliente: TestClient, bd_prueba: Path
+    cliente: TestClient, base_datos_prueba: BaseDatos
 ) -> None:
     """La contraseña almacenada es un hash unidireccional y no puede descifrarse."""
     cuerpo = {
@@ -335,7 +334,7 @@ def test_registro_contrasena_guardada_no_es_recuperable(
     resp = cliente.post("/usuarios", json=cuerpo)
     assert resp.status_code == 201
 
-    guardado = hash_guardado(bd_prueba, "carlos.ruiz")
+    guardado = hash_guardado(base_datos_prueba, "carlos.ruiz")
     assert "clave-super-secreta-1234" not in guardado
     assert PasswordHasher().verify(guardado, "clave-super-secreta-1234")
 

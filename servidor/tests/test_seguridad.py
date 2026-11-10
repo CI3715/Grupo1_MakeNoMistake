@@ -1,18 +1,16 @@
 """Pruebas unitarias del hash de contraseñas, del token firmado y de INV-16."""
 
 import os
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import jwt
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-import bd
 import contrasenas
 import token_sesion
+from base_datos import BaseDatos
 from main import app
 
 # ---------------------------------------------------------------- Hash
@@ -100,8 +98,9 @@ def test_token_sin_sub_se_rechaza() -> None:
 def test_secreto_obligatorio_y_sin_valor_por_defecto(
     monkeypatch: pytest.MonkeyPatch, secreto: str | None
 ) -> None:
+    monkeypatch.delenv("CUENTAS_CLARAS_SECRETO_JWT", raising=False)
     if secreto is None:
-        monkeypatch.delenv("JWT_SECRET")
+        monkeypatch.delenv("JWT_SECRET", raising=False)
     else:
         monkeypatch.setenv("JWT_SECRET", secreto)
     with pytest.raises(token_sesion.ConfiguracionInvalida):
@@ -116,7 +115,8 @@ def test_minutos_invalidos(monkeypatch: pytest.MonkeyPatch, minutos: str) -> Non
 
 
 def test_servidor_no_arranca_sin_secreto(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("JWT_SECRET")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("CUENTAS_CLARAS_SECRETO_JWT", raising=False)
     with pytest.raises(token_sesion.ConfiguracionInvalida), TestClient(app):
         pass
 
@@ -124,15 +124,15 @@ def test_servidor_no_arranca_sin_secreto(monkeypatch: pytest.MonkeyPatch) -> Non
 # ---------------------------------------------------------------- INV-16
 
 
-def test_servidor_respeta_inv16_sin_tablas_financieras(bd_prueba: Path) -> None:
+def test_servidor_respeta_inv16_sin_tablas_financieras(
+    base_datos_prueba: BaseDatos,
+) -> None:
     """Verifica que la base del servidor no contenga tablas financieras (INV-16)."""
-    bd.inicializar()
-    with sqlite3.connect(bd.ruta_bd()) as conn:
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
-        )
-        tablas = [fila[0] for fila in cursor.fetchall()]
+    with base_datos_prueba.conexion() as conexion:
+        filas = conexion.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+        ).fetchall()
+    tablas = [str(fila["tablename"]) for fila in filas]
 
     assert tablas == ["usuarios"]
     prohibidas = {

@@ -1,8 +1,8 @@
-import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -11,13 +11,12 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
-import bd
 import contrasenas
 import reglas
 import token_sesion
 from base_datos import BaseDatos
 from configuracion import cargar_configuracion
-from repositorio_usuarios import RepositorioUsuarios
+from repositorio_usuarios import RepositorioUsuarios, Usuario, UsuarioDuplicado
 
 VERSION = "0.1.0"
 FORMATO_FECHA = "%Y-%m-%dT%H:%M:%SZ"
@@ -34,20 +33,15 @@ MENSAJE_DUPLICADO = {
 
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
-    """Inicializa la sesión y bases de datos al arrancar."""
+    """Valida la configuración y prepara PostgreSQL al arrancar."""
     token_sesion.comprobar_configuracion()
-    bd.inicializar()
+    configuracion = cargar_configuracion()
+    base_datos = BaseDatos(configuracion.url_base_datos)
+    base_datos.crear_esquema()
 
-    url_pg = os.environ.get("CUENTAS_CLARAS_DB_URL")
-    if url_pg:
-        configuracion = cargar_configuracion()
-        base_datos = BaseDatos(configuracion.url_base_datos)
-        base_datos.crear_esquema()
-
-        app.state.configuracion = configuracion
-        app.state.base_datos = base_datos
-        app.state.repositorio_usuarios = RepositorioUsuarios(base_datos)
-
+    app.state.configuracion = configuracion
+    app.state.base_datos = base_datos
+    app.state.repositorio_usuarios = RepositorioUsuarios(base_datos)
     yield
 
 
@@ -167,14 +161,31 @@ def no_autorizado(mensaje: str, con_desafio: bool) -> JSONResponse:
     )
 
 
-def a_respuesta(usuario: bd.Usuario) -> UsuarioRespuesta:
+def obtener_repositorio(request: Request) -> RepositorioUsuarios:
+    repositorio: RepositorioUsuarios = request.app.state.repositorio_usuarios
+    return repositorio
+
+
+Repositorio = Annotated[RepositorioUsuarios, Depends(obtener_repositorio)]
+
+
+def a_respuesta(usuario: Usuario) -> UsuarioRespuesta:
     return UsuarioRespuesta(
-        id=usuario.id,
+        id=str(usuario.id),
         nombre_usuario=usuario.nombre_usuario,
         nombre_visible=usuario.nombre_visible,
         correo=usuario.correo,
-        fecha_alta=usuario.fecha_alta,
+        fecha_alta=usuario.fecha_alta.astimezone(timezone.utc).strftime(FORMATO_FECHA),
     )
+
+
+def a_uuid(valor: str | None) -> UUID | None:
+    if valor is None:
+        return None
+    try:
+        return UUID(valor)
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------- Rutas
@@ -199,20 +210,22 @@ def ping() -> PingRespuesta:
     operation_id="registrarUsuario",
     responses={400: {"model": ErroresPorCampo}, 409: {"model": ErroresPorCampo}},
 )
-def registrar_usuario(cuerpo: RegistroUsuario) -> UsuarioRespuesta | JSONResponse:
+def registrar_usuario(
+    cuerpo: RegistroUsuario, repositorio: Repositorio
+) -> UsuarioRespuesta | JSONResponse:
     datos, errores = reglas.validar_registro(
         cuerpo.nombre_usuario, cuerpo.nombre_visible, cuerpo.correo, cuerpo.contrasena
     )
     if datos is None:
         return respuesta_errores(400, errores)
     try:
-        usuario = bd.crear_usuario(
+        usuario = repositorio.crear(
             nombre_usuario=datos.nombre_usuario,
             nombre_visible=datos.nombre_visible,
             correo=datos.correo,
             hash_contrasena=contrasenas.hashear(datos.contrasena),
         )
-    except bd.UsuarioDuplicado as duplicado:
+    except UsuarioDuplicado as duplicado:
         return respuesta_errores(
             409,
             [reglas.ErrorCampo(c, MENSAJE_DUPLICADO[c]) for c in duplicado.campos],
@@ -228,13 +241,15 @@ def registrar_usuario(cuerpo: RegistroUsuario) -> UsuarioRespuesta | JSONRespons
     operation_id="iniciarSesion",
     responses={400: {"model": ErroresPorCampo}, 401: {"model": ErrorMensaje}},
 )
-def iniciar_sesion(cuerpo: Credenciales) -> SesionRespuesta | JSONResponse:
+def iniciar_sesion(
+    cuerpo: Credenciales, repositorio: Repositorio
+) -> SesionRespuesta | JSONResponse:
     errores = reglas.validar_credenciales(cuerpo.correo, cuerpo.contrasena)
     if errores:
         return respuesta_errores(400, errores)
     assert cuerpo.correo is not None and cuerpo.contrasena is not None
 
-    usuario = bd.buscar_por_correo(reglas.normalizar_correo(cuerpo.correo))
+    usuario = repositorio.buscar_por_correo(reglas.normalizar_correo(cuerpo.correo))
     # Siempre se calcula un argon2, exista o no el usuario, para que el
     # tiempo de respuesta no revele qué correos están registrados.
     hash_a_comparar = usuario.hash_contrasena if usuario else contrasenas.HASH_FALSO
@@ -242,7 +257,7 @@ def iniciar_sesion(cuerpo: Credenciales) -> SesionRespuesta | JSONResponse:
     if usuario is None or not coincide:
         return no_autorizado(MENSAJE_CREDENCIALES, con_desafio=False)
 
-    emitido = token_sesion.crear_token(usuario.id)
+    emitido = token_sesion.crear_token(str(usuario.id))
     return SesionRespuesta(
         token=emitido.token,
         tipo="Bearer",
@@ -262,11 +277,12 @@ def obtener_perfil(
     credenciales: Annotated[
         HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
     ],
+    repositorio: Repositorio,
 ) -> UsuarioRespuesta | JSONResponse:
     if credenciales is None or credenciales.scheme.lower() != "bearer":
         return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
-    id_usuario = token_sesion.verificar_token(credenciales.credentials)
-    usuario = bd.buscar_por_id(id_usuario) if id_usuario else None
+    id_usuario = a_uuid(token_sesion.verificar_token(credenciales.credentials))
+    usuario = repositorio.buscar_por_id(id_usuario) if id_usuario else None
     if usuario is None:
         return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
     return a_respuesta(usuario)
