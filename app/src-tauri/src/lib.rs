@@ -6,6 +6,7 @@ mod ping;
 mod previsualizacion;
 mod sesion;
 mod social;
+mod social_fijo;
 mod tasas;
 
 use std::sync::{Arc, Mutex};

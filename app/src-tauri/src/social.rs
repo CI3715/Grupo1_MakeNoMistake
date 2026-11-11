@@ -1,11 +1,11 @@
 //! Comandos de amistades, grupos y gastos compartidos (Entrega 6).
 //!
-//! SOLO FIRMAS: todavía no hablan con el servidor ni devuelven datos fijos; cada
-//! comando responde «Esta función todavía no está disponible.». Existen para que
-//! la interfaz y los tipos de TypeScript puedan apoyarse en una forma acordada.
-//! Los comandos con datos fijos y los reales reemplazan estos cuerpos.
+//! VERSIÓN CON DATOS FIJOS: no hablan con el servidor; usan el simulador en memoria
+//! de `social_fijo.rs` (ver ese archivo para los datos de ejemplo y los nombres de
+//! usuario de prueba que disparan cada caso). `previsualizar_division` ya es el
+//! real: calcula en local con la división exacta del dominio.
 //!
-//! Rutas del servidor que usará cada comando:
+//! Rutas del servidor que usará cada comando cuando se conecten:
 //!   buscar_usuario                GET    /usuarios?usuario=<exacto>
 //!   invitar_amigo                 POST   /amistades
 //!   responder_amistad             POST   /amistades/{id}/respuesta
@@ -19,9 +19,6 @@
 //!   ver_grupo                     GET    /grupos/{id}
 //!   previsualizar_division        (local, sin red)
 
-// Los cuerpos todavía no leen sus argumentos.
-#![allow(unused_variables)]
-
 use crate::dto::ErroresDto;
 use crate::dto_social::{
     BuscarUsuarioDto, GastoGrupoDto, GrupoDetalleDto, GrupoResumenDto, InvitacionAmistadDto,
@@ -29,17 +26,18 @@ use crate::dto_social::{
     NuevoGastoGrupoDto, NuevoGrupoDto, PrevisualizacionDivisionDto, PrevisualizarDivisionDto,
     ResponderAmistadDto, ResponderInvitacionGrupoDto, UsuarioPublicoDto,
 };
+use crate::social_fijo::{self as fijo, con_estado};
 
 /// Busca por nombre de usuario exacto. Nunca devuelve el correo.
 #[tauri::command]
 pub async fn buscar_usuario(datos: BuscarUsuarioDto) -> Result<UsuarioPublicoDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    fijo::buscar(&datos)
 }
 
 /// Envía una invitación de amistad por nombre de usuario.
 #[tauri::command]
 pub async fn invitar_amigo(datos: InvitarAmigoDto) -> Result<InvitacionAmistadDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::invitar_amigo(e, &datos))
 }
 
 /// Acepta o rechaza una invitación de amistad recibida.
@@ -47,37 +45,37 @@ pub async fn invitar_amigo(datos: InvitarAmigoDto) -> Result<InvitacionAmistadDt
 pub async fn responder_amistad(
     datos: ResponderAmistadDto,
 ) -> Result<InvitacionAmistadDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::responder_amistad(e, &datos))
 }
 
 /// Amigos e invitaciones pendientes, enviadas y recibidas.
 #[tauri::command]
 pub async fn listar_amistades() -> Result<ListaAmistadesDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    Ok(con_estado(|e| fijo::listar_amistades(e)))
 }
 
 /// Elimina una amistad. No borra los grupos ni los gastos que ya comparten.
 #[tauri::command]
 pub async fn eliminar_amistad(amistad_id: String) -> Result<(), ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::eliminar_amistad(e, &amistad_id))
 }
 
 /// Crea un grupo; quien lo crea queda como miembro y administrador.
 #[tauri::command]
 pub async fn crear_grupo(datos: NuevoGrupoDto) -> Result<GrupoResumenDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::crear_grupo(e, &datos))
 }
 
 /// Mis grupos y mis invitaciones pendientes.
 #[tauri::command]
 pub async fn listar_grupos() -> Result<ListaGruposDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    Ok(con_estado(|e| fijo::listar_grupos(e)))
 }
 
 /// El administrador invita a un amigo al grupo.
 #[tauri::command]
 pub async fn invitar_al_grupo(datos: InvitarAlGrupoDto) -> Result<InvitadoDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::invitar_al_grupo(e, &datos))
 }
 
 /// El invitado acepta o rechaza la invitación al grupo.
@@ -85,19 +83,19 @@ pub async fn invitar_al_grupo(datos: InvitarAlGrupoDto) -> Result<InvitadoDto, E
 pub async fn responder_invitacion_grupo(
     datos: ResponderInvitacionGrupoDto,
 ) -> Result<GrupoResumenDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::responder_invitacion_grupo(e, &datos))
 }
 
 /// Registra un gasto del grupo; el servidor calcula y guarda la división.
 #[tauri::command]
 pub async fn registrar_gasto_grupo(datos: NuevoGastoGrupoDto) -> Result<GastoGrupoDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::registrar_gasto(e, &datos))
 }
 
 /// Miembros, gastos y balances de un grupo (solo para miembros).
 #[tauri::command]
 pub async fn ver_grupo(grupo_id: String) -> Result<GrupoDetalleDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    con_estado(|e| fijo::ver_grupo(e, &grupo_id))
 }
 
 /// Vista previa de la división con decimales exactos. No usa la red.
@@ -106,25 +104,4 @@ pub async fn previsualizar_division(
     datos: PrevisualizarDivisionDto,
 ) -> Result<PrevisualizacionDivisionDto, ErroresDto> {
     crate::previsualizacion::previsualizar(&datos)
-}
-
-#[cfg(test)]
-mod pruebas {
-    use super::*;
-
-    fn mensaje<T>(r: Result<T, ErroresDto>) -> String {
-        match r {
-            Ok(_) => panic!("se esperaba un error"),
-            Err(e) => e.errores[0].mensaje.clone(),
-        }
-    }
-
-    #[tokio::test]
-    async fn los_comandos_sin_conectar_responden_en_espanol_y_sin_campo() {
-        let esperado = "Esta función todavía no está disponible.";
-        assert_eq!(mensaje(listar_amistades().await), esperado);
-        assert_eq!(mensaje(listar_grupos().await), esperado);
-        assert_eq!(mensaje(ver_grupo("g1".into()).await), esperado);
-        assert_eq!(mensaje(eliminar_amistad("a1".into()).await), esperado);
-    }
 }
