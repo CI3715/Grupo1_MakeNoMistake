@@ -90,7 +90,7 @@ paths:
         "400":
           description: >-
             Datos inválidos: nombre de usuario fuera de formato, nombre visible
-            vacío, correo mal formado, contraseña de menos de 10 o más de 128
+            vacío, correo mal formado, contraseña de menos de 10
             caracteres, o campo ausente. Se informan todos los campos que fallan
             a la vez.
           content:
@@ -260,9 +260,8 @@ components:
           format: password
           writeOnly: true
           minLength: 10
-          maxLength: 128
           description: >-
-            Entre 10 y 128 caracteres. Se guarda solo como hash argon2id en una
+            Al menos 10 caracteres. Se guarda solo como hash argon2id en una
             columna `TEXT`. Nunca se devuelve ni se registra en logs.
           example: una-clave-larga-123
  
@@ -281,7 +280,6 @@ components:
           format: password
           writeOnly: true
           minLength: 1
-          maxLength: 128
           example: una-clave-larga-123
  
     Usuario:
