@@ -3,6 +3,7 @@ mod dto;
 mod dto_social;
 mod movimientos;
 mod ping;
+mod previsualizacion;
 mod sesion;
 mod social;
 mod tasas;

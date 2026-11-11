@@ -105,7 +105,7 @@ pub async fn ver_grupo(grupo_id: String) -> Result<GrupoDetalleDto, ErroresDto> 
 pub async fn previsualizar_division(
     datos: PrevisualizarDivisionDto,
 ) -> Result<PrevisualizacionDivisionDto, ErroresDto> {
-    Err(ErroresDto::no_implementado())
+    crate::previsualizacion::previsualizar(&datos)
 }
 
 #[cfg(test)]
