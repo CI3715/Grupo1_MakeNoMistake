@@ -743,7 +743,6 @@ dependencies = [
     { name = "starlette" },
     { name = "typing-extensions" },
     { name = "typing-inspection" },
-    { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "uvicorn" },
 ]
 
@@ -778,7 +777,6 @@ requires-dist = [
     { name = "starlette", specifier = "==1.7.0" },
     { name = "typing-extensions", specifier = "==4.16.0" },
     { name = "typing-inspection", specifier = "==0.4.4" },
-    { name = "tzdata", marker = "sys_platform == 'win32'", specifier = "==2026.6" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 

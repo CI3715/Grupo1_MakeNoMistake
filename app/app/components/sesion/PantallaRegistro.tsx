@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CampoRegistro, DatosRegistro, ErroresSesion } from '../../types/sesion';
 import { temaSesion } from '../../utils/temaSesion';
 import { CampoTexto } from './CampoTexto';
@@ -29,6 +29,14 @@ export const PantallaRegistro: React.FC<Props> = ({
   const [contrasena, setContrasena] = useState('');
   const tema = temaSesion(modoOscuro);
 
+  // Tras un error, el foco va al primer campo que falló.
+  useEffect(() => {
+    const primero = (['nombre_usuario', 'nombre_visible', 'correo', 'contrasena'] as const).find(
+      (c) => errores[c]
+    );
+    if (primero) document.getElementById(primero)?.focus();
+  }, [errores]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onEnviar?.({
@@ -53,6 +61,7 @@ export const PantallaRegistro: React.FC<Props> = ({
             etiqueta="Nombre de usuario"
             placeholder="ej. ana.perez"
             autoComplete="username"
+            autoFocus
             ayuda="Letras minúsculas, números, punto y guion bajo."
             valor={nombreUsuario}
             onCambio={setNombreUsuario}
@@ -107,7 +116,7 @@ export const PantallaRegistro: React.FC<Props> = ({
 
         <p className={`text-xs text-center mt-5 ${tema.textoSuave}`}>
           ¿Ya tienes usuario?{' '}
-          <button type="button" onClick={onIrAInicioSesion} className={`font-semibold underline cursor-pointer ${tema.textoEnlace}`}>
+          <button type="button" onClick={onIrAInicioSesion} className={`rounded font-semibold underline cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 ${tema.textoEnlace}`}>
             Iniciar sesión
           </button>
         </p>

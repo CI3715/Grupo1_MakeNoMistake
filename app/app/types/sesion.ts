@@ -20,3 +20,17 @@ export interface DatosInicioSesion {
   correo: string;
   contrasena: string;
 }
+
+// ---------- Sesión activa en la interfaz (Entrega 5, tareas B y C) ----------
+
+/** Pantallas del bloque de sesión. */
+export type VistaSesionCompleta = VistaSesion | 'perfil';
+
+/** Lo que la interfaz sabe de la sesión. El token nunca llega aquí: se queda en Rust. */
+export interface SesionUI {
+  /** «cargando»: todavía no se preguntó al núcleo al abrir la app. */
+  estado: 'cargando' | 'sin_sesion' | 'vigente' | 'vencida';
+  nombreVisible: string | null;
+  /** AAAA-MM-DDThh:mm:ssZ en UTC. */
+  venceEn: string | null;
+}

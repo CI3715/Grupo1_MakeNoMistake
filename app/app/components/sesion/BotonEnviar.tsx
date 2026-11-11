@@ -12,7 +12,7 @@ export const BotonEnviar: React.FC<Props> = ({ cargando, textoNormal, textoCarga
     type="submit"
     disabled={cargando}
     aria-busy={cargando}
-    className="w-full flex items-center justify-center gap-2 bg-[#9333EA] hover:bg-purple-600 disabled:opacity-70 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-xs font-semibold shadow-md transition cursor-pointer"
+    className="w-full flex items-center justify-center gap-2 bg-[#9333EA] hover:bg-purple-600 disabled:opacity-70 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-xs font-semibold shadow-md transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
   >
     {cargando && (
       <span
