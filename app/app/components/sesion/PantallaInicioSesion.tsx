@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CampoInicioSesion, DatosInicioSesion, ErroresSesion } from '../../types/sesion';
 import { temaSesion } from '../../utils/temaSesion';
 import { CampoTexto } from './CampoTexto';
@@ -11,6 +11,10 @@ interface Props {
   /** Errores por campo (y «general») que entrega quien conecta la pantalla. */
   errores?: ErroresSesion<CampoInicioSesion>;
   cargando?: boolean;
+  /** Correo con el que se rellena el campo (p. ej. el recién registrado). */
+  correoInicial?: string;
+  /** Mensaje informativo (p. ej. «Usuario creado»). */
+  aviso?: string;
   onEnviar?: (datos: DatosInicioSesion) => void;
   onIrARegistro: () => void;
 }
@@ -20,12 +24,20 @@ export const PantallaInicioSesion: React.FC<Props> = ({
   modoOscuro,
   errores = {},
   cargando = false,
+  correoInicial = '',
+  aviso,
   onEnviar,
   onIrARegistro,
 }) => {
-  const [correo, setCorreo] = useState('');
+  const [correo, setCorreo] = useState(correoInicial);
   const [contrasena, setContrasena] = useState('');
   const tema = temaSesion(modoOscuro);
+
+  // Tras un error, el foco va al primer campo que falló.
+  useEffect(() => {
+    const primero = (['correo', 'contrasena'] as const).find((c) => errores[c]);
+    if (primero) document.getElementById(primero)?.focus();
+  }, [errores]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +52,12 @@ export const PantallaInicioSesion: React.FC<Props> = ({
           Identifícate para usar las funciones compartidas. Tus cuentas y movimientos no salen de tu dispositivo.
         </p>
 
+        {aviso && (
+          <div role="status" className="mb-4 rounded-xl border border-emerald-700/50 bg-emerald-950/30 p-3 text-xs text-emerald-300">
+            {aviso}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <CampoTexto
             id="correo"
@@ -47,6 +65,7 @@ export const PantallaInicioSesion: React.FC<Props> = ({
             tipo="email"
             placeholder="tu@correo.com"
             autoComplete="email"
+            autoFocus={!correoInicial}
             valor={correo}
             onCambio={setCorreo}
             error={errores.correo}
@@ -58,6 +77,7 @@ export const PantallaInicioSesion: React.FC<Props> = ({
             etiqueta="Contraseña"
             tipo="password"
             autoComplete="current-password"
+            autoFocus={!!correoInicial}
             valor={contrasena}
             onCambio={setContrasena}
             error={errores.contrasena}
@@ -76,7 +96,7 @@ export const PantallaInicioSesion: React.FC<Props> = ({
 
         <p className={`text-xs text-center mt-5 ${tema.textoSuave}`}>
           ¿No tienes usuario?{' '}
-          <button type="button" onClick={onIrARegistro} className={`font-semibold underline cursor-pointer ${tema.textoEnlace}`}>
+          <button type="button" onClick={onIrARegistro} className={`rounded font-semibold underline cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 ${tema.textoEnlace}`}>
             Crear usuario
           </button>
         </p>

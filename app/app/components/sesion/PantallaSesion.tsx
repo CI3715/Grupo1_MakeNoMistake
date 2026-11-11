@@ -1,34 +1,55 @@
 'use client';
 
-import React from 'react';
-import { VistaSesion } from '../../types/sesion';
-import { PantallaInicioSesion } from './PantallaInicioSesion';
-import { PantallaRegistro } from './PantallaRegistro';
+import React, { useState } from 'react';
+import { VistaSesionCompleta } from '../../types/sesion';
+import type { ControlSesion } from '../../utils/useSesion';
+import { InicioSesionConectado } from './InicioSesionConectado';
+import { PantallaPerfil } from './PantallaPerfil';
+import { RegistroConectado } from './RegistroConectado';
 
 interface Props {
   modoOscuro: boolean;
-  vista: VistaSesion;
+  vista: VistaSesionCompleta;
   setPantallaActual: (pantalla: string) => void;
+  control: ControlSesion;
 }
 
 /**
- * Punto único de entrada de las pantallas de sesión para page.tsx.
- * Cuando se conecten los comandos (invoke), el estado de carga y los errores
- * por campo se manejan AQUÍ y se pasan hacia abajo; page.tsx no crece.
+ * Punto único de entrada de las pantallas de sesión para page.tsx:
+ * inicio de sesión, registro y perfil. Los comandos (invoke) se llaman desde
+ * los componentes «Conectado»; page.tsx no crece.
  */
-export function PantallaSesion({ modoOscuro, vista, setPantallaActual }: Props) {
+export function PantallaSesion({ modoOscuro, vista, setPantallaActual, control }: Props) {
+  const [correoNuevo, setCorreoNuevo] = useState<string | null>(null);
+
+  // Con la sesión activa, «Iniciar sesión» no tiene sentido: se muestra el perfil.
+  if (vista === 'perfil' || (vista === 'inicio-sesion' && control.sesion.estado === 'vigente')) {
+    return <PantallaPerfil modoOscuro={modoOscuro} control={control} setPantallaActual={setPantallaActual} />;
+  }
+
   if (vista === 'registro') {
     return (
-      <PantallaRegistro
+      <RegistroConectado
         modoOscuro={modoOscuro}
+        onRegistrado={(correo) => {
+          setCorreoNuevo(correo);
+          setPantallaActual('inicio-sesion');
+        }}
         onIrAInicioSesion={() => setPantallaActual('inicio-sesion')}
       />
     );
   }
+
   return (
-    <PantallaInicioSesion
+    <InicioSesionConectado
       modoOscuro={modoOscuro}
-      onIrARegistro={() => setPantallaActual('registro')}
+      control={control}
+      correoInicial={correoNuevo}
+      setPantallaActual={setPantallaActual}
+      onIrARegistro={() => {
+        setCorreoNuevo(null);
+        setPantallaActual('registro');
+      }}
     />
   );
 }
