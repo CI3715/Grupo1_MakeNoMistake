@@ -7,12 +7,13 @@ from pathlib import Path
 
 import jwt
 import pytest
+from conftest import TABLAS_PERMITIDAS
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 import contrasenas
 import token_sesion
-from base_datos import SENTENCIAS_ESQUEMA
+from esquema import SENTENCIAS_ESQUEMA
 from main import app
 
 # ---------------------------------------------------------------- Hash
@@ -135,20 +136,24 @@ def test_servidor_no_arranca_sin_base_de_datos(
 # ---------------------------------------------------------------- INV-16
 
 
+# Solo lo compartido entre varias personas (Entrega 6). La lista vive en
+# ``conftest`` para que las dos pruebas de INV-16 usen el mismo criterio.
+
+
 def test_servidor_respeta_inv16_sin_tablas_financieras() -> None:
     """Verifica que el esquema del servidor no cree tablas financieras (INV-16).
 
     ``test_integracion_postgres.py`` comprueba lo mismo contra PostgreSQL real.
     """
-    tablas = [
+    tablas = {
         tabla
         for sentencia in SENTENCIAS_ESQUEMA
         for tabla in re.findall(
             r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", sentencia, re.I
         )
-    ]
+    }
 
-    assert tablas == ["usuarios"]
+    assert tablas == TABLAS_PERMITIDAS
     prohibidas = {
         "cuentas",
         "movimientos",
@@ -157,7 +162,7 @@ def test_servidor_respeta_inv16_sin_tablas_financieras() -> None:
         "categorias",
         "patrimonio",
     }
-    assert set(tablas).isdisjoint(prohibidas)
+    assert tablas.isdisjoint(prohibidas)
 
 
 def test_servidor_respeta_inv16_en_rutas_expuestas() -> None:

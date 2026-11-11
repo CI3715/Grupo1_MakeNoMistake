@@ -10,6 +10,7 @@ from collections.abc import Callable, Generator
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from conftest import TABLAS_PERMITIDAS
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 
@@ -48,7 +49,7 @@ def cliente_pg(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, N
     base_datos = BaseDatos(URL_PRUEBAS)
     base_datos.crear_esquema()
     with base_datos.conexion() as conexion:
-        conexion.execute("TRUNCATE TABLE usuarios")
+        conexion.execute("TRUNCATE TABLE usuarios CASCADE")
 
     monkeypatch.setenv("CUENTAS_CLARAS_DB_URL", URL_PRUEBAS)
     monkeypatch.setenv("CUENTAS_CLARAS_SECRETO_JWT", SECRETO)
@@ -153,7 +154,7 @@ def test_token_con_sub_que_no_es_uuid_retorna_401(cliente_pg: TestClient) -> Non
     assert respuesta.status_code == 401
 
 
-def test_base_del_servidor_solo_tiene_la_tabla_usuarios(
+def test_base_del_servidor_solo_tiene_tablas_permitidas(
     cliente_pg: TestClient,
 ) -> None:
     """INV-16: ninguna tabla con cuentas, saldos, movimientos ni categorías."""
@@ -161,6 +162,6 @@ def test_base_del_servidor_solo_tiene_la_tabla_usuarios(
     with BaseDatos(URL_PRUEBAS).conexion() as conexion:
         filas = conexion.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'public' ORDER BY table_name"
+            "WHERE table_schema = 'public'"
         ).fetchall()
-    assert [fila["table_name"] for fila in filas] == ["usuarios"]
+    assert {fila["table_name"] for fila in filas} == TABLAS_PERMITIDAS

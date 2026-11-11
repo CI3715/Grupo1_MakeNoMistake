@@ -25,6 +25,17 @@ VARIABLES_AJENAS = (
     "CUENTAS_CLARAS_MINUTOS_TOKEN",
 )
 
+# Solo lo compartido entre varias personas (Entrega 6). Cualquier tabla nueva
+# tiene que justificarse aquí: añadir una del libro personal rompe INV-16.
+TABLAS_PERMITIDAS = {
+    "usuarios",
+    "amistades",
+    "grupos",
+    "miembros",
+    "gastos",
+    "partes_gasto",
+}
+
 
 @pytest.fixture
 def repositorio_falso() -> RepositorioEnMemoria:

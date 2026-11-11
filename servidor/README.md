@@ -465,7 +465,11 @@ servidor/
 ├── main.py                            # Aplicación FastAPI, rutas y manejo de errores
 ├── configuracion.py                   # Lectura y validación de variables de entorno
 ├── base_datos.py                      # Conexión a PostgreSQL y creación del esquema
+├── esquema.py                         # DDL de las tablas e índices (idempotente)
 ├── repositorio_usuarios.py            # Consultas de la tabla usuarios
+├── repositorio_amistades.py           # Firmas de las amistades (Entrega 6)
+├── repositorio_grupos.py              # Firmas de grupos y miembros (Entrega 6)
+├── repositorio_gastos.py              # Firmas de gastos y partes (Entrega 6)
 ├── reglas.py                          # Reglas de registro (funciones puras)
 ├── contrasenas.py                     # Hash argon2id y hash falso
 ├── token_sesion.py                    # Creación y verificación del JWT
