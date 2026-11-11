@@ -4,20 +4,18 @@ Cubre los requerimientos RF-SOC-01, RNF-05, INV-16 y los criterios de la
 sección 3 de la especificación de la Entrega 5.
 """
 
+import pytest
 from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
+from repositorio_en_memoria import RepositorioEnMemoria
 
-from base_datos import BaseDatos
+import main
 
 
-def hash_guardado(base_datos: BaseDatos, nombre_usuario: str) -> str:
-    with base_datos.conexion() as conexion:
-        fila = conexion.execute(
-            "SELECT hash_contrasena FROM usuarios WHERE nombre_usuario = %s",
-            (nombre_usuario,),
-        ).fetchone()
-    assert fila is not None
-    return str(fila["hash_contrasena"])
+def hash_guardado(repositorio: RepositorioEnMemoria, nombre_usuario: str) -> str:
+    usuario = repositorio.buscar_por_nombre_usuario(nombre_usuario)
+    assert usuario is not None
+    return usuario.hash_contrasena
 
 
 def test_registro_valido_retorna_201_y_datos_sin_contrasena(
@@ -294,7 +292,7 @@ def test_registro_correo_repetido_distinta_capitalizacion_retorna_409(
 
 
 def test_registro_contrasena_guardada_como_hash_argon2id_con_sal_unica(
-    cliente: TestClient, base_datos_prueba: BaseDatos
+    cliente: TestClient, repositorio_falso: RepositorioEnMemoria
 ) -> None:
     """Misma contraseña produce hashes distintos en usuarios diferentes."""
     cuerpo1 = {
@@ -314,15 +312,15 @@ def test_registro_contrasena_guardada_como_hash_argon2id_con_sal_unica(
     assert resp1.status_code == 201
     assert resp2.status_code == 201
 
-    hash1 = hash_guardado(base_datos_prueba, "usuario.uno")
-    hash2 = hash_guardado(base_datos_prueba, "usuario.dos")
+    hash1 = hash_guardado(repositorio_falso, "usuario.uno")
+    hash2 = hash_guardado(repositorio_falso, "usuario.dos")
     assert hash1.startswith("$argon2id$")
     assert hash2.startswith("$argon2id$")
     assert hash1 != hash2
 
 
 def test_registro_contrasena_guardada_no_es_recuperable(
-    cliente: TestClient, base_datos_prueba: BaseDatos
+    cliente: TestClient, repositorio_falso: RepositorioEnMemoria
 ) -> None:
     """La contraseña almacenada es un hash unidireccional y no puede descifrarse."""
     cuerpo = {
@@ -334,7 +332,7 @@ def test_registro_contrasena_guardada_no_es_recuperable(
     resp = cliente.post("/usuarios", json=cuerpo)
     assert resp.status_code == 201
 
-    guardado = hash_guardado(base_datos_prueba, "carlos.ruiz")
+    guardado = hash_guardado(repositorio_falso, "carlos.ruiz")
     assert "clave-super-secreta-1234" not in guardado
     assert PasswordHasher().verify(guardado, "clave-super-secreta-1234")
 
@@ -436,3 +434,30 @@ def test_registro_usuario_y_correo_repetidos_informa_ambos(
         "nombre_usuario",
         "correo",
     }
+
+
+def test_registro_duplicado_simultaneo_retorna_409(
+    cliente: TestClient,
+    repositorio_falso: RepositorioEnMemoria,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si otro registro gana la carrera entre la consulta y el INSERT, el
+    duplicado que lanza el repositorio también responde 409 con el campo."""
+    monkeypatch.setattr(main, "campos_ocupados", lambda *_: [])
+    repositorio_falso.crear(
+        nombre_usuario="ana.perez",
+        nombre_visible="Ana",
+        correo="ana@example.com",
+        hash_contrasena="hash",
+    )
+    cuerpo = {
+        "nombre_usuario": "otra.persona",
+        "nombre_visible": "Otra",
+        "correo": "ANA@example.com",
+        "contrasena": "clave-segura-1234",
+    }
+    resp = cliente.post("/usuarios", json=cuerpo)
+    assert resp.status_code == 409
+    assert resp.json()["errores"] == [
+        {"campo": "correo", "mensaje": "Ese correo ya está registrado."}
+    ]

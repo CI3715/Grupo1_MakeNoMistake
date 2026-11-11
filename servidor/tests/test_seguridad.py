@@ -1,16 +1,19 @@
 """Pruebas unitarias del hash de contraseñas, del token firmado y de INV-16."""
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import jwt
 import pytest
+from conftest import TABLAS_PERMITIDAS
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 import contrasenas
 import token_sesion
-from base_datos import BaseDatos
+from esquema import SENTENCIAS_ESQUEMA
 from main import app
 
 # ---------------------------------------------------------------- Hash
@@ -98,9 +101,8 @@ def test_token_sin_sub_se_rechaza() -> None:
 def test_secreto_obligatorio_y_sin_valor_por_defecto(
     monkeypatch: pytest.MonkeyPatch, secreto: str | None
 ) -> None:
-    monkeypatch.delenv("CUENTAS_CLARAS_SECRETO_JWT", raising=False)
     if secreto is None:
-        monkeypatch.delenv("JWT_SECRET", raising=False)
+        monkeypatch.delenv("JWT_SECRET")
     else:
         monkeypatch.setenv("JWT_SECRET", secreto)
     with pytest.raises(token_sesion.ConfiguracionInvalida):
@@ -115,37 +117,41 @@ def test_minutos_invalidos(monkeypatch: pytest.MonkeyPatch, minutos: str) -> Non
 
 
 def test_servidor_no_arranca_sin_secreto(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("JWT_SECRET", raising=False)
-    monkeypatch.delenv("CUENTAS_CLARAS_SECRETO_JWT", raising=False)
+    monkeypatch.delenv("JWT_SECRET")
     with pytest.raises(token_sesion.ConfiguracionInvalida), TestClient(app):
+        pass
+
+
+def test_servidor_no_arranca_sin_base_de_datos(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Sin CUENTAS_CLARAS_DB_URL no hay a dónde guardar usuarios: no arranca."""
+    monkeypatch.setattr("configuracion.RUTA_ENV", tmp_path / "no-existe.env")
+    monkeypatch.setenv("CUENTAS_CLARAS_SECRETO_JWT", "s" * 40)
+    monkeypatch.delattr(app.state, "repositorio_usuarios")
+    with pytest.raises(RuntimeError, match="CUENTAS_CLARAS_DB_URL"), TestClient(app):
         pass
 
 
 # ---------------------------------------------------------------- INV-16
 
 
-# Solo lo compartido entre varias personas (Entrega 6). Cualquier tabla
-# nueva tiene que justificarse aquí: añadir una del libro personal rompe la
-# prueba, que es justo lo que INV-16 quiere evitar.
-TABLAS_PERMITIDAS = {
-    "usuarios",
-    "amistades",
-    "grupos",
-    "miembros",
-    "gastos",
-    "partes_gasto",
-}
+# Solo lo compartido entre varias personas (Entrega 6). La lista vive en
+# ``conftest`` para que las dos pruebas de INV-16 usen el mismo criterio.
 
 
-def test_servidor_respeta_inv16_sin_tablas_financieras(
-    base_datos_prueba: BaseDatos,
-) -> None:
-    """Verifica que la base del servidor no contenga tablas financieras (INV-16)."""
-    with base_datos_prueba.conexion() as conexion:
-        filas = conexion.execute(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-        ).fetchall()
-    tablas = {str(fila["tablename"]) for fila in filas}
+def test_servidor_respeta_inv16_sin_tablas_financieras() -> None:
+    """Verifica que el esquema del servidor no cree tablas financieras (INV-16).
+
+    ``test_integracion_postgres.py`` comprueba lo mismo contra PostgreSQL real.
+    """
+    tablas = {
+        tabla
+        for sentencia in SENTENCIAS_ESQUEMA
+        for tabla in re.findall(
+            r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", sentencia, re.I
+        )
+    }
 
     assert tablas == TABLAS_PERMITIDAS
     prohibidas = {

@@ -83,7 +83,7 @@ Verificación completa (desde la raíz): `bash verificar-entrega3.sh` corre fmt,
 - `src/cuentas.rs` y `src/movimientos.rs` solo traducen DTO ↔ casos de uso; no contienen reglas de negocio. Los DTO están en `src/dto.rs` y los errores se devuelven como `ErroresDto` (lista de `{ campo, mensaje }` en español, sin trazas técnicas).
 - Los tipos TypeScript equivalentes están en `app/app/utils/tauriCommands.ts`; mantenlos sincronizados con `dto.rs`. Un comando nuevo también debe registrarse en `generate_handler!` en `src/lib.rs`.
 - `src/tasas.rs` (Entrega 4: tasas, moneda base, monedas propias, patrimonio) es **provisional**: responde con datos fijos en memoria. Los eventos y proyecciones ya existen y `CasosDeUso::crear_moneda` también, pero los comandos de ese archivo todavía no los usan.
-- `src/ping.rs` (Entrega 1) es el único código que usa `reqwest`; la URL del servidor se toma de `CUENTAS_CLARAS_URL` (por defecto `http://localhost:8000`).
+- `src/ping.rs` y `src/sesion.rs` usan `reqwest`; la URL del servidor se toma de `CUENTAS_CLARAS_URL` (por defecto `http://localhost:8000`).
 
 ## Interfaz (Next.js)
 

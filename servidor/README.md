@@ -5,12 +5,8 @@ Backend de Cuentas Claras, hecho con Python y FastAPI. Responde al ping
 inicio de sesión con token firmado y perfil propio.
 
 El servidor **nunca** recibe ni guarda cuentas, movimientos, saldos,
-tasas ni categorías (INV-16). Solo guarda identidad y, desde la Entrega 6,
-lo que se comparte entre varias personas: amistades, grupos, miembros y
-gastos de grupo, con sus partes. Las decisiones de la sesión están en
-[ADR-010](../docs/adr/ADR-010-sesion-con-token-firmado.md) y las del
-esquema compartido, en
-[ADR-011](../docs/adr/ADR-011-datos-compartidos-de-grupos.md).
+tasas ni categorías (INV-16): solo identidad. Las decisiones de la sesión
+están en [ADR-010](../docs/adr/ADR-010-sesion-con-token-firmado.md).
 
 ## Prerrequisitos
 
@@ -58,10 +54,32 @@ Todos los comandos se ejecutan desde la carpeta `servidor/`.
 
 ## Configuración
 
-El servidor se configura con variables de entorno y necesita PostgreSQL
-para arrancar. La lista completa de variables, los valores de ejemplo y los
-pasos para iniciarlo están en la sección
-[Base de datos y configuración](#base-de-datos-y-configuración).
+El servidor se configura con variables de entorno, normalmente en
+`servidor/.env`. Las obligatorias son `CUENTAS_CLARAS_DB_URL` (PostgreSQL) y
+`CUENTAS_CLARAS_SECRETO_JWT`; la lista completa y cómo crear el `.env` están
+en «Base de datos y configuración», más abajo.
+
+`JWT_SECRET` y `JWT_MINUTOS`, los nombres anteriores, se siguen aceptando para
+firmar el token y, si están definidos, tienen prioridad sobre
+`CUENTAS_CLARAS_SECRETO_JWT` y `CUENTAS_CLARAS_MINUTOS_TOKEN`. Aun así,
+`CUENTAS_CLARAS_SECRETO_JWT` es obligatoria para arrancar.
+
+## Ejecutar en modo desarrollo
+
+```bash
+   bash scripts/base_datos_local.sh iniciar   # si usas el clúster local
+   uv run uvicorn main:app --reload --port 8000
+```
+
+El servidor queda disponible en `http://localhost:8000`. La opción
+`--reload` reinicia el servidor automáticamente al guardar cambios.
+Para detenerlo, presiona `Ctrl + C`.
+
+> El puerto es 8000 (y no 3000) para no chocar con Next.js, que usa el
+> 3000 por defecto en desarrollo.
+>
+> La primera vez necesitas configurar PostgreSQL y el archivo `.env`; lo
+> explica la sección «Base de datos y configuración» más abajo.
 
 ## Base de datos y configuración
 
@@ -390,9 +408,10 @@ uv audit
 ### Qué verifican las pruebas
 
 Las pruebas usan el `TestClient` de FastAPI, así que no hace falta
-levantar el servidor. `tests/conftest.py` pone un secreto de prueba y usa la
-base PostgreSQL de pruebas, vaciando la tabla `usuarios` antes de cada prueba
-que toca el servidor.
+levantar el servidor. `tests/conftest.py` pone un secreto de prueba y da a
+cada prueba un almacén de usuarios en memoria nuevo
+(`tests/repositorio_en_memoria.py`), que imita al repositorio de PostgreSQL.
+Así las pruebas de las rutas corren sin base de datos.
 
 - `test_reglas.py`: reglas de registro, sin HTTP ni base.
 - `test_seguridad.py`: hash argon2id (sal única) y token (alterado,
@@ -417,9 +436,12 @@ Además, `tests/test_configuracion.py` comprueba que el servidor rechaza una
 configuración incompleta o inválida, y `tests/test_repositorio_usuarios.py`
 prueba el repositorio contra PostgreSQL: correo en minúsculas, búsqueda sin
 distinguir mayúsculas, duplicados por campo y creación idempotente del esquema.
-Las pruebas que tocan PostgreSQL se omiten si no defines
-`CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en un clon
-limpio sin base de datos.
+`tests/test_integracion_postgres.py` arranca la app conectada a PostgreSQL y
+recorre registro, inicio de sesión y perfil: fecha en UTC aunque la base use
+otra zona horaria, 409 con todos los campos repetidos, duplicado detectado por
+la restricción `UNIQUE` y que la base solo tenga la tabla `usuarios` (INV-16).
+Estas dos se omiten si no defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que
+`uv run pytest` funcione en un clon limpio sin base de datos.
 
 Con el clúster local, ejecútalas así:
 
@@ -454,12 +476,14 @@ servidor/
 ├── scripts/
 │   └── base_datos_local.sh            # Clúster PostgreSQL local para desarrollo
 ├── tests/
-│   ├── conftest.py                    # Fixtures: secreto de prueba y base PostgreSQL
+│   ├── conftest.py                    # Fixtures: secreto de prueba y almacén en memoria
+│   ├── repositorio_en_memoria.py      # Almacén de usuarios falso para las rutas
 │   ├── test_main.py                   # /ping y documentación
 │   ├── test_configuracion.py          # Variables de entorno
 │   ├── test_repositorio_usuarios.py   # PostgreSQL (se omiten sin CUENTAS_CLARAS_DB_URL_PRUEBAS)
+│   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL (ídem)
 │   ├── test_reglas.py                 # Reglas de registro
-│   ├── test_seguridad.py              # Hash de contraseñas
+│   ├── test_seguridad.py              # Hash, token, arranque e INV-16
 │   ├── test_registro.py               # Registro de usuarios
 │   └── test_sesion.py                 # Inicio de sesión y JWT
 ├── .env                               # Configuración local (no se versiona)
