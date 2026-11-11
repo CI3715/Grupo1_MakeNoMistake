@@ -38,11 +38,11 @@ class RepositorioEnMemoria:
             fecha_alta=datetime.now(timezone.utc).replace(microsecond=0),
         )
         if any(u.correo == usuario.correo for u in self.usuarios.values()):
-            raise CorreoYaRegistrado("El correo ya está registrado.")
+            raise CorreoYaRegistrado()
         if any(
             u.nombre_usuario == usuario.nombre_usuario for u in self.usuarios.values()
         ):
-            raise NombreUsuarioYaRegistrado("El nombre de usuario ya está registrado.")
+            raise NombreUsuarioYaRegistrado()
         self.usuarios[usuario.id] = usuario
         return usuario
 
