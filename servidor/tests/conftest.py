@@ -62,10 +62,14 @@ def base_datos_prueba() -> BaseDatos:
 
 @pytest.fixture
 def cliente() -> Generator[TestClient, None, None]:
-    """Cliente HTTP con la tabla ``usuarios`` vacía antes de cada prueba."""
+    """Cliente HTTP con la base de pruebas vacía antes de cada prueba.
+
+    `CASCADE` arrastra las tablas compartidas que referencian a `usuarios`;
+    sin él, PostgreSQL rechaza el `TRUNCATE` por las claves foráneas.
+    """
     base_datos = _base_datos_pruebas()
     with base_datos.conexion() as conexion:
-        conexion.execute("TRUNCATE TABLE usuarios")
+        conexion.execute("TRUNCATE TABLE usuarios CASCADE")
 
     with TestClient(app) as c:
         yield c

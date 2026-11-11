@@ -34,7 +34,9 @@ def repositorio() -> RepositorioUsuarios:
     base_datos.crear_esquema()
 
     with base_datos.conexion() as conexion:
-        conexion.execute("TRUNCATE TABLE usuarios")
+        # CASCADE limpia también las tablas compartidas que referencian a
+        # `usuarios` (amistades, miembros, partes_gasto).
+        conexion.execute("TRUNCATE TABLE usuarios CASCADE")
 
     return RepositorioUsuarios(base_datos)
 

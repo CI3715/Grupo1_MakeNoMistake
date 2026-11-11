@@ -124,6 +124,19 @@ def test_servidor_no_arranca_sin_secreto(monkeypatch: pytest.MonkeyPatch) -> Non
 # ---------------------------------------------------------------- INV-16
 
 
+# Solo lo compartido entre varias personas (Entrega 6). Cualquier tabla
+# nueva tiene que justificarse aquí: añadir una del libro personal rompe la
+# prueba, que es justo lo que INV-16 quiere evitar.
+TABLAS_PERMITIDAS = {
+    "usuarios",
+    "amistades",
+    "grupos",
+    "miembros",
+    "gastos",
+    "partes_gasto",
+}
+
+
 def test_servidor_respeta_inv16_sin_tablas_financieras(
     base_datos_prueba: BaseDatos,
 ) -> None:
@@ -132,9 +145,9 @@ def test_servidor_respeta_inv16_sin_tablas_financieras(
         filas = conexion.execute(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
         ).fetchall()
-    tablas = [str(fila["tablename"]) for fila in filas]
+    tablas = {str(fila["tablename"]) for fila in filas}
 
-    assert tablas == ["usuarios"]
+    assert tablas == TABLAS_PERMITIDAS
     prohibidas = {
         "cuentas",
         "movimientos",
@@ -143,7 +156,7 @@ def test_servidor_respeta_inv16_sin_tablas_financieras(
         "categorias",
         "patrimonio",
     }
-    assert set(tablas).isdisjoint(prohibidas)
+    assert tablas.isdisjoint(prohibidas)
 
 
 def test_servidor_respeta_inv16_en_rutas_expuestas() -> None:

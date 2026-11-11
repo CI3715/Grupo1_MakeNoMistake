@@ -5,8 +5,12 @@ Backend de Cuentas Claras, hecho con Python y FastAPI. Responde al ping
 inicio de sesión con token firmado y perfil propio.
 
 El servidor **nunca** recibe ni guarda cuentas, movimientos, saldos,
-tasas ni categorías (INV-16): solo identidad. Las decisiones de la sesión
-están en [ADR-010](../docs/adr/ADR-010-sesion-con-token-firmado.md).
+tasas ni categorías (INV-16). Solo guarda identidad y, desde la Entrega 6,
+lo que se comparte entre varias personas: amistades, grupos, miembros y
+gastos de grupo, con sus partes. Las decisiones de la sesión están en
+[ADR-010](../docs/adr/ADR-010-sesion-con-token-firmado.md) y las del
+esquema compartido, en
+[ADR-011](../docs/adr/ADR-011-datos-compartidos-de-grupos.md).
 
 ## Prerrequisitos
 
@@ -439,14 +443,18 @@ servidor/
 ├── main.py                            # Aplicación FastAPI, rutas y manejo de errores
 ├── configuracion.py                   # Lectura y validación de variables de entorno
 ├── base_datos.py                      # Conexión a PostgreSQL y creación del esquema
+├── esquema.py                         # DDL de las tablas e índices (idempotente)
 ├── repositorio_usuarios.py            # Consultas de la tabla usuarios
+├── repositorio_amistades.py           # Firmas de las amistades (Entrega 6)
+├── repositorio_grupos.py              # Firmas de grupos y miembros (Entrega 6)
+├── repositorio_gastos.py              # Firmas de gastos y partes (Entrega 6)
 ├── reglas.py                          # Reglas de registro (funciones puras)
 ├── contrasenas.py                     # Hash argon2id y hash falso
 ├── token_sesion.py                    # Creación y verificación del JWT
 ├── scripts/
 │   └── base_datos_local.sh            # Clúster PostgreSQL local para desarrollo
 ├── tests/
-│   ├── conftest.py                    # Fixtures: secreto de prueba y base temporal
+│   ├── conftest.py                    # Fixtures: secreto de prueba y base PostgreSQL
 │   ├── test_main.py                   # /ping y documentación
 │   ├── test_configuracion.py          # Variables de entorno
 │   ├── test_repositorio_usuarios.py   # PostgreSQL (se omiten sin CUENTAS_CLARAS_DB_URL_PRUEBAS)
