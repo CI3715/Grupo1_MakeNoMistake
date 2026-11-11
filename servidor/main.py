@@ -1,8 +1,8 @@
-import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -11,13 +11,12 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
-import bd
 import contrasenas
 import reglas
 import token_sesion
 from base_datos import BaseDatos
 from configuracion import cargar_configuracion
-from repositorio_usuarios import RepositorioUsuarios
+from repositorio_usuarios import RepositorioUsuarios, Usuario, UsuarioDuplicado
 
 VERSION = "0.1.0"
 FORMATO_FECHA = "%Y-%m-%dT%H:%M:%SZ"
@@ -32,21 +31,44 @@ MENSAJE_DUPLICADO = {
 }
 
 
+class AlmacenUsuarios(Protocol):
+    """Lo que las rutas necesitan del almacén de usuarios.
+
+    En producción es ``RepositorioUsuarios`` (PostgreSQL). Las pruebas de las
+    rutas usan uno en memoria con el mismo comportamiento.
+    """
+
+    def crear(
+        self,
+        *,
+        nombre_usuario: str,
+        nombre_visible: str,
+        correo: str,
+        hash_contrasena: str,
+    ) -> Usuario: ...
+
+    def buscar_por_correo(self, correo: str) -> Usuario | None: ...
+
+    def buscar_por_nombre_usuario(self, nombre_usuario: str) -> Usuario | None: ...
+
+    def buscar_por_id(self, id_usuario: UUID) -> Usuario | None: ...
+
+
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
-    """Inicializa la sesión y bases de datos al arrancar."""
-    token_sesion.comprobar_configuracion()
-    bd.inicializar()
+    """Conecta con PostgreSQL y comprueba la configuración al arrancar.
 
-    url_pg = os.environ.get("CUENTAS_CLARAS_DB_URL")
-    if url_pg:
-        configuracion = cargar_configuracion()
+    Si falta ``CUENTAS_CLARAS_DB_URL`` o el secreto del token, el servidor no
+    arranca. Las pruebas de las rutas dejan un almacén en memoria en
+    ``app.state.repositorio_usuarios`` antes de arrancar; en ese caso no se
+    abre ninguna conexión.
+    """
+    if getattr(app.state, "repositorio_usuarios", None) is None:
+        configuracion = cargar_configuracion()  # también carga servidor/.env
         base_datos = BaseDatos(configuracion.url_base_datos)
         base_datos.crear_esquema()
-
-        app.state.configuracion = configuracion
-        app.state.base_datos = base_datos
         app.state.repositorio_usuarios = RepositorioUsuarios(base_datos)
+    token_sesion.comprobar_configuracion()
 
     yield
 
@@ -167,13 +189,40 @@ def no_autorizado(mensaje: str, con_desafio: bool) -> JSONResponse:
     )
 
 
-def a_respuesta(usuario: bd.Usuario) -> UsuarioRespuesta:
+def a_respuesta(usuario: Usuario) -> UsuarioRespuesta:
     return UsuarioRespuesta(
-        id=usuario.id,
+        id=str(usuario.id),
         nombre_usuario=usuario.nombre_usuario,
         nombre_visible=usuario.nombre_visible,
         correo=usuario.correo,
-        fecha_alta=usuario.fecha_alta,
+        # PostgreSQL devuelve la fecha en la zona horaria de la sesión.
+        fecha_alta=usuario.fecha_alta.astimezone(timezone.utc).strftime(FORMATO_FECHA),
+    )
+
+
+def obtener_repositorio(request: Request) -> AlmacenUsuarios:
+    repositorio: AlmacenUsuarios = request.app.state.repositorio_usuarios
+    return repositorio
+
+
+Repositorio = Annotated[AlmacenUsuarios, Depends(obtener_repositorio)]
+
+
+def campos_ocupados(
+    repositorio: AlmacenUsuarios, nombre_usuario: str, correo: str
+) -> list[str]:
+    """Campos del registro que ya usa otra persona, en el orden del formulario."""
+    campos = []
+    if repositorio.buscar_por_nombre_usuario(nombre_usuario) is not None:
+        campos.append("nombre_usuario")
+    if repositorio.buscar_por_correo(correo) is not None:
+        campos.append("correo")
+    return campos
+
+
+def respuesta_duplicado(campos: list[str]) -> JSONResponse:
+    return respuesta_errores(
+        409, [reglas.ErrorCampo(c, MENSAJE_DUPLICADO[c]) for c in campos]
     )
 
 
@@ -199,24 +248,31 @@ def ping() -> PingRespuesta:
     operation_id="registrarUsuario",
     responses={400: {"model": ErroresPorCampo}, 409: {"model": ErroresPorCampo}},
 )
-def registrar_usuario(cuerpo: RegistroUsuario) -> UsuarioRespuesta | JSONResponse:
+def registrar_usuario(
+    cuerpo: RegistroUsuario, repositorio: Repositorio
+) -> UsuarioRespuesta | JSONResponse:
     datos, errores = reglas.validar_registro(
         cuerpo.nombre_usuario, cuerpo.nombre_visible, cuerpo.correo, cuerpo.contrasena
     )
     if datos is None:
         return respuesta_errores(400, errores)
+    # Se consulta antes de insertar para informar todos los campos repetidos a
+    # la vez; PostgreSQL solo reporta la primera restricción que falla.
+    ocupados = campos_ocupados(repositorio, datos.nombre_usuario, datos.correo)
+    if ocupados:
+        return respuesta_duplicado(ocupados)
     try:
-        usuario = bd.crear_usuario(
+        usuario = repositorio.crear(
             nombre_usuario=datos.nombre_usuario,
             nombre_visible=datos.nombre_visible,
             correo=datos.correo,
             hash_contrasena=contrasenas.hashear(datos.contrasena),
         )
-    except bd.UsuarioDuplicado as duplicado:
-        return respuesta_errores(
-            409,
-            [reglas.ErrorCampo(c, MENSAJE_DUPLICADO[c]) for c in duplicado.campos],
-        )
+    except UsuarioDuplicado as duplicado:
+        # Otra petición registró los mismos datos entre la consulta y el
+        # INSERT. La restricción UNIQUE lo detecta.
+        ocupados = campos_ocupados(repositorio, datos.nombre_usuario, datos.correo)
+        return respuesta_duplicado(ocupados or [duplicado.campo])
     return a_respuesta(usuario)
 
 
@@ -228,13 +284,15 @@ def registrar_usuario(cuerpo: RegistroUsuario) -> UsuarioRespuesta | JSONRespons
     operation_id="iniciarSesion",
     responses={400: {"model": ErroresPorCampo}, 401: {"model": ErrorMensaje}},
 )
-def iniciar_sesion(cuerpo: Credenciales) -> SesionRespuesta | JSONResponse:
+def iniciar_sesion(
+    cuerpo: Credenciales, repositorio: Repositorio
+) -> SesionRespuesta | JSONResponse:
     errores = reglas.validar_credenciales(cuerpo.correo, cuerpo.contrasena)
     if errores:
         return respuesta_errores(400, errores)
     assert cuerpo.correo is not None and cuerpo.contrasena is not None
 
-    usuario = bd.buscar_por_correo(reglas.normalizar_correo(cuerpo.correo))
+    usuario = repositorio.buscar_por_correo(reglas.normalizar_correo(cuerpo.correo))
     # Siempre se calcula un argon2, exista o no el usuario, para que el
     # tiempo de respuesta no revele qué correos están registrados.
     hash_a_comparar = usuario.hash_contrasena if usuario else contrasenas.HASH_FALSO
@@ -242,7 +300,7 @@ def iniciar_sesion(cuerpo: Credenciales) -> SesionRespuesta | JSONResponse:
     if usuario is None or not coincide:
         return no_autorizado(MENSAJE_CREDENCIALES, con_desafio=False)
 
-    emitido = token_sesion.crear_token(usuario.id)
+    emitido = token_sesion.crear_token(str(usuario.id))
     return SesionRespuesta(
         token=emitido.token,
         tipo="Bearer",
@@ -262,14 +320,30 @@ def obtener_perfil(
     credenciales: Annotated[
         HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
     ],
+    repositorio: Repositorio,
 ) -> UsuarioRespuesta | JSONResponse:
     if credenciales is None or credenciales.scheme.lower() != "bearer":
         return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
-    id_usuario = token_sesion.verificar_token(credenciales.credentials)
-    usuario = bd.buscar_por_id(id_usuario) if id_usuario else None
+    id_usuario = id_desde_token(credenciales.credentials)
+    usuario = repositorio.buscar_por_id(id_usuario) if id_usuario else None
     if usuario is None:
         return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
     return a_respuesta(usuario)
+
+
+def id_desde_token(token: str) -> UUID | None:
+    """El id de usuario del token, o None si el token no sirve.
+
+    Un ``sub`` que no es un UUID se trata como token inválido (401) en lugar de
+    llegar a PostgreSQL, que lo rechazaría con un error.
+    """
+    sub = token_sesion.verificar_token(token)
+    if sub is None:
+        return None
+    try:
+        return UUID(sub)
+    except ValueError:
+        return None
 
 
 def esquema_openapi() -> dict[str, Any]:
