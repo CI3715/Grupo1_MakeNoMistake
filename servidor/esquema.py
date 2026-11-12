@@ -8,8 +8,10 @@ INV-16: aquí no hay tablas del libro personal (cuentas, movimientos, saldos,
 tasas ni categorías). Solo se guarda lo que ven varias personas: amistades,
 grupos, miembros, gastos y partes de cada gasto.
 
-Los montos son `BIGINT` en céntimos y los porcentajes `SMALLINT` en
-centésimas de punto: el dinero nunca se guarda como coma flotante (RNF-08).
+Los montos son `NUMERIC(14, 2)` (euros con dos decimales exactos) y los
+porcentajes `SMALLINT` en centésimas de punto. El dinero nunca se guarda como
+coma flotante: PostgreSQL calcula y compara `NUMERIC` con precisión decimal
+(RNF-08), y Python usa `Decimal`, no `float`.
 """
 
 from __future__ import annotations
@@ -139,7 +141,7 @@ SENTENCIAS_ESQUEMA: tuple[str, ...] = (
         id             UUID PRIMARY KEY,
         grupo_id       UUID NOT NULL REFERENCES grupos (id),
         concepto       VARCHAR(200) NOT NULL,
-        monto          BIGINT NOT NULL CHECK (monto > 0),
+        monto          NUMERIC(14, 2) NOT NULL CHECK (monto > 0),
         fecha          DATE NOT NULL,
         pagador_id     UUID NOT NULL,
         regla          VARCHAR(11) NOT NULL,
@@ -162,15 +164,15 @@ SENTENCIAS_ESQUEMA: tuple[str, ...] = (
         ON gastos (grupo_id, fecha, id)
     """,
     # ---------------------------------------------------------- partes_gasto
-    # `monto` es el importe exacto de esa persona en céntimos, ya con el
-    # residuo aplicado si le tocó. `lleva_residuo` permite mostrar "incluye
-    # 0,01 de redondeo" (INV-07). `porcentaje` solo se llena con la regla
-    # `porcentajes`, en centésimas de punto (3333 = 33,33 %).
+    # `monto` es el importe exacto de esa persona en euros con dos decimales,
+    # ya con el residuo aplicado si le tocó. `lleva_residuo` permite mostrar
+    # "incluye 0,01 de redondeo" (INV-07). `porcentaje` solo se llena con la
+    # regla `porcentajes`, en centésimas de punto (3333 = 33,33 %).
     """
     CREATE TABLE IF NOT EXISTS partes_gasto (
         gasto_id      UUID NOT NULL REFERENCES gastos (id) ON DELETE CASCADE,
         usuario_id    UUID NOT NULL REFERENCES usuarios (id),
-        monto         BIGINT NOT NULL CHECK (monto >= 0),
+        monto         NUMERIC(14, 2) NOT NULL CHECK (monto >= 0),
         lleva_residuo BOOLEAN NOT NULL DEFAULT FALSE,
         porcentaje    SMALLINT
                       CHECK (porcentaje BETWEEN 0 AND 10000),
@@ -180,5 +182,39 @@ SENTENCIAS_ESQUEMA: tuple[str, ...] = (
     """
     CREATE INDEX IF NOT EXISTS partes_por_usuario
         ON partes_gasto (usuario_id)
+    """,
+    # --------------------------------------------------------- migración 6.1
+    # Las primeras pruebas de la Entrega 6 crearon las columnas como BIGINT en
+    # céntimos. El contrato definitivo guarda euros exactos en NUMERIC(14, 2),
+    # así que se convierten una sola vez. El bloque comprueba el tipo antes de
+    # tocar nada: en una base nueva las tablas ya nacen NUMERIC y no hace nada.
+    """
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'gastos'
+              AND column_name = 'monto'
+              AND data_type = 'bigint'
+        ) THEN
+            ALTER TABLE gastos
+                ALTER COLUMN monto TYPE NUMERIC(14, 2)
+                USING (monto::numeric / 100);
+        END IF;
+
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'partes_gasto'
+              AND column_name = 'monto'
+              AND data_type = 'bigint'
+        ) THEN
+            ALTER TABLE partes_gasto
+                ALTER COLUMN monto TYPE NUMERIC(14, 2)
+                USING (monto::numeric / 100);
+        END IF;
+    END
+    $$
     """,
 )

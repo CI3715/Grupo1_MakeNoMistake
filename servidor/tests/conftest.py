@@ -6,14 +6,23 @@ ana, beto, carla y dario para la Entrega 6). Las pruebas contra PostgreSQL
 real están en ``test_repositorio_usuarios.py`` y ``test_integracion_postgres.py``.
 """
 
+import os
 from collections.abc import Generator
 from typing import Any
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from repositorio_en_memoria import RepositorioEnMemoria
 
+from base_datos import BaseDatos
+from configuracion import RUTA_ENV
 from main import app
+
+# Igual que en las pruebas de usuarios: en local ``servidor/.env`` ya trae la
+# base de pruebas y en un clon limpio las pruebas de PostgreSQL se omiten.
+load_dotenv(RUTA_ENV)
+URL_PRUEBAS = os.environ.get("CUENTAS_CLARAS_DB_URL_PRUEBAS") or None
 
 SECRETO_PRUEBA = "secreto-de-prueba-muy-seguro-para-la-entrega-5"
 MINUTOS_PRUEBA = 60
@@ -166,3 +175,25 @@ def token_carla(usuarios_flujo: dict[str, dict[str, Any]]) -> str:
 def token_dario(usuarios_flujo: dict[str, dict[str, Any]]) -> str:
     """Token de acceso para dario (usuario ajeno no miembro)."""
     return str(usuarios_flujo["dario"]["token"])
+
+
+@pytest.fixture
+def base_datos_pruebas() -> BaseDatos:
+    """Base de pruebas vacía, con el esquema creado.
+
+    Se omite la prueba si no está definida ``CUENTAS_CLARAS_DB_URL_PRUEBAS``,
+    para que ``uv run pytest`` funcione en un clon limpio sin PostgreSQL.
+    """
+
+    if URL_PRUEBAS is None:
+        pytest.skip(
+            "Define CUENTAS_CLARAS_DB_URL_PRUEBAS para probar los repositorios "
+            "contra PostgreSQL."
+        )
+
+    base_datos = BaseDatos(URL_PRUEBAS)
+    base_datos.crear_esquema()
+    with base_datos.conexion() as conexion:
+        # CASCADE limpia también amistades, grupos, miembros, gastos y partes.
+        conexion.execute("TRUNCATE TABLE usuarios CASCADE")
+    return base_datos
