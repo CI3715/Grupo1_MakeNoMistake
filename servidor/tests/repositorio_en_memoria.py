@@ -8,7 +8,9 @@ aislada y determinista sin necesidad de PostgreSQL.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from repositorio_amistades import (
@@ -19,6 +21,17 @@ from repositorio_amistades import (
     EstadoAmistad,
     InvitacionPendiente,
     YaSonAmigos,
+)
+from repositorio_gastos import (
+    Gasto,
+    GastoInvalido,
+    GastoVista,
+    ParteCalculada,
+    ParteGasto,
+    _monto_valido,
+    _normalizar_parte,
+    _normalizar_regla,
+    _validar_partes,
 )
 from repositorio_grupos import (
     EstadoMiembro,
@@ -387,3 +400,167 @@ class RepositorioAmistadesEnMemoria:
 
     def son_amigos(self, uno: UUID, otro: UUID) -> bool:
         return self._almacen.son_amigos(uno, otro)
+
+
+class RepositorioGruposEnMemoria:
+    """Expone los grupos en memoria con los nombres de ``RepositorioGrupos``.
+
+    ``RepositorioEnMemoria`` ya usa ``crear`` y ``buscar_por_id`` para los
+    usuarios, así que los grupos se publican a través de este adaptador, igual
+    que las amistades con ``RepositorioAmistadesEnMemoria``.
+    """
+
+    def __init__(self, almacen: RepositorioEnMemoria) -> None:
+        self._almacen = almacen
+
+    def crear(
+        self,
+        *,
+        creado_por: UUID,
+        nombre: str,
+        descripcion: str | None,
+        moneda: str,
+        actividad: str | None,
+        fecha_actividad: date | None,
+        ahora: datetime,
+    ) -> Grupo:
+        return self._almacen.crear_grupo(
+            creado_por=creado_por,
+            nombre=nombre,
+            descripcion=descripcion,
+            moneda=moneda,
+            actividad=actividad,
+            fecha_actividad=fecha_actividad,
+            ahora=ahora,
+        )
+
+    def buscar_por_id(self, id_grupo: UUID) -> Grupo | None:
+        return self._almacen.buscar_grupo_por_id(id_grupo)
+
+    def buscar_miembro(self, *, id_grupo: UUID, usuario_id: UUID) -> Miembro | None:
+        return self._almacen.buscar_miembro(id_grupo=id_grupo, usuario_id=usuario_id)
+
+    def listar_de(self, usuario_id: UUID) -> list[GrupoVista]:
+        return self._almacen.listar_grupos_de(usuario_id)
+
+    def listar_miembros(self, id_grupo: UUID) -> list[MiembroVista]:
+        return self._almacen.listar_miembros_de_grupo(id_grupo)
+
+    def invitar(
+        self,
+        *,
+        id_grupo: UUID,
+        usuario_id: UUID,
+        invitado_por: UUID,
+        ahora: datetime,
+    ) -> Miembro:
+        return self._almacen.invitar_a_grupo(
+            id_grupo=id_grupo,
+            usuario_id=usuario_id,
+            invitado_por=invitado_por,
+            ahora=ahora,
+        )
+
+    def aceptar_invitacion(
+        self, *, id_grupo: UUID, usuario_id: UUID, ahora: datetime
+    ) -> Miembro:
+        miembro = self._almacen.responder_invitacion_grupo(
+            id_grupo=id_grupo, usuario_id=usuario_id, aceptar=True, ahora=ahora
+        )
+        assert miembro is not None
+        return miembro
+
+    def rechazar_invitacion(self, *, id_grupo: UUID, usuario_id: UUID) -> None:
+        self._almacen.responder_invitacion_grupo(
+            id_grupo=id_grupo,
+            usuario_id=usuario_id,
+            aceptar=False,
+            ahora=datetime.now(timezone.utc),
+        )
+
+
+class RepositorioGastosEnMemoria:
+    """Imita a ``RepositorioGastos`` sobre los grupos y miembros en memoria.
+
+    Usa las mismas validaciones del repositorio real (regla, suma, residuo y
+    porcentajes) para que una ruta que pase aquí también pase en PostgreSQL.
+    """
+
+    def __init__(self, almacen: RepositorioEnMemoria) -> None:
+        self._almacen = almacen
+        self.gastos: list[GastoVista] = []
+
+    def registrar(
+        self,
+        *,
+        grupo_id: UUID,
+        concepto: str,
+        monto: Decimal,
+        fecha: date,
+        pagador_id: UUID,
+        regla: str,
+        partes: Sequence[ParteCalculada],
+        registrado_por: UUID,
+        ahora: datetime,
+    ) -> GastoVista:
+        regla_normalizada = _normalizar_regla(regla)
+        monto_exacto = _monto_valido(monto, "monto", permitir_cero=False)
+        calculadas = tuple(_normalizar_parte(parte) for parte in partes)
+        _validar_partes(calculadas, monto_exacto, regla_normalizada)
+
+        def aceptado(usuario_id: UUID) -> bool:
+            miembro = self._almacen.miembros.get((grupo_id, usuario_id))
+            return miembro is not None and miembro.estado == EstadoMiembro.ACEPTADO
+
+        if grupo_id not in self._almacen.grupos:
+            raise GastoInvalido("grupo_id", "El grupo no existe.")
+        if not aceptado(pagador_id):
+            raise GastoInvalido(
+                "pagador", "El pagador no es miembro aceptado.", regla="miembro"
+            )
+        if not aceptado(registrado_por):
+            raise GastoInvalido(
+                "registrado_por", "Quien registra no es miembro.", regla="miembro"
+            )
+        if not all(aceptado(parte.usuario_id) for parte in calculadas):
+            raise GastoInvalido(
+                "participantes", "Hay participantes ajenos.", regla="miembro"
+            )
+
+        gasto = Gasto(
+            id=uuid4(),
+            grupo_id=grupo_id,
+            concepto=concepto.strip(),
+            monto=monto_exacto,
+            fecha=fecha,
+            pagador_id=pagador_id,
+            regla=regla_normalizada,
+            registrado_por=registrado_por,
+            fecha_registro=ahora.replace(microsecond=0),
+        )
+        vista = GastoVista(
+            gasto=gasto,
+            pagador_nombre_usuario=self._almacen.usuarios[pagador_id].nombre_usuario,
+            partes=tuple(
+                ParteGasto(
+                    gasto_id=gasto.id,
+                    usuario_id=parte.usuario_id,
+                    monto=parte.monto,
+                    lleva_residuo=parte.lleva_residuo,
+                    porcentaje=parte.porcentaje,
+                )
+                for parte in calculadas
+            ),
+        )
+        self.gastos.append(vista)
+        return vista
+
+    def listar_del_grupo(self, id_grupo: UUID) -> list[GastoVista]:
+        """Del más reciente al más antiguo, como el repositorio real."""
+        del_grupo = [v for v in self.gastos if v.gasto.grupo_id == id_grupo]
+        # Orden estable: a igual fecha, el registrado después va primero.
+        return sorted(
+            reversed(del_grupo),
+            key=lambda v: (v.gasto.fecha, v.gasto.fecha_registro),
+            reverse=True,
+        )
