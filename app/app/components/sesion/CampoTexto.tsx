@@ -8,7 +8,7 @@ interface Props {
   etiqueta: string;
   valor: string;
   onCambio: (valor: string) => void;
-  tipo?: 'text' | 'email' | 'password';
+  tipo?: 'text' | 'email' | 'password' | 'date';
   placeholder?: string;
   /** Texto de ayuda informativo bajo el campo (no valida nada). */
   ayuda?: string;
@@ -18,6 +18,11 @@ interface Props {
   deshabilitado?: boolean;
   /** Pone el foco en el campo al abrir la pantalla. */
   autoFocus?: boolean;
+  /** Teclado sugerido (p. ej. «decimal» para montos). */
+  inputMode?: 'text' | 'decimal' | 'numeric';
+  /** Id de un <datalist> con sugerencias (no limita lo que se puede escribir). */
+  listaId?: string;
+  maxLength?: number;
   modoOscuro: boolean;
 }
 
@@ -34,6 +39,9 @@ export const CampoTexto: React.FC<Props> = ({
   autoComplete,
   deshabilitado = false,
   autoFocus = false,
+  inputMode,
+  listaId,
+  maxLength,
   modoOscuro,
 }) => {
   const [visible, setVisible] = useState(false);
@@ -60,6 +68,9 @@ export const CampoTexto: React.FC<Props> = ({
           autoComplete={autoComplete}
           disabled={deshabilitado}
           autoFocus={autoFocus}
+          inputMode={inputMode}
+          list={listaId}
+          maxLength={maxLength}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           style={error ? { ...tema.estiloInput, borderColor: '#f43f5e' } : tema.estiloInput}

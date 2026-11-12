@@ -6,6 +6,7 @@ import { PantallaCuentas } from './components/PantallaCuentas';
 import { PantallaTasas } from './components/PantallaTasas';
 import { PantallaPatrimonio } from './components/PantallaPatrimonio';
 import { PantallaSesion } from './components/sesion/PantallaSesion';
+import { PantallaSocial } from './components/social/PantallaSocial';
 import { BienvenidaPrimerAcceso } from './components/sesion/BienvenidaPrimerAcceso';
 import { AvisoSesionVencida } from './components/sesion/AvisoSesionVencida';
 import { useSesion } from './utils/useSesion';
@@ -42,7 +43,7 @@ export default function Home() {
         setPantallaActual={setPantallaActual}
         control={control}
       />
-      <main className="flex-1 overflow-y-auto p-6 min-w-0">
+      <main className="relative flex-1 overflow-y-auto p-6 min-w-0">
         <div className="max-w-[752px] mx-auto min-w-[320px]">
           {control.avisoVencidaVisible && (
             <AvisoSesionVencida
@@ -62,6 +63,13 @@ export default function Home() {
           {pantallaActual === 'tasas' && <PantallaTasas modoOscuro={modoOscuro} />}
           {pantallaActual === 'patrimonio' && (
             <PantallaPatrimonio modoOscuro={modoOscuro} />
+          )}
+          {(pantallaActual === 'amigos' || pantallaActual === 'grupos') && (
+            <PantallaSocial
+              modoOscuro={modoOscuro}
+              vista={pantallaActual}
+              setPantallaActual={setPantallaActual}
+            />
           )}
           {(pantallaActual === 'inicio-sesion' ||
             pantallaActual === 'registro' ||
