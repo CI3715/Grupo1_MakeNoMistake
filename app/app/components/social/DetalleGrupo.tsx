@@ -5,6 +5,7 @@ import type { ContextoSocial } from '../../types/social';
 import { verGrupoCommand } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
 import { useCargaRemota } from '../../utils/useCargaRemota';
+import { IconoMas } from '../Iconos';
 import { AvisoFalloSocial } from './AvisoFalloSocial';
 import { BalancesGrupo } from './BalancesGrupo';
 import { BotonAccion } from './BotonAccion';
@@ -55,7 +56,10 @@ export function DetalleGrupo({ ctx, grupoId, aviso, onVolver, onNuevoGasto }: Pr
                   subtitulo={`Grupos / ${grupo.nombre}${grupo.actividad ? ` · ${grupo.actividad}` : ''} · Moneda ${grupo.moneda}`}
                   acciones={
                     <BotonAccion modoOscuro={ctx.modoOscuro} onClick={onNuevoGasto}>
-                      + Gasto compartido
+                      <span className="flex items-center gap-1.5">
+                        <IconoMas className="w-3.5 h-3.5" />
+                        <span>Gasto compartido</span>
+                      </span>
                     </BotonAccion>
                   }
                 />

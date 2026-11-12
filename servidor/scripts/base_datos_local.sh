@@ -82,7 +82,7 @@ iniciar() {
 
   if ! "$PG_CTL" -D "$DATOS" status >/dev/null 2>&1; then
     echo "Iniciando PostgreSQL en el puerto $PUERTO…"
-    "$PG_CTL" -D "$DATOS" -o "-p $PUERTO -k $DATOS" -l "$DATOS/postgres.log" start >/dev/null
+    "$PG_CTL" -D "$DATOS" -o "-p $PUERTO -k /tmp" -l "$DATOS/postgres.log" start >/dev/null
   fi
 
   until "$PG_ISREADY" -h 127.0.0.1 -p "$PUERTO" >/dev/null 2>&1; do

@@ -12,6 +12,7 @@ import {
 } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
 import { useMontado } from '../../utils/useCargaRemota';
+import { IconoBuscar } from '../Iconos';
 import { BotonAccion } from './BotonAccion';
 import { MensajeGeneral } from './MensajeGeneral';
 import { Tarjeta } from './Tarjeta';
@@ -115,7 +116,10 @@ export function BuscadorUsuario({ ctx, onInvitada }: Props) {
           deshabilitado={invitando}
           ancho
         >
-          {buscando ? 'Buscando…' : 'Buscar usuario exacto'}
+          <span className="flex items-center justify-center gap-1.5">
+            {!buscando && <IconoBuscar className="w-3.5 h-3.5 shrink-0" />}
+            <span>{buscando ? 'Buscando…' : 'Buscar usuario exacto'}</span>
+          </span>
         </BotonAccion>
       </form>
 

@@ -10,6 +10,7 @@ import {
 } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
 import { useMontado } from '../../utils/useCargaRemota';
+import { IconoCheck, IconoCruz } from '../Iconos';
 import { Avatar } from './Avatar';
 import { BotonAccion } from './BotonAccion';
 import { EstadoVacioSocial } from './EstadoVacioSocial';
@@ -121,7 +122,10 @@ export function InvitacionesAmistad({ ctx, recibidas, enviadas, onCambio }: Prop
                           etiquetaAria={`Aceptar la invitación de ${visible}`}
                           onClick={() => responder(inv, 'aceptar')}
                         >
-                          Aceptar
+                          <span className="flex items-center gap-1.5">
+                            <IconoCheck className="w-3.5 h-3.5" />
+                            <span>Aceptar</span>
+                          </span>
                         </BotonAccion>
                         <BotonAccion
                           modoOscuro={ctx.modoOscuro}
@@ -131,7 +135,10 @@ export function InvitacionesAmistad({ ctx, recibidas, enviadas, onCambio }: Prop
                           etiquetaAria={`Rechazar la invitación de ${visible}`}
                           onClick={() => responder(inv, 'rechazar')}
                         >
-                          Rechazar
+                          <span className="flex items-center gap-1.5">
+                            <IconoCruz className="w-3.5 h-3.5" />
+                            <span>Rechazar</span>
+                          </span>
                         </BotonAccion>
                       </div>
                     )}

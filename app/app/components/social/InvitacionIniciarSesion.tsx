@@ -4,6 +4,7 @@ import React from 'react';
 import type { VistaSocial } from '../../types/social';
 import { BotonSocial, EncabezadoSocial, TarjetaSocial } from './ElementosSociales';
 import { temaSocial } from '../../utils/temaSocial';
+import { IconoAmigos, IconoRecibo } from '../Iconos';
 
 interface Props {
   modoOscuro: boolean;
@@ -30,10 +31,12 @@ export const InvitacionIniciarSesion: React.FC<Props> = ({ modoOscuro, vista, ve
       />
       <TarjetaSocial modoOscuro={modoOscuro} className="mx-auto max-w-md text-center">
         <div
-          className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full text-xl ${tema.chip}`}
+          className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl ${
+            modoOscuro ? 'bg-purple-950/60 border border-purple-800/40 text-purple-300' : 'bg-purple-100 border border-purple-200 text-[#9333EA]'
+          }`}
           aria-hidden="true"
         >
-          {esAmigos ? '👥' : '🧾'}
+          {esAmigos ? <IconoAmigos className="w-7 h-7" /> : <IconoRecibo className="w-7 h-7" />}
         </div>
         <h2 className="text-base font-semibold">
           {vencida ? 'Tu sesión venció, inicia sesión de nuevo.' : 'Inicia sesión para compartir gastos'}

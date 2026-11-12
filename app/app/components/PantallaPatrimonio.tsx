@@ -12,6 +12,7 @@ import {
   PatrimonioDto,
 } from '../utils/tauriCommands';
 import { fechaHoyLocal, formatearMontoTexto, formatearFechaDDMMYYYY } from '../utils/formato';
+import { IconoCheckCirculo, IconoMas } from './Iconos';
 
 interface PantallaPatrimonioProps {
   modoOscuro?: boolean;
@@ -142,8 +143,9 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
       </div>
 
       {mensajeExitoMoneda && (
-        <div className="p-3 bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 rounded-xl text-xs font-semibold">
-          ✓ {mensajeExitoMoneda}
+        <div className="p-3 bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-2">
+          <IconoCheckCirculo className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{mensajeExitoMoneda}</span>
         </div>
       )}
 
@@ -175,9 +177,10 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
 
         <button
           onClick={() => setMostrarCrearMoneda(true)}
-          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
+          className="flex items-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer"
         >
-          + Crear moneda propia
+          <IconoMas className="w-3.5 h-3.5" />
+          <span>Crear moneda propia</span>
         </button>
       </div>
 

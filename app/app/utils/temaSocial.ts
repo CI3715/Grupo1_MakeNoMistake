@@ -25,5 +25,19 @@ export function temaSocial(modoOscuro: boolean) {
       ? 'border-emerald-700/50 bg-emerald-950/30 text-emerald-300'
       : 'border-emerald-300 bg-emerald-50 text-emerald-800',
     etiqueta: modoOscuro ? 'bg-purple-900/50 text-purple-200' : 'bg-purple-100 text-purple-800',
+    titulo: modoOscuro ? 'text-white' : 'text-slate-900',
+    avisoRojo: modoOscuro
+      ? 'border-rose-800/60 bg-rose-950/40 text-rose-300'
+      : 'border-rose-300 bg-rose-50 text-rose-800',
+    avisoVerde: modoOscuro
+      ? 'border-emerald-700/50 bg-emerald-950/30 text-emerald-300'
+      : 'border-emerald-300 bg-emerald-50 text-emerald-800',
+    separador: modoOscuro ? 'border-gray-800' : 'border-gray-200',
+    chip: modoOscuro ? 'bg-purple-950/60 text-purple-300' : 'bg-purple-100 text-purple-700',
+    chipAmbar: modoOscuro ? 'bg-amber-950/60 text-amber-300' : 'bg-amber-100 text-amber-800',
+    chipVerde: modoOscuro ? 'bg-emerald-950/60 text-emerald-300' : 'bg-emerald-100 text-emerald-800',
+    botonSecundario: modoOscuro
+      ? 'border-gray-700 hover:bg-white/10 text-white'
+      : 'border-gray-300 hover:bg-slate-100 text-slate-800',
   };
 }

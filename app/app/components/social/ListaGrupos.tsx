@@ -5,6 +5,7 @@ import type { ContextoSocial } from '../../types/social';
 import { plural } from '../../utils/formatoSocial';
 import type { GrupoResumenDto } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
+import { IconoFlechaDerecha } from '../Iconos';
 import { EstadoVacioSocial } from './EstadoVacioSocial';
 import { Tarjeta } from './Tarjeta';
 
@@ -48,8 +49,9 @@ export function ListaGrupos({ ctx, grupos, onAbrir }: Props) {
                     {g.actividad ? ` · ${g.actividad}` : ''}
                   </span>
                 </span>
-                <span className={`shrink-0 text-xs font-semibold ${tema.textoEnlace}`}>
-                  Abrir <span aria-hidden="true">→</span>
+                <span className={`inline-flex items-center gap-1 shrink-0 text-xs font-semibold ${tema.textoEnlace}`}>
+                  <span>Abrir</span>
+                  <IconoFlechaDerecha className="w-3.5 h-3.5" />
                 </span>
               </button>
             </li>
