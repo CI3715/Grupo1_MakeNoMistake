@@ -7,6 +7,7 @@ import { erroresDeAccion } from '../../utils/erroresSocial';
 import { crearGrupoCommand, type GrupoResumenDto } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
 import { useMontado } from '../../utils/useCargaRemota';
+import { IconoMas } from '../Iconos';
 import { BotonAccion } from './BotonAccion';
 import { MensajeGeneral } from './MensajeGeneral';
 import { Tarjeta } from './Tarjeta';
@@ -136,7 +137,10 @@ export function FormularioCrearGrupo({ ctx, onCreado }: Props) {
         </div>
 
         <BotonAccion modoOscuro={ctx.modoOscuro} tipo="submit" cargando={cargando} ancho>
-          {cargando ? 'Creando…' : 'Crear grupo'}
+          <span className="flex items-center justify-center gap-1.5">
+            {!cargando && <IconoMas className="w-3.5 h-3.5" />}
+            <span>{cargando ? 'Creando…' : 'Crear grupo'}</span>
+          </span>
         </BotonAccion>
       </form>
     </Tarjeta>

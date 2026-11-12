@@ -11,6 +11,7 @@
 # No uses `npm audit fix --force`.
  
 RAIZ="$(pwd)"
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 LOG="$RAIZ/verificacion-entrega5.log"
 : > "$LOG"
 RESUMEN=()

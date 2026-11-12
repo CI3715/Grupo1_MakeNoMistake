@@ -10,6 +10,7 @@ import {
 } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
 import { useMontado } from '../../utils/useCargaRemota';
+import { IconoCheck, IconoCruz } from '../Iconos';
 import { BotonAccion } from './BotonAccion';
 import { MensajeGeneral } from './MensajeGeneral';
 import { Tarjeta } from './Tarjeta';
@@ -75,7 +76,10 @@ export function InvitacionesGrupo({ ctx, invitaciones, onCambio }: Props) {
                   etiquetaAria={`Aceptar la invitación al grupo ${inv.nombre}`}
                   onClick={() => responder(inv, 'aceptar')}
                 >
-                  Aceptar invitación
+                  <span className="flex items-center gap-1.5">
+                    <IconoCheck className="w-3.5 h-3.5" />
+                    <span>Aceptar invitación</span>
+                  </span>
                 </BotonAccion>
                 <BotonAccion
                   modoOscuro={ctx.modoOscuro}
@@ -85,7 +89,10 @@ export function InvitacionesGrupo({ ctx, invitaciones, onCambio }: Props) {
                   etiquetaAria={`Rechazar la invitación al grupo ${inv.nombre}`}
                   onClick={() => responder(inv, 'rechazar')}
                 >
-                  Rechazar
+                  <span className="flex items-center gap-1.5">
+                    <IconoCruz className="w-3.5 h-3.5" />
+                    <span>Rechazar</span>
+                  </span>
                 </BotonAccion>
               </div>
               {error?.id === inv.grupo_id && (

@@ -9,6 +9,7 @@ import { temaSocial } from '../../utils/temaSocial';
 import { useMontado } from '../../utils/useCargaRemota';
 import { Avatar } from './Avatar';
 import { BotonAccion } from './BotonAccion';
+import { IconoPapelera } from '../Iconos';
 import { EstadoVacioSocial } from './EstadoVacioSocial';
 import { MensajeGeneral } from './MensajeGeneral';
 import { Tarjeta } from './Tarjeta';
@@ -82,7 +83,10 @@ export function ListaAmigos({ ctx, amigos, onCambio }: Props) {
                         setConfirmando(amigo.amistad_id);
                       }}
                     >
-                      Eliminar
+                      <span className="flex items-center gap-1">
+                        <IconoPapelera className="w-3 h-3 text-rose-400" />
+                        <span>Eliminar</span>
+                      </span>
                     </BotonAccion>
                   )}
                 </div>

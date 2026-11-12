@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { IconoAlerta } from './Iconos';
 
 interface Props {
   visible: boolean;
@@ -26,7 +27,10 @@ export const DialogoAdvertencia: React.FC<Props> = ({
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
       <div className={`w-full max-w-md p-6 rounded-2xl border shadow-xl ${bgCard}`}>
-        <h3 className="text-lg font-bold text-amber-500 mb-2">⚠️ Advertencia de Saldo Negativo</h3>
+        <h3 className="text-lg font-bold text-amber-500 mb-2 flex items-center gap-2">
+          <IconoAlerta className="w-5 h-5 text-amber-500 shrink-0" />
+          <span>Advertencia de Saldo Negativo</span>
+        </h3>
         <p className={`text-xs ${modoOscuro ? 'text-gray-300' : 'text-gray-600'}`}>
           Este gasto dejará la cuenta con un saldo negativo de{' '}
           <strong className="font-mono">{montoResultante}</strong>. ¿Desea continuar de todos modos?

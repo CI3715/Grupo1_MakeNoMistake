@@ -31,6 +31,7 @@ import { DialogoCorregir } from './DialogoCorregir';
 import { ListaMovimientos } from './ListaMovimientos';
 import { FormularioCategoria } from './FormularioCategoria';
 import { FormularioCuenta } from './FormularioCuenta';
+import { IconoMas, IconoMenos } from './Iconos';
 
 /** Solo traduce el DTO del backend a lo que pinta la tabla; no calcula nada. */
 function adaptarMovimiento(dto: MovimientoDto, moneda: string): Movimiento {
@@ -309,9 +310,10 @@ export function PantallaCuentas({
             </div>
             <button
               onClick={() => abrirModalCuenta()}
-              className="bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-md transition cursor-pointer"
+              className="flex items-center gap-1.5 bg-[#9333EA] hover:bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-md transition cursor-pointer"
             >
-              + Nueva Cuenta
+              <IconoMas className="w-3.5 h-3.5" />
+              <span>Nueva Cuenta</span>
             </button>
           </div>
 
@@ -385,15 +387,17 @@ export function PantallaCuentas({
             <div className="flex gap-2 items-center flex-wrap">
               <button
                 onClick={() => abrirModalMovimientoConTipo('gasto')}
-                className="bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition cursor-pointer"
+                className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition cursor-pointer"
               >
-                − Nuevo Gasto
+                <IconoMenos className="w-3.5 h-3.5" />
+                <span>Nuevo Gasto</span>
               </button>
               <button
                 onClick={() => abrirModalMovimientoConTipo('ingreso')}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition cursor-pointer"
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow transition cursor-pointer"
               >
-                + Nuevo Ingreso
+                <IconoMas className="w-3.5 h-3.5" />
+                <span>Nuevo Ingreso</span>
               </button>
 
               {cuentas.length > 0 && (

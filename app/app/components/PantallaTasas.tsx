@@ -12,6 +12,7 @@ import {
   HistorialParDto,
 } from '../utils/tauriCommands';
 import { fechaHoyLocal, formatearFechaDDMMYYYY, normalizarDecimal } from '../utils/formato';
+import { IconoCheckCirculo, IconoPapelera } from './Iconos';
 
 interface PantallaTasasProps {
   modoOscuro?: boolean;
@@ -129,8 +130,9 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
       </div>
 
       {mensajeExito && (
-        <div className="p-3 bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 rounded-xl text-xs font-semibold">
-          ✓ {mensajeExito}
+        <div className="p-3 bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-2">
+          <IconoCheckCirculo className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{mensajeExito}</span>
         </div>
       )}
 
@@ -277,10 +279,11 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = ({ modoOscuro = true 
                       </div>
                       <button
                         onClick={() => setTasaAEliminar(t.id)}
-                        className="text-rose-400 hover:text-rose-300 font-semibold text-[11px] px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 rounded-lg transition cursor-pointer"
+                        className="flex items-center gap-1 text-rose-400 hover:text-rose-300 font-semibold text-[11px] px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/60 rounded-lg transition cursor-pointer"
                         title="Eliminar tasa"
                       >
-                        Eliminar
+                        <IconoPapelera className="w-3 h-3 shrink-0" />
+                        <span>Eliminar</span>
                       </button>
                     </div>
                   ))}
