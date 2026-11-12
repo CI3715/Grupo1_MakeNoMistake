@@ -75,6 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             🏛️ Patrimonio
           </button>
+
           <button
             onClick={() => setPantallaActual('amigos')}
             aria-current={pantallaActual === 'amigos' ? 'page' : undefined}
