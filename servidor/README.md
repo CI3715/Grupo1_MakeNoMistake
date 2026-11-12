@@ -436,12 +436,18 @@ Además, `tests/test_configuracion.py` comprueba que el servidor rechaza una
 configuración incompleta o inválida, y `tests/test_repositorio_usuarios.py`
 prueba el repositorio contra PostgreSQL: correo en minúsculas, búsqueda sin
 distinguir mayúsculas, duplicados por campo y creación idempotente del esquema.
+`tests/test_repositorio_amistades.py`, `test_repositorio_grupos.py` y
+`test_repositorio_gastos.py` prueban directamente los repositorios de la
+Entrega 6: unicidad de la pareja en los dos sentidos, invitaciones de grupo,
+gasto y partes en una sola transacción, montos `NUMERIC(14, 2)` sin `float`,
+errores por campo/regla y que eliminar una amistad no borra grupos ni gastos.
 `tests/test_integracion_postgres.py` arranca la app conectada a PostgreSQL y
 recorre registro, inicio de sesión y perfil: fecha en UTC aunque la base use
 otra zona horaria, 409 con todos los campos repetidos, duplicado detectado por
-la restricción `UNIQUE` y que la base solo tenga la tabla `usuarios` (INV-16).
-Estas dos se omiten si no defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que
-`uv run pytest` funcione en un clon limpio sin base de datos.
+la restricción `UNIQUE` y que la base solo tenga las seis tablas permitidas
+(INV-16). Todas las pruebas de PostgreSQL se omiten si no defines
+`CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en un clon
+limpio sin base de datos.
 
 Con el clúster local, ejecútalas así:
 
@@ -467,9 +473,9 @@ servidor/
 ├── base_datos.py                      # Conexión a PostgreSQL y creación del esquema
 ├── esquema.py                         # DDL de las tablas e índices (idempotente)
 ├── repositorio_usuarios.py            # Consultas de la tabla usuarios
-├── repositorio_amistades.py           # Firmas de las amistades (Entrega 6)
-├── repositorio_grupos.py              # Firmas de grupos y miembros (Entrega 6)
-├── repositorio_gastos.py              # Firmas de gastos y partes (Entrega 6)
+├── repositorio_amistades.py           # Amistades: invitación, respuesta y baja (Entrega 6)
+├── repositorio_grupos.py              # Grupos y miembros: invitar, aceptar, rechazar (Entrega 6)
+├── repositorio_gastos.py              # Gastos y partes con montos NUMERIC exactos (Entrega 6)
 ├── reglas.py                          # Reglas de registro (funciones puras)
 ├── contrasenas.py                     # Hash argon2id y hash falso
 ├── token_sesion.py                    # Creación y verificación del JWT
@@ -481,6 +487,10 @@ servidor/
 │   ├── test_main.py                   # /ping y documentación
 │   ├── test_configuracion.py          # Variables de entorno
 │   ├── test_repositorio_usuarios.py   # PostgreSQL (se omiten sin CUENTAS_CLARAS_DB_URL_PRUEBAS)
+│   ├── test_repositorio_amistades.py  # Amistades contra PostgreSQL (ídem)
+│   ├── test_repositorio_grupos.py     # Grupos y miembros contra PostgreSQL (ídem)
+│   ├── test_repositorio_gastos.py     # Gastos, partes y NUMERIC contra PostgreSQL (ídem)
+│   ├── apoyo_compartido.py            # Utilidades de las pruebas de la Entrega 6
 │   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL (ídem)
 │   ├── test_reglas.py                 # Reglas de registro
 │   ├── test_seguridad.py              # Hash, token, arranque e INV-16
