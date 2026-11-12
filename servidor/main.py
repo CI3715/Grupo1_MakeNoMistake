@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Annotated, Any, Protocol
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
@@ -16,7 +16,15 @@ import reglas
 import token_sesion
 from base_datos import BaseDatos
 from configuracion import cargar_configuracion
-from repositorio_amistades import RepositorioAmistades
+from repositorio_amistades import (
+    Amistad,
+    AmistadVista,
+    AmistadYaRespondida,
+    EstadoAmistad,
+    InvitacionPendiente,
+    RepositorioAmistades,
+    YaSonAmigos,
+)
 from repositorio_grupos import (
     EstadoMiembro,
     Grupo,
@@ -111,6 +119,22 @@ class AlmacenGrupos(Protocol):
 
 class AlmacenAmistades(Protocol):
     """Lo que las rutas necesitan del almacén de amistades."""
+
+    def crear(
+        self, *, invitador_id: UUID, invitado_id: UUID, ahora: datetime
+    ) -> Amistad: ...
+
+    def buscar_por_id(self, id_amistad: UUID) -> Amistad | None: ...
+
+    def buscar_activa_entre(self, uno: UUID, otro: UUID) -> Amistad | None: ...
+
+    def listar_de(self, usuario_id: UUID) -> list[AmistadVista]: ...
+
+    def responder(
+        self, *, id_amistad: UUID, aceptar: bool, ahora: datetime
+    ) -> Amistad: ...
+
+    def eliminar(self, *, id_amistad: UUID, ahora: datetime) -> None: ...
 
     def son_amigos(self, uno: UUID, otro: UUID) -> bool: ...
 
@@ -217,6 +241,19 @@ class InvitarMiembro(BaseModel):
 
 class ResponderInvitacionGrupo(BaseModel):
     respuesta: str | None = None
+
+
+class NuevaAmistad(BaseModel):
+    usuario: str | None = None
+
+
+class ResponderAmistad(BaseModel):
+    aceptar: bool | None = None
+
+
+class UsuarioPublicoRespuesta(BaseModel):
+    nombre_usuario: str
+    nombre_visible: str
 
 
 # ---------------------------------------------------------------- Errores
@@ -425,6 +462,296 @@ def obtener_perfil(
     if usuario is None:
         return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
     return a_respuesta(usuario)
+
+
+@app.get(
+    "/usuarios",
+    response_model=UsuarioPublicoRespuesta,
+    tags=["Usuarios"],
+    summary="Buscar usuario por coincidencia exacta",
+    responses={
+        400: {"model": ErroresPorCampo},
+        401: {"model": ErrorMensaje},
+        404: {"model": ErrorMensaje},
+    },
+)
+def buscar_usuario(
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repositorio: Repositorio,
+    usuario: str | None = None,
+) -> UsuarioPublicoRespuesta | JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_solicitante = id_desde_token(credenciales.credentials)
+    if id_solicitante is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    if usuario is None or not usuario.strip():
+        return respuesta_errores(
+            400, [reglas.ErrorCampo("usuario", "El nombre de usuario es obligatorio.")]
+        )
+
+    encontrado = repositorio.buscar_por_nombre_usuario(usuario.strip())
+    if encontrado is None or encontrado.nombre_usuario != usuario.strip():
+        return JSONResponse(
+            status_code=404,
+            content={"mensaje": "Usuario no encontrado."},
+        )
+
+    return UsuarioPublicoRespuesta(
+        nombre_usuario=encontrado.nombre_usuario,
+        nombre_visible=encontrado.nombre_visible,
+    )
+
+
+@app.post(
+    "/amistades",
+    status_code=201,
+    tags=["Amistades"],
+    summary="Enviar solicitud de amistad",
+    responses={
+        400: {"model": ErroresPorCampo},
+        401: {"model": ErrorMensaje},
+        404: {"model": ErrorMensaje},
+        409: {"model": ErroresPorCampo},
+    },
+)
+def enviar_solicitud_amistad(
+    cuerpo: NuevaAmistad,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_usuarios: Repositorio,
+    repo_amistades: RepositorioAmistadesDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    usuario_destino = cuerpo.usuario.strip() if cuerpo.usuario else ""
+    if not usuario_destino:
+        return respuesta_errores(
+            400, [reglas.ErrorCampo("usuario", "El nombre de usuario es obligatorio.")]
+        )
+
+    destino = repo_usuarios.buscar_por_nombre_usuario(usuario_destino)
+    if destino is None:
+        return JSONResponse(
+            status_code=404,
+            content={"mensaje": "Usuario no encontrado."},
+        )
+
+    if destino.id == id_usuario:
+        return respuesta_errores(
+            400,
+            [
+                reglas.ErrorCampo(
+                    "usuario", "No puedes enviar una solicitud de amistad a ti mismo."
+                )
+            ],
+        )
+
+    ahora = datetime.now(timezone.utc).replace(microsecond=0)
+    try:
+        amistad = repo_amistades.crear(
+            invitador_id=id_usuario, invitado_id=destino.id, ahora=ahora
+        )
+    except YaSonAmigos:
+        return respuesta_errores(
+            409,
+            [reglas.ErrorCampo("usuario", "Ya existe una amistad con esa persona.")],
+        )
+    except InvitacionPendiente:
+        return respuesta_errores(
+            409,
+            [
+                reglas.ErrorCampo(
+                    "usuario",
+                    "Ya existe una invitación pendiente entre ambas personas.",
+                )
+            ],
+        )
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            "id": str(amistad.id),
+            "estado": amistad.estado.value,
+            "otro_id": str(destino.id),
+            "otro_nombre_usuario": destino.nombre_usuario,
+            "otro_nombre_visible": destino.nombre_visible,
+            "enviada_por_mi": True,
+            "fecha_invitacion": amistad.fecha_invitacion.strftime(FORMATO_FECHA),
+            "fecha_respuesta": None,
+        },
+    )
+
+
+@app.get(
+    "/amistades",
+    tags=["Amistades"],
+    summary="Listar amistades e invitaciones",
+    responses={401: {"model": ErrorMensaje}},
+)
+def listar_amistades(
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_amistades: RepositorioAmistadesDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    vistas = repo_amistades.listar_de(id_usuario)
+    return JSONResponse(
+        status_code=200,
+        content=[
+            {
+                "id": str(v.id),
+                "estado": v.estado.value,
+                "otro_id": str(v.otro_id),
+                "otro_nombre_usuario": v.otro_nombre_usuario,
+                "otro_nombre_visible": v.otro_nombre_visible,
+                "enviada_por_mi": v.enviada_por_mi,
+                "fecha_invitacion": v.fecha_invitacion.strftime(FORMATO_FECHA),
+                "fecha_respuesta": (
+                    v.fecha_respuesta.strftime(FORMATO_FECHA)
+                    if v.fecha_respuesta
+                    else None
+                ),
+            }
+            for v in vistas
+        ],
+    )
+
+
+@app.post(
+    "/amistades/{id_amistad}/respuesta",
+    tags=["Amistades"],
+    summary="Responder a solicitud de amistad",
+    responses={
+        400: {"model": ErroresPorCampo},
+        401: {"model": ErrorMensaje},
+        403: {"model": ErrorMensaje},
+        404: {"model": ErrorMensaje},
+        409: {"model": ErrorMensaje},
+    },
+)
+def responder_solicitud_amistad(
+    id_amistad: str,
+    cuerpo: ResponderAmistad,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_amistades: RepositorioAmistadesDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    try:
+        uuid_amistad = UUID(id_amistad)
+    except ValueError:
+        return JSONResponse(
+            status_code=404, content={"mensaje": "Amistad no encontrada."}
+        )
+
+    amistad = repo_amistades.buscar_por_id(uuid_amistad)
+    if amistad is None:
+        return JSONResponse(
+            status_code=404, content={"mensaje": "Amistad no encontrada."}
+        )
+
+    if amistad.invitado_id != id_usuario:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "mensaje": "Solo el destinatario puede responder a la invitación."
+            },
+        )
+
+    if amistad.estado != EstadoAmistad.PENDIENTE:
+        return JSONResponse(
+            status_code=409,
+            content={"mensaje": "La invitación ya fue respondida o cancelada."},
+        )
+
+    if cuerpo.aceptar is None:
+        return respuesta_errores(
+            400, [reglas.ErrorCampo("aceptar", "El campo aceptar es obligatorio.")]
+        )
+
+    ahora = datetime.now(timezone.utc).replace(microsecond=0)
+    actualizada = repo_amistades.responder(
+        id_amistad=uuid_amistad, aceptar=cuerpo.aceptar, ahora=ahora
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "id": str(actualizada.id),
+            "estado": actualizada.estado.value,
+            "fecha_respuesta": (
+                actualizada.fecha_respuesta.strftime(FORMATO_FECHA)
+                if actualizada.fecha_respuesta
+                else None
+            ),
+        },
+    )
+
+
+@app.delete(
+    "/amistades/{id_amistad}",
+    status_code=204,
+    response_class=Response,
+    tags=["Amistades"],
+    summary="Eliminar amistad",
+    responses={
+        401: {"model": ErrorMensaje},
+        404: {"model": ErrorMensaje},
+    },
+)
+def eliminar_amistad(
+    id_amistad: str,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_amistades: RepositorioAmistadesDep,
+) -> Response:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    try:
+        uuid_amistad = UUID(id_amistad)
+    except ValueError:
+        return JSONResponse(
+            status_code=404, content={"mensaje": "Amistad no encontrada."}
+        )
+
+    amistad = repo_amistades.buscar_por_id(uuid_amistad)
+    if amistad is None or id_usuario not in (amistad.invitador_id, amistad.invitado_id):
+        return JSONResponse(
+            status_code=404, content={"mensaje": "Amistad no encontrada."}
+        )
+
+    ahora = datetime.now(timezone.utc).replace(microsecond=0)
+    try:
+        repo_amistades.eliminar(id_amistad=uuid_amistad, ahora=ahora)
+    except AmistadYaRespondida:
+        pass
+
+    return Response(status_code=204)
 
 
 @app.post(

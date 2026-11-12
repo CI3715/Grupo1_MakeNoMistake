@@ -13,7 +13,10 @@ from typing import Any
 import pytest
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
-from repositorio_en_memoria import RepositorioEnMemoria
+from repositorio_en_memoria import (
+    RepositorioAmistadesEnMemoria,
+    RepositorioEnMemoria,
+)
 
 from base_datos import BaseDatos
 from configuracion import RUTA_ENV
@@ -71,7 +74,10 @@ def entorno_prueba(
         app.state, "repositorio_grupos", repositorio_falso, raising=False
     )
     monkeypatch.setattr(
-        app.state, "repositorio_amistades", repositorio_falso, raising=False
+        app.state,
+        "repositorio_amistades",
+        RepositorioAmistadesEnMemoria(repositorio_falso),
+        raising=False,
     )
     yield
 

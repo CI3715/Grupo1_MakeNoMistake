@@ -11,7 +11,15 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
-from repositorio_amistades import Amistad, EstadoAmistad
+from repositorio_amistades import (
+    Amistad,
+    AmistadNoEncontrada,
+    AmistadVista,
+    AmistadYaRespondida,
+    EstadoAmistad,
+    InvitacionPendiente,
+    YaSonAmigos,
+)
 from repositorio_grupos import (
     EstadoMiembro,
     Grupo,
@@ -213,6 +221,114 @@ class RepositorioEnMemoria:
 
     # ------------------------------------------------------------ Amistades
 
+    def crear_amistad(
+        self, *, invitador_id: UUID, invitado_id: UUID, ahora: datetime
+    ) -> Amistad:
+        activa = self.buscar_activa_entre(invitador_id, invitado_id)
+        if activa is not None:
+            if activa.estado is EstadoAmistad.ACEPTADA:
+                raise YaSonAmigos("Estas dos personas ya son amigas.")
+            raise InvitacionPendiente(
+                "Ya existe una invitación pendiente entre estas personas."
+            )
+
+        amistad = Amistad(
+            id=uuid4(),
+            invitador_id=invitador_id,
+            invitado_id=invitado_id,
+            estado=EstadoAmistad.PENDIENTE,
+            fecha_invitacion=ahora.replace(microsecond=0),
+            fecha_respuesta=None,
+            fecha_baja=None,
+        )
+        self.amistades[amistad.id] = amistad
+        return amistad
+
+    def buscar_amistad_por_id(self, id_amistad: UUID) -> Amistad | None:
+        return self.amistades.get(id_amistad)
+
+    def buscar_activa_entre(self, uno: UUID, otro: UUID) -> Amistad | None:
+        pareja = {uno, otro}
+        return next(
+            (
+                a
+                for a in self.amistades.values()
+                if {a.invitador_id, a.invitado_id} == pareja
+                and a.estado in (EstadoAmistad.PENDIENTE, EstadoAmistad.ACEPTADA)
+            ),
+            None,
+        )
+
+    def listar_amistades_de(self, usuario_id: UUID) -> list[AmistadVista]:
+        resultado: list[AmistadVista] = []
+        for a in self.amistades.values():
+            if a.estado not in (EstadoAmistad.PENDIENTE, EstadoAmistad.ACEPTADA):
+                continue
+            if usuario_id not in (a.invitador_id, a.invitado_id):
+                continue
+            otro_id = a.invitado_id if a.invitador_id == usuario_id else a.invitador_id
+            otro = self.usuarios.get(otro_id)
+            otro_user = otro.nombre_usuario if otro else ""
+            otro_vis = otro.nombre_visible if otro else ""
+            resultado.append(
+                AmistadVista(
+                    id=a.id,
+                    estado=a.estado,
+                    otro_id=otro_id,
+                    otro_nombre_usuario=otro_user,
+                    otro_nombre_visible=otro_vis,
+                    enviada_por_mi=(a.invitador_id == usuario_id),
+                    fecha_invitacion=a.fecha_invitacion,
+                    fecha_respuesta=a.fecha_respuesta,
+                )
+            )
+        return sorted(
+            resultado,
+            key=lambda v: (v.estado != EstadoAmistad.ACEPTADA, v.otro_nombre_usuario),
+        )
+
+    def responder_amistad(
+        self, *, id_amistad: UUID, aceptar: bool, ahora: datetime
+    ) -> Amistad:
+        amistad = self.buscar_amistad_por_id(id_amistad)
+        if amistad is None:
+            raise AmistadNoEncontrada("No existe una amistad con ese id.")
+        if amistad.estado != EstadoAmistad.PENDIENTE:
+            raise AmistadYaRespondida(
+                "La invitación ya fue aceptada, rechazada o eliminada."
+            )
+
+        nuevo_estado = EstadoAmistad.ACEPTADA if aceptar else EstadoAmistad.RECHAZADA
+        actualizada = Amistad(
+            id=amistad.id,
+            invitador_id=amistad.invitador_id,
+            invitado_id=amistad.invitado_id,
+            estado=nuevo_estado,
+            fecha_invitacion=amistad.fecha_invitacion,
+            fecha_respuesta=ahora.replace(microsecond=0),
+            fecha_baja=None,
+        )
+        self.amistades[amistad.id] = actualizada
+        return actualizada
+
+    def eliminar_amistad(self, *, id_amistad: UUID, ahora: datetime) -> None:
+        amistad = self.buscar_amistad_por_id(id_amistad)
+        if amistad is None:
+            raise AmistadNoEncontrada("No existe una amistad con ese id.")
+        if amistad.estado in (EstadoAmistad.RECHAZADA, EstadoAmistad.ELIMINADA):
+            raise AmistadYaRespondida("La amistad ya está cerrada.")
+
+        actualizada = Amistad(
+            id=amistad.id,
+            invitador_id=amistad.invitador_id,
+            invitado_id=amistad.invitado_id,
+            estado=EstadoAmistad.ELIMINADA,
+            fecha_invitacion=amistad.fecha_invitacion,
+            fecha_respuesta=amistad.fecha_respuesta,
+            fecha_baja=ahora.replace(microsecond=0),
+        )
+        self.amistades[amistad.id] = actualizada
+
     def son_amigos(self, uno_id: UUID, otro_id: UUID) -> bool:
         pareja = {uno_id, otro_id}
         return any(
@@ -237,3 +353,37 @@ class RepositorioEnMemoria:
         )
         self.amistades[amistad.id] = amistad
         return amistad
+
+
+class RepositorioAmistadesEnMemoria:
+    """Adaptador de amistades en memoria que implementa AlmacenAmistades."""
+
+    def __init__(self, almacen: RepositorioEnMemoria) -> None:
+        self._almacen = almacen
+
+    def crear(
+        self, *, invitador_id: UUID, invitado_id: UUID, ahora: datetime
+    ) -> Amistad:
+        return self._almacen.crear_amistad(
+            invitador_id=invitador_id, invitado_id=invitado_id, ahora=ahora
+        )
+
+    def buscar_por_id(self, id_amistad: UUID) -> Amistad | None:
+        return self._almacen.buscar_amistad_por_id(id_amistad)
+
+    def buscar_activa_entre(self, uno: UUID, otro: UUID) -> Amistad | None:
+        return self._almacen.buscar_activa_entre(uno, otro)
+
+    def listar_de(self, usuario_id: UUID) -> list[AmistadVista]:
+        return self._almacen.listar_amistades_de(usuario_id)
+
+    def responder(self, *, id_amistad: UUID, aceptar: bool, ahora: datetime) -> Amistad:
+        return self._almacen.responder_amistad(
+            id_amistad=id_amistad, aceptar=aceptar, ahora=ahora
+        )
+
+    def eliminar(self, *, id_amistad: UUID, ahora: datetime) -> None:
+        self._almacen.eliminar_amistad(id_amistad=id_amistad, ahora=ahora)
+
+    def son_amigos(self, uno: UUID, otro: UUID) -> bool:
+        return self._almacen.son_amigos(uno, otro)
