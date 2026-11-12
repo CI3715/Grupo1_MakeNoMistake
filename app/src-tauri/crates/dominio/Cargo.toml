@@ -1,0 +1,13 @@
+[package]
+name = "dominio"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+description = "Cuentas Claras: reglas de negocio"
+
+[dependencies]
+rust_decimal = "1"
+
+[dev-dependencies]
+rust_decimal_macros = "1"

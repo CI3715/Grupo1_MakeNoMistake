@@ -1,0 +1,360 @@
+openapi: 3.1.0
+ 
+info:
+  title: Cuentas Claras API
+  version: 0.1.0
+  description: |
+    Servidor de Cuentas Claras.
+ 
+    Solo identifica a las personas (registro, inicio de sesión y perfil) y
+    responde al ping. **No recibe ni guarda cuentas, movimientos, saldos, tasas
+    ni categorías** (INV-16, RES-02): esos datos nunca salen del dispositivo.
+ 
+    Este archivo se escribe a mano y se verifica contra `/openapi.json`, que
+    genera FastAPI. Si una ruta cambia en el código, hay que cambiarla aquí.
+ 
+    ## Forma de los errores
+ 
+    - **400** y **409** devuelven `{"errores": [{"campo": ..., "mensaje": ...}]}`.
+      Nunca repiten el valor enviado (la contraseña no aparece en ningún error).
+    - **401** devuelve `{"mensaje": ...}`.
+    - Los nombres de campo son `nombre_usuario`, `nombre_visible`, `correo` y
+      `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON).
+    - Nunca se responde 422: los errores de tipo también son 400 por campo.
+ 
+    ## Fechas
+
+    Todas van en UTC con el formato `AAAA-MM-DDThh:mm:ssZ`, igual que `/ping`.
+
+    ## Tipos de PostgreSQL
+
+    El contrato refleja el esquema de la tabla `usuarios`: `id` es `UUID`,
+    `fecha_alta` es `TIMESTAMPTZ` en UTC, y los textos usan `VARCHAR(n)` con
+    los límites indicados (`nombre_usuario` 30, `nombre_visible` 50 y `correo`
+    254). El hash de la contraseña es `TEXT` y nunca aparece en una respuesta.
+
+servers:
+  - url: http://localhost:8000
+    description: Entorno local (HTTP permitido solo aquí; todo despliegue exige HTTPS, RNF-06).
+ 
+tags:
+  - name: Estado
+    description: Comprobación de que el servidor responde.
+  - name: Usuarios
+    description: Registro y perfil.
+  - name: Sesiones
+    description: Inicio de sesión y clave de acceso temporal.
+ 
+paths:
+  /ping:
+    get:
+      tags: [Estado]
+      summary: Comprobar que el servidor está activo
+      operationId: ping
+      responses:
+        "200":
+          description: El servidor responde.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingRespuesta"
+ 
+  /usuarios:
+    post:
+      tags: [Usuarios]
+      summary: Registrarse
+      description: |
+        Crea un usuario. La contraseña se guarda solo como hash argon2id con sal
+        única; nunca se devuelve. El nombre de usuario y el correo son únicos; el
+        correo se compara sin distinguir mayúsculas.
+      operationId: registrarUsuario
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistroUsuario"
+            example:
+              nombre_usuario: ana.perez
+              nombre_visible: Ana Pérez
+              correo: ana@example.com
+              contrasena: una-clave-larga-123
+      responses:
+        "201":
+          description: Usuario creado. No incluye contraseña ni hash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usuario"
+        "400":
+          description: >-
+            Datos inválidos: nombre de usuario fuera de formato, nombre visible
+            vacío, correo mal formado, contraseña de menos de 10
+            caracteres, o campo ausente. Se informan todos los campos que fallan
+            a la vez.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: correo
+                    mensaje: El correo no tiene un formato válido.
+                  - campo: contrasena
+                    mensaje: La contraseña debe tener al menos 10 caracteres.
+        "409":
+          description: El nombre de usuario o el correo ya están registrados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: correo
+                    mensaje: Ese correo ya está registrado.
+ 
+  /sesiones:
+    post:
+      tags: [Sesiones]
+      summary: Iniciar sesión
+      description: |
+        Con credenciales válidas entrega un token firmado (JWT, HS256) con una
+        vigencia de 60 minutos por defecto (configurable por variable de entorno).
+        Con credenciales incorrectas responde siempre lo mismo, exista o no el
+        usuario.
+      operationId: iniciarSesion
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credenciales"
+            example:
+              correo: ana@example.com
+              contrasena: una-clave-larga-123
+      responses:
+        "200":
+          description: Sesión iniciada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sesion"
+        "400":
+          description: Falta el correo o la contraseña, o vienen vacíos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: >-
+            Correo o contraseña incorrectos. El mensaje y el código son idénticos
+            si el correo no existe o si la contraseña no coincide.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Correo o contraseña incorrectos.
+ 
+  /usuarios/yo:
+    get:
+      tags: [Usuarios]
+      summary: Perfil propio
+      operationId: obtenerPerfil
+      security:
+        - tokenBearer: []
+      responses:
+        "200":
+          description: Datos del usuario de la sesión. Nunca incluye hash ni contraseña.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usuario"
+        "401":
+          description: >-
+            Token ausente, alterado, firmado con otro secreto, vencido, o con un
+            esquema distinto de Bearer.
+          headers:
+            WWW-Authenticate:
+              description: Esquema de autenticación esperado.
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Sesión no válida o vencida.
+ 
+components:
+  securitySchemes:
+    tokenBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token entregado por `POST /sesiones`, en el encabezado
+        `Authorization: Bearer <token>`.
+ 
+  schemas:
+    PingRespuesta:
+      type: object
+      required: [estado, mensaje, version, timestamp]
+      properties:
+        estado:
+          type: string
+          example: ok
+        mensaje:
+          type: string
+          example: Servidor Cuentas Claras activo
+        version:
+          type: string
+          example: 0.1.0
+        timestamp:
+          $ref: "#/components/schemas/FechaHoraUtc"
+ 
+    FechaHoraUtc:
+      type: string
+      format: date-time
+      description: >-
+        Fecha y hora en UTC, formato `AAAA-MM-DDThh:mm:ssZ`. Cuando se persiste
+        en la base, la columna es `TIMESTAMPTZ`.
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+      example: "2026-11-10T10:00:00Z"
+ 
+    RegistroUsuario:
+      type: object
+      required: [nombre_usuario, nombre_visible, correo, contrasena]
+      properties:
+        nombre_usuario:
+          type: string
+          description: >-
+            De 3 a 30 caracteres; solo letras minúsculas, dígitos, punto y guion
+            bajo. Columna `VARCHAR(30)` con índice único.
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-z0-9._]{3,30}$"
+          example: ana.perez
+        nombre_visible:
+          type: string
+          description: >-
+            El que verán sus amigos más adelante. Se recorta y no puede quedar
+            vacío. Columna `VARCHAR(50)`.
+          minLength: 1
+          maxLength: 50
+          example: Ana Pérez
+        correo:
+          type: string
+          format: email
+          maxLength: 254
+          description: >-
+            Se guarda en minúsculas en una columna `VARCHAR(254)`. La unicidad
+            no distingue mayúsculas: `Ana@Example.com` y `ana@example.com` son
+            el mismo correo.
+          example: ana@example.com
+        contrasena:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 10
+          description: >-
+            Al menos 10 caracteres. Se guarda solo como hash argon2id en una
+            columna `TEXT`. Nunca se devuelve ni se registra en logs.
+          example: una-clave-larga-123
+ 
+    Credenciales:
+      type: object
+      required: [correo, contrasena]
+      properties:
+        correo:
+          type: string
+          format: email
+          maxLength: 254
+          description: Se compara sin distinguir mayúsculas.
+          example: ana@example.com
+        contrasena:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 1
+          example: una-clave-larga-123
+ 
+    Usuario:
+      type: object
+      description: >-
+        Fila de la tabla `usuarios` sin contraseña ni hash. `id` es `UUID` y
+        `fecha_alta` es `TIMESTAMPTZ` en UTC.
+      required: [id, nombre_usuario, nombre_visible, correo, fecha_alta]
+      properties:
+        id:
+          type: string
+          format: uuid
+          maxLength: 36
+          description: Clave primaria `UUID`.
+          example: 3f2b8c1e-6a4d-4b7e-9c10-2d5e7a9b0c11
+        nombre_usuario:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-z0-9._]{3,30}$"
+          example: ana.perez
+        nombre_visible:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Ana Pérez
+        correo:
+          type: string
+          format: email
+          maxLength: 254
+          example: ana@example.com
+        fecha_alta:
+          $ref: "#/components/schemas/FechaHoraUtc"
+ 
+    Sesion:
+      type: object
+      required: [token, tipo, vence_en]
+      properties:
+        token:
+          type: string
+          description: JWT firmado con el id del usuario y su vencimiento.
+        tipo:
+          type: string
+          enum: [Bearer]
+        vence_en:
+          $ref: "#/components/schemas/FechaHoraUtc"
+ 
+    ErrorCampo:
+      type: object
+      required: [campo, mensaje]
+      properties:
+        campo:
+          type: string
+          enum: [nombre_usuario, nombre_visible, correo, contrasena, cuerpo]
+          description: >-
+            Campo que falla. `cuerpo` solo aparece si el cuerpo de la petición no
+            es un objeto JSON.
+        mensaje:
+          type: string
+          description: En español, sin trazas técnicas y sin el valor enviado.
+ 
+    ErroresPorCampo:
+      type: object
+      required: [errores]
+      properties:
+        errores:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ErrorCampo"
+ 
+    ErrorMensaje:
+      type: object
+      required: [mensaje]
+      properties:
+        mensaje:
+          type: string
+ 
