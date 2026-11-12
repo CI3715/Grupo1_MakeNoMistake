@@ -55,7 +55,7 @@ pub async fn listar_amistades() -> Result<ListaAmistadesDto, ErroresDto> {
 }
 
 /// Elimina una amistad. No borra los grupos ni los gastos que ya comparten.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn eliminar_amistad(amistad_id: String) -> Result<(), ErroresDto> {
     con_estado(|e| fijo::eliminar_amistad(e, &amistad_id))
 }
@@ -93,7 +93,7 @@ pub async fn registrar_gasto_grupo(datos: NuevoGastoGrupoDto) -> Result<GastoGru
 }
 
 /// Miembros, gastos y balances de un grupo (solo para miembros).
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn ver_grupo(grupo_id: String) -> Result<GrupoDetalleDto, ErroresDto> {
     con_estado(|e| fijo::ver_grupo(e, &grupo_id))
 }
