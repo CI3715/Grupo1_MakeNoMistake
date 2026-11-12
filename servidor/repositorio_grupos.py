@@ -1,7 +1,4 @@
-"""Firmas del repositorio de grupos y miembros (Entrega 6).
-
-Igual que `repositorio_amistades.py`, aquí solo viven los tipos y las firmas:
-la implementación SQL llega con los endpoints de grupos.
+"""Firmas e implementación del repositorio de grupos y miembros (Entrega 6).
 
 Un grupo nace con su creador como miembro administrador y aceptado
 (RF-COM-01). Nadie más entra sin aceptar la invitación (RF-COM-02): mientras
@@ -13,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
+
+from psycopg import errors
 
 from base_datos import BaseDatos
 
@@ -109,27 +109,138 @@ class RepositorioGrupos:
         fecha_actividad: date | None,
         ahora: datetime,
     ) -> Grupo:
-        """Crea el grupo y su miembro administrador en una sola transacción.
+        """Crea el grupo y su miembro administrador en una sola transacción."""
+        grupo = Grupo(
+            id=uuid4(),
+            nombre=nombre.strip(),
+            descripcion=descripcion.strip() if descripcion else None,
+            moneda=moneda.strip().upper(),
+            actividad=actividad.strip() if actividad else None,
+            fecha_actividad=fecha_actividad,
+            creado_por=creado_por,
+            fecha_creacion=ahora,
+        )
 
-        La moneda llega ya normalizada a mayúsculas y con tres letras.
-        """
-        raise NotImplementedError
+        with self._base_datos.conexion() as conexion:
+            conexion.execute(
+                """
+                INSERT INTO grupos (
+                    id, nombre, descripcion, moneda, actividad,
+                    fecha_actividad, creado_por, fecha_creacion
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    grupo.id,
+                    grupo.nombre,
+                    grupo.descripcion,
+                    grupo.moneda,
+                    grupo.actividad,
+                    grupo.fecha_actividad,
+                    grupo.creado_por,
+                    grupo.fecha_creacion,
+                ),
+            )
+            conexion.execute(
+                """
+                INSERT INTO miembros (
+                    grupo_id, usuario_id, rol, estado,
+                    invitado_por, fecha_invitacion, fecha_respuesta
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    grupo.id,
+                    creado_por,
+                    Rol.ADMINISTRADOR.value,
+                    EstadoMiembro.ACEPTADO.value,
+                    None,
+                    ahora,
+                    ahora,
+                ),
+            )
+        return grupo
 
     def buscar_por_id(self, id_grupo: UUID) -> Grupo | None:
         """Devuelve el grupo o `None` si no existe."""
-        raise NotImplementedError
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(
+                """
+                SELECT id, nombre, descripcion, moneda, actividad,
+                       fecha_actividad, creado_por, fecha_creacion
+                FROM grupos WHERE id = %s
+                """,
+                (id_grupo,),
+            ).fetchone()
+            if fila is None:
+                return None
+            return _grupo_desde_fila(fila)
 
     def buscar_miembro(self, *, id_grupo: UUID, usuario_id: UUID) -> Miembro | None:
         """Devuelve la pertenencia o `None` si la persona no está en el grupo."""
-        raise NotImplementedError
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(
+                """
+                SELECT grupo_id, usuario_id, rol, estado,
+                       invitado_por, fecha_invitacion, fecha_respuesta
+                FROM miembros WHERE grupo_id = %s AND usuario_id = %s
+                """,
+                (id_grupo, usuario_id),
+            ).fetchone()
+            if fila is None:
+                return None
+            return _miembro_desde_fila(fila)
 
     def listar_de(self, usuario_id: UUID) -> list[GrupoVista]:
         """Grupos aceptados e invitaciones pendientes de una persona."""
-        raise NotImplementedError
+        with self._base_datos.conexion() as conexion:
+            filas = conexion.execute(
+                """
+                SELECT g.id, g.nombre, g.descripcion, g.moneda, g.actividad,
+                       g.fecha_actividad, g.creado_por, g.fecha_creacion,
+                       m.rol, m.estado, u.nombre_visible
+                FROM miembros m
+                JOIN grupos g ON g.id = m.grupo_id
+                JOIN usuarios u ON u.id = g.creado_por
+                WHERE m.usuario_id = %s
+                ORDER BY g.fecha_creacion DESC
+                """,
+                (usuario_id,),
+            ).fetchall()
+            return [
+                GrupoVista(
+                    grupo=_grupo_desde_fila(f),
+                    mi_rol=Rol(f["rol"]),
+                    mi_estado=EstadoMiembro(f["estado"]),
+                    nombre_creador=f["nombre_visible"],
+                )
+                for f in filas
+            ]
 
     def listar_miembros(self, id_grupo: UUID) -> list[MiembroVista]:
         """Miembros e invitados de un grupo."""
-        raise NotImplementedError
+        with self._base_datos.conexion() as conexion:
+            filas = conexion.execute(
+                """
+                SELECT m.usuario_id, u.nombre_usuario, u.nombre_visible,
+                       m.rol, m.estado
+                FROM miembros m
+                JOIN usuarios u ON u.id = m.usuario_id
+                WHERE m.grupo_id = %s
+                ORDER BY u.nombre_usuario ASC
+                """,
+                (id_grupo,),
+            ).fetchall()
+            return [
+                MiembroVista(
+                    usuario_id=f["usuario_id"],
+                    nombre_usuario=f["nombre_usuario"],
+                    nombre_visible=f["nombre_visible"],
+                    rol=Rol(f["rol"]),
+                    estado=EstadoMiembro(f["estado"]),
+                )
+                for f in filas
+            ]
 
     def invitar(
         self,
@@ -139,27 +250,105 @@ class RepositorioGrupos:
         invitado_por: UUID,
         ahora: datetime,
     ) -> Miembro:
-        """Invita a una persona al grupo en estado `invitado`.
+        """Invita a una persona al grupo en estado `invitado`."""
+        with self._base_datos.conexion() as conexion:
+            try:
+                conexion.execute(
+                    """
+                    INSERT INTO miembros (
+                        grupo_id, usuario_id, rol, estado,
+                        invitado_por, fecha_invitacion, fecha_respuesta
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, NULL)
+                    """,
+                    (
+                        id_grupo,
+                        usuario_id,
+                        Rol.MIEMBRO.value,
+                        EstadoMiembro.INVITADO.value,
+                        invitado_por,
+                        ahora,
+                    ),
+                )
+            except errors.UniqueViolation as exc:
+                raise YaEsMiembro() from exc
 
-        Si ya pertenece al grupo o ya tiene una invitación pendiente se lanza
-        `YaEsMiembro`.
-        """
-        raise NotImplementedError
+        return Miembro(
+            grupo_id=id_grupo,
+            usuario_id=usuario_id,
+            rol=Rol.MIEMBRO,
+            estado=EstadoMiembro.INVITADO,
+            invitado_por=invitado_por,
+            fecha_invitacion=ahora,
+            fecha_respuesta=None,
+        )
 
     def aceptar_invitacion(
         self, *, id_grupo: UUID, usuario_id: UUID, ahora: datetime
     ) -> Miembro:
-        """Pasa la pertenencia de `invitado` a `aceptado`.
-
-        Solo el invitado puede hacerlo; si no hay invitación pendiente se
-        lanza `InvitacionDeGrupoNoPendiente`.
-        """
-        raise NotImplementedError
+        """Pasa la pertenencia de `invitado` a `aceptado`."""
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(
+                """
+                UPDATE miembros
+                SET estado = %s, fecha_respuesta = %s
+                WHERE grupo_id = %s AND usuario_id = %s AND estado = %s
+                RETURNING rol, invitado_por, fecha_invitacion
+                """,
+                (
+                    EstadoMiembro.ACEPTADO.value,
+                    ahora,
+                    id_grupo,
+                    usuario_id,
+                    EstadoMiembro.INVITADO.value,
+                ),
+            ).fetchone()
+            if fila is None:
+                raise InvitacionDeGrupoNoPendiente()
+            return Miembro(
+                grupo_id=id_grupo,
+                usuario_id=usuario_id,
+                rol=Rol(fila["rol"]),
+                estado=EstadoMiembro.ACEPTADO,
+                invitado_por=fila["invitado_por"],
+                fecha_invitacion=fila["fecha_invitacion"],
+                fecha_respuesta=ahora,
+            )
 
     def rechazar_invitacion(self, *, id_grupo: UUID, usuario_id: UUID) -> None:
-        """Elimina la fila de la persona rechazada.
+        """Elimina la fila de la persona rechazada."""
+        with self._base_datos.conexion() as conexion:
+            cursor = conexion.execute(
+                """
+                DELETE FROM miembros
+                WHERE grupo_id = %s AND usuario_id = %s AND estado = %s
+                """,
+                (id_grupo, usuario_id, EstadoMiembro.INVITADO.value),
+            )
+            if cursor.rowcount == 0:
+                raise InvitacionDeGrupoNoPendiente()
 
-        La tabla solo admite los estados `invitado` y `aceptado`, así que un
-        rechazo no deja fila.
-        """
-        raise NotImplementedError
+
+def _grupo_desde_fila(fila: dict[str, Any]) -> Grupo:
+    return Grupo(
+        id=fila["id"],
+        nombre=fila["nombre"],
+        descripcion=fila["descripcion"],
+        moneda=fila["moneda"],
+        actividad=fila["actividad"],
+        fecha_actividad=fila["fecha_actividad"],
+        creado_por=fila["creado_por"],
+        fecha_creacion=fila["fecha_creacion"],
+    )
+
+
+def _miembro_desde_fila(fila: dict[str, Any]) -> Miembro:
+    return Miembro(
+        grupo_id=fila["grupo_id"],
+        usuario_id=fila["usuario_id"],
+        rol=Rol(fila["rol"]),
+        estado=EstadoMiembro(fila["estado"]),
+        invitado_por=fila["invitado_por"],
+        fecha_invitacion=fila["fecha_invitacion"],
+        fecha_respuesta=fila["fecha_respuesta"],
+    )

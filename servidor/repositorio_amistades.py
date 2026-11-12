@@ -125,4 +125,15 @@ class RepositorioAmistades:
 
     def son_amigos(self, uno: UUID, otro: UUID) -> bool:
         """Indica si existe una amistad aceptada entre las dos personas."""
-        raise NotImplementedError
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(
+                """
+                SELECT 1 FROM amistades
+                WHERE least(invitador_id, invitado_id) = least(%s, %s)
+                  AND greatest(invitador_id, invitado_id) = greatest(%s, %s)
+                  AND estado = 'aceptada'
+                LIMIT 1
+                """,
+                (uno, otro, uno, otro),
+            ).fetchone()
+            return fila is not None

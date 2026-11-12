@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Any, Protocol
 from uuid import UUID
 
@@ -16,6 +16,16 @@ import reglas
 import token_sesion
 from base_datos import BaseDatos
 from configuracion import cargar_configuracion
+from repositorio_amistades import RepositorioAmistades
+from repositorio_grupos import (
+    EstadoMiembro,
+    Grupo,
+    GrupoVista,
+    Miembro,
+    MiembroVista,
+    RepositorioGrupos,
+    Rol,
+)
 from repositorio_usuarios import RepositorioUsuarios, Usuario, UsuarioDuplicado
 
 VERSION = "0.1.0"
@@ -25,6 +35,13 @@ MENSAJE_CREDENCIALES = "Correo o contraseña incorrectos."
 MENSAJE_SESION_INVALIDA = "Sesión no válida o vencida."
 MENSAJE_CUERPO_INVALIDO = "El cuerpo de la petición debe ser un objeto JSON."
 MENSAJE_TIPO_TEXTO = "Este campo debe ser texto."
+MENSAJE_GRUPO_NO_ENCONTRADO = "Grupo no encontrado."
+MENSAJE_NO_ADMIN = "Solo el administrador puede invitar miembros."
+MENSAJE_NO_AMIGOS = "Solo puedes invitar a personas que sean tus amigos."
+MENSAJE_YA_MIEMBRO = (
+    "El usuario ya pertenece al grupo o tiene una invitación pendiente."
+)
+MENSAJE_RESPUESTA_INVALIDA = "La respuesta debe ser 'aceptar' o 'rechazar'."
 MENSAJE_DUPLICADO = {
     "nombre_usuario": "Ese nombre de usuario ya está registrado.",
     "correo": "Ese correo ya está registrado.",
@@ -32,11 +49,7 @@ MENSAJE_DUPLICADO = {
 
 
 class AlmacenUsuarios(Protocol):
-    """Lo que las rutas necesitan del almacén de usuarios.
-
-    En producción es ``RepositorioUsuarios`` (PostgreSQL). Las pruebas de las
-    rutas usan uno en memoria con el mismo comportamiento.
-    """
+    """Lo que las rutas necesitan del almacén de usuarios."""
 
     def crear(
         self,
@@ -54,6 +67,54 @@ class AlmacenUsuarios(Protocol):
     def buscar_por_id(self, id_usuario: UUID) -> Usuario | None: ...
 
 
+class AlmacenGrupos(Protocol):
+    """Lo que las rutas necesitan del almacén de grupos y miembros."""
+
+    def crear_grupo(
+        self,
+        *,
+        creado_por: UUID,
+        nombre: str,
+        descripcion: str | None,
+        moneda: str,
+        actividad: str | None,
+        fecha_actividad: date | None,
+        ahora: datetime,
+    ) -> Grupo: ...
+
+    def buscar_grupo_por_id(self, id_grupo: UUID) -> Grupo | None: ...
+
+    def buscar_miembro(self, *, id_grupo: UUID, usuario_id: UUID) -> Miembro | None: ...
+
+    def listar_grupos_de(self, usuario_id: UUID) -> list[GrupoVista]: ...
+
+    def listar_miembros_de_grupo(self, id_grupo: UUID) -> list[MiembroVista]: ...
+
+    def invitar_a_grupo(
+        self,
+        *,
+        id_grupo: UUID,
+        usuario_id: UUID,
+        invitado_por: UUID,
+        ahora: datetime,
+    ) -> Miembro: ...
+
+    def responder_invitacion_grupo(
+        self,
+        *,
+        id_grupo: UUID,
+        usuario_id: UUID,
+        aceptar: bool,
+        ahora: datetime,
+    ) -> Miembro | None: ...
+
+
+class AlmacenAmistades(Protocol):
+    """Lo que las rutas necesitan del almacén de amistades."""
+
+    def son_amigos(self, uno: UUID, otro: UUID) -> bool: ...
+
+
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
     """Conecta con PostgreSQL y comprueba la configuración al arrancar.
@@ -68,6 +129,8 @@ async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
         base_datos = BaseDatos(configuracion.url_base_datos)
         base_datos.crear_esquema()
         app.state.repositorio_usuarios = RepositorioUsuarios(base_datos)
+        app.state.repositorio_grupos = RepositorioGrupos(base_datos)
+        app.state.repositorio_amistades = RepositorioAmistades(base_datos)
     token_sesion.comprobar_configuracion()
 
     yield
@@ -141,6 +204,21 @@ class ErrorMensaje(BaseModel):
     mensaje: str
 
 
+class NuevoGrupo(BaseModel):
+    nombre: str | None = None
+    descripcion: str | None = None
+    moneda: str | None = None
+    actividad: str | None = None
+
+
+class InvitarMiembro(BaseModel):
+    usuario: str | None = None
+
+
+class ResponderInvitacionGrupo(BaseModel):
+    respuesta: str | None = None
+
+
 # ---------------------------------------------------------------- Errores
 
 
@@ -206,6 +284,24 @@ def obtener_repositorio(request: Request) -> AlmacenUsuarios:
 
 
 Repositorio = Annotated[AlmacenUsuarios, Depends(obtener_repositorio)]
+
+
+def obtener_repositorio_grupos(request: Request) -> AlmacenGrupos:
+    repo: AlmacenGrupos = request.app.state.repositorio_grupos
+    return repo
+
+
+RepositorioGruposDep = Annotated[AlmacenGrupos, Depends(obtener_repositorio_grupos)]
+
+
+def obtener_repositorio_amistades(request: Request) -> AlmacenAmistades:
+    repo: AlmacenAmistades = request.app.state.repositorio_amistades
+    return repo
+
+
+RepositorioAmistadesDep = Annotated[
+    AlmacenAmistades, Depends(obtener_repositorio_amistades)
+]
 
 
 def campos_ocupados(
@@ -329,6 +425,375 @@ def obtener_perfil(
     if usuario is None:
         return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
     return a_respuesta(usuario)
+
+
+@app.post(
+    "/grupos",
+    status_code=201,
+    tags=["Grupos"],
+    summary="Crear grupo",
+)
+def crear_grupo(
+    cuerpo: NuevoGrupo,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_grupos: RepositorioGruposDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    errores: list[reglas.ErrorCampo] = []
+    nombre = cuerpo.nombre.strip() if cuerpo.nombre else ""
+    if not nombre:
+        errores.append(
+            reglas.ErrorCampo("nombre", "El nombre del grupo es obligatorio.")
+        )
+
+    moneda = cuerpo.moneda.strip().upper() if cuerpo.moneda else ""
+    if len(moneda) != 3 or not moneda.isalpha():
+        errores.append(
+            reglas.ErrorCampo(
+                "moneda",
+                "La moneda debe ser un código ISO de tres letras mayúsculas.",
+            )
+        )
+
+    if errores:
+        return respuesta_errores(400, errores)
+
+    ahora = datetime.now(timezone.utc).replace(microsecond=0)
+    grupo = repo_grupos.crear_grupo(
+        creado_por=id_usuario,
+        nombre=nombre,
+        descripcion=cuerpo.descripcion,
+        moneda=moneda,
+        actividad=cuerpo.actividad,
+        fecha_actividad=None,
+        ahora=ahora,
+    )
+    return JSONResponse(
+        status_code=201,
+        content={
+            "id": str(grupo.id),
+            "nombre": grupo.nombre,
+            "descripcion": grupo.descripcion or "",
+            "moneda": grupo.moneda,
+            "actividad": grupo.actividad or "",
+            "rol": "administrador",
+            "cantidad_miembros": 1,
+        },
+    )
+
+
+@app.get(
+    "/grupos",
+    tags=["Grupos"],
+    summary="Listar mis grupos",
+)
+def listar_mis_grupos(
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_grupos: RepositorioGruposDep,
+    repo_usuarios: Repositorio,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    vistas = repo_grupos.listar_grupos_de(id_usuario)
+    grupos_resp: list[dict[str, Any]] = []
+    invitaciones_resp: list[dict[str, Any]] = []
+
+    for vista in vistas:
+        if vista.mi_estado == EstadoMiembro.ACEPTADO:
+            miembros = repo_grupos.listar_miembros_de_grupo(vista.grupo.id)
+            cant = sum(1 for m in miembros if m.estado == EstadoMiembro.ACEPTADO)
+            grupos_resp.append(
+                {
+                    "id": str(vista.grupo.id),
+                    "nombre": vista.grupo.nombre,
+                    "descripcion": vista.grupo.descripcion or "",
+                    "moneda": vista.grupo.moneda,
+                    "actividad": vista.grupo.actividad or "",
+                    "rol": vista.mi_rol.value,
+                    "cantidad_miembros": cant,
+                }
+            )
+        elif vista.mi_estado == EstadoMiembro.INVITADO:
+            creador = repo_usuarios.buscar_por_id(vista.grupo.creado_por)
+            invitador_datos = {
+                "nombre_usuario": creador.nombre_usuario if creador else "",
+                "nombre_visible": creador.nombre_visible if creador else "",
+            }
+            invitaciones_resp.append(
+                {
+                    "grupo_id": str(vista.grupo.id),
+                    "nombre": vista.grupo.nombre,
+                    "moneda": vista.grupo.moneda,
+                    "actividad": vista.grupo.actividad or "",
+                    "invitado_por": invitador_datos,
+                }
+            )
+
+    return JSONResponse(
+        status_code=200,
+        content={"grupos": grupos_resp, "invitaciones": invitaciones_resp},
+    )
+
+
+@app.get(
+    "/grupos/{id_grupo}",
+    tags=["Grupos"],
+    summary="Detalle de grupo",
+)
+def obtener_grupo(
+    id_grupo: str,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_grupos: RepositorioGruposDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    try:
+        uuid_grupo = UUID(id_grupo)
+    except ValueError:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    grupo = repo_grupos.buscar_grupo_por_id(uuid_grupo)
+    if grupo is None:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    miembro = repo_grupos.buscar_miembro(id_grupo=uuid_grupo, usuario_id=id_usuario)
+    if miembro is None or miembro.estado != EstadoMiembro.ACEPTADO:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    miembros = repo_grupos.listar_miembros_de_grupo(uuid_grupo)
+    miembros_resp = [
+        {
+            "usuario": m.nombre_usuario,
+            "nombre_visible": m.nombre_visible,
+            "rol": m.rol.value,
+            "estado": m.estado.value,
+        }
+        for m in miembros
+    ]
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "id": str(grupo.id),
+            "nombre": grupo.nombre,
+            "descripcion": grupo.descripcion or "",
+            "moneda": grupo.moneda,
+            "actividad": grupo.actividad or "",
+            "rol": miembro.rol.value,
+            "miembros": miembros_resp,
+            "gastos": [],
+            "balances": {},
+        },
+    )
+
+
+@app.post(
+    "/grupos/{id_grupo}/miembros",
+    status_code=201,
+    tags=["Grupos"],
+    summary="Invitar miembro a grupo",
+)
+def invitar_miembro(
+    id_grupo: str,
+    cuerpo: InvitarMiembro,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_grupos: RepositorioGruposDep,
+    repo_usuarios: Repositorio,
+    repo_amistades: RepositorioAmistadesDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    try:
+        uuid_grupo = UUID(id_grupo)
+    except ValueError:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    grupo = repo_grupos.buscar_grupo_por_id(uuid_grupo)
+    if grupo is None:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    miembro_admin = repo_grupos.buscar_miembro(
+        id_grupo=uuid_grupo, usuario_id=id_usuario
+    )
+    if miembro_admin is None or miembro_admin.estado != EstadoMiembro.ACEPTADO:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    if miembro_admin.rol != Rol.ADMINISTRADOR:
+        return JSONResponse(status_code=403, content={"mensaje": MENSAJE_NO_ADMIN})
+
+    if not cuerpo.usuario or not cuerpo.usuario.strip():
+        return respuesta_errores(
+            400,
+            [reglas.ErrorCampo("usuario", "El nombre de usuario es obligatorio.")],
+        )
+
+    invitado = repo_usuarios.buscar_por_nombre_usuario(cuerpo.usuario.strip())
+    if invitado is None:
+        return JSONResponse(
+            status_code=404, content={"mensaje": "Usuario no encontrado."}
+        )
+
+    if not repo_amistades.son_amigos(id_usuario, invitado.id):
+        return JSONResponse(status_code=403, content={"mensaje": MENSAJE_NO_AMIGOS})
+
+    existente = repo_grupos.buscar_miembro(id_grupo=uuid_grupo, usuario_id=invitado.id)
+    if existente is not None:
+        return respuesta_errores(
+            409, [reglas.ErrorCampo("usuario", MENSAJE_YA_MIEMBRO)]
+        )
+
+    ahora = datetime.now(timezone.utc).replace(microsecond=0)
+    repo_grupos.invitar_a_grupo(
+        id_grupo=uuid_grupo,
+        usuario_id=invitado.id,
+        invitado_por=id_usuario,
+        ahora=ahora,
+    )
+    return JSONResponse(
+        status_code=201,
+        content={
+            "usuario": invitado.nombre_usuario,
+            "nombre_visible": invitado.nombre_visible,
+            "rol": "miembro",
+            "estado": "invitado",
+        },
+    )
+
+
+@app.post(
+    "/grupos/{id_grupo}/miembros/yo/respuesta",
+    tags=["Grupos"],
+    summary="Responder invitación a grupo",
+)
+def responder_invitacion_grupo(
+    id_grupo: str,
+    cuerpo: ResponderInvitacionGrupo,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_grupos: RepositorioGruposDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    try:
+        uuid_grupo = UUID(id_grupo)
+    except ValueError:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    grupo = repo_grupos.buscar_grupo_por_id(uuid_grupo)
+    if grupo is None:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    mi_invitacion = repo_grupos.buscar_miembro(
+        id_grupo=uuid_grupo, usuario_id=id_usuario
+    )
+    if mi_invitacion is None or mi_invitacion.estado != EstadoMiembro.INVITADO:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    resp_str = cuerpo.respuesta.strip().lower() if cuerpo.respuesta else ""
+    if resp_str not in ("aceptar", "rechazar"):
+        return respuesta_errores(
+            400, [reglas.ErrorCampo("respuesta", MENSAJE_RESPUESTA_INVALIDA)]
+        )
+
+    ahora = datetime.now(timezone.utc).replace(microsecond=0)
+    repo_grupos.responder_invitacion_grupo(
+        id_grupo=uuid_grupo,
+        usuario_id=id_usuario,
+        aceptar=(resp_str == "aceptar"),
+        ahora=ahora,
+    )
+    msg = "Invitación aceptada." if resp_str == "aceptar" else "Invitación rechazada."
+    return JSONResponse(status_code=200, content={"mensaje": msg})
+
+
+@app.post(
+    "/grupos/{id_grupo}/gastos",
+    tags=["Gastos"],
+    summary="Registrar gasto de grupo",
+)
+def registrar_gasto_grupo(
+    id_grupo: str,
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_grupos: RepositorioGruposDep,
+) -> JSONResponse:
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    try:
+        uuid_grupo = UUID(id_grupo)
+    except ValueError:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    grupo = repo_grupos.buscar_grupo_por_id(uuid_grupo)
+    if grupo is None:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    miembro = repo_grupos.buscar_miembro(id_grupo=uuid_grupo, usuario_id=id_usuario)
+    if miembro is None or miembro.estado != EstadoMiembro.ACEPTADO:
+        return JSONResponse(
+            status_code=404, content={"mensaje": MENSAJE_GRUPO_NO_ENCONTRADO}
+        )
+
+    return JSONResponse(
+        status_code=501, content={"mensaje": "Endpoint no implementado aún."}
+    )
 
 
 def id_desde_token(token: str) -> UUID | None:

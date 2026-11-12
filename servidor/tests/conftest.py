@@ -58,6 +58,12 @@ def entorno_prueba(
     monkeypatch.setattr(
         app.state, "repositorio_usuarios", repositorio_falso, raising=False
     )
+    monkeypatch.setattr(
+        app.state, "repositorio_grupos", repositorio_falso, raising=False
+    )
+    monkeypatch.setattr(
+        app.state, "repositorio_amistades", repositorio_falso, raising=False
+    )
     yield
 
 
@@ -98,7 +104,8 @@ def iniciar_sesion_prueba(
         json={"correo": correo, "contrasena": contrasena},
     )
     assert resp.status_code == 200, f"Fallo al iniciar sesión {correo}: {resp.text}"
-    token: str = resp.json()["token_acceso"]
+    data = resp.json()
+    token: str = data.get("token") or data.get("token_acceso", "")
     return token
 
 
