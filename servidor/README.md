@@ -249,6 +249,8 @@ propio de ese entorno.
 | `POST /usuarios` | Registro | 201, 400, 409 |
 | `POST /sesiones` | Inicio de sesión: entrega el token | 200, 400, 401 |
 | `GET /usuarios/yo` | Perfil propio (con `Authorization: Bearer <token>`) | 200, 401 |
+| `GET /grupos/{id}` | Miembros, gastos y balances del grupo (solo miembros aceptados) | 200, 401, 404 |
+| `POST /grupos/{id}/gastos` | Registra un gasto: el servidor lo divide y lo guarda con sus partes | 201, 400, 401, 404 |
 
 El contrato completo está en [`openapi.yaml`](openapi.yaml). Resumen:
 
@@ -266,6 +268,20 @@ El contrato completo está en [`openapi.yaml`](openapi.yaml). Resumen:
   misma: 401 con `{"mensaje": "Correo o contraseña incorrectos."}`.
 - **Perfil**: sin token, con token alterado, vencido o firmado con otro
   secreto, responde 401 con `{"mensaje": "Sesión no válida o vencida."}`.
+
+- **Gastos de grupo** (Entrega 6, [ADR-013](../docs/adr/ADR-013-division-balances-y-autorizacion-de-grupo.md)):
+  el cuerpo lleva `concepto`, `monto` (texto, `"100.00"`), `fecha`
+  (`AAAA-MM-DD`), `pagador`, `regla` (`partes_iguales`, `porcentajes` o
+  `montos_fijos`) y `participantes` (`[{"usuario", "valor"}]`). El servidor
+  trunca cada parte a céntimos y reparte el residuo de a un céntimo en orden
+  alfabético: 100,00 entre ana, beto y carla da 33,34 (con redondeo), 33,33 y
+  33,33. Si los porcentajes o los montos no cuadran, responde 400 con la
+  diferencia exacta: «Los porcentajes suman 95; faltan 5.».
+- **Balances**: `GET /grupos/{id}` devuelve `balance = pago − le_corresponde`
+  por miembro; la suma es siempre `0.00`.
+- **404 uniforme**: grupo inexistente, identificador mal formado, persona
+  ajena e invitado sin aceptar reciben el mismo `404`
+  `{"mensaje": "Grupo no encontrado."}`.
 
 Ejemplo completo con `curl`:
 
@@ -420,6 +436,13 @@ Así las pruebas de las rutas corren sin base de datos.
   repite la contraseña; nunca 422).
 - `test_sesion.py`: `POST /sesiones` (mensaje idéntico, hash falso si el
   correo no existe) y `GET /usuarios/yo` (todos los casos de 401).
+- `test_vectores_division.py`: `docs/vectores-division.json` es coherente y
+  `division.dividir` y `division.calcular_balances` dan exactamente sus
+  números (los mismos que comprueba la app en Rust).
+- `test_gastos_grupo.py`: `POST /grupos/{id}/gastos` y `GET /grupos/{id}`
+  (división, mensajes de «faltan»/«sobran», errores por campo, 404 uniforme,
+  balances del ejemplo 2.5 y el flujo completo como usuario nuevo).
+- `test_autorizacion.py`: la decisión de pertenencia, sin HTTP.
 
 Para `/ping` (`test_main.py`) comprueban que:
 
@@ -442,7 +465,9 @@ Entrega 6: unicidad de la pareja en los dos sentidos, invitaciones de grupo,
 gasto y partes en una sola transacción, montos `NUMERIC(14, 2)` sin `float`,
 errores por campo/regla y que eliminar una amistad no borra grupos ni gastos.
 `tests/test_integracion_postgres.py` arranca la app conectada a PostgreSQL y
-recorre registro, inicio de sesión y perfil: fecha en UTC aunque la base use
+recorre registro, inicio de sesión, perfil y el flujo de grupo con los gastos
+del ejemplo 2.5 (montos `NUMERIC`, regla canónica y nada guardado si el gasto
+falla): fecha en UTC aunque la base use
 otra zona horaria, 409 con todos los campos repetidos, duplicado detectado por
 la restricción `UNIQUE` y que la base solo tenga las seis tablas permitidas
 (INV-16). Todas las pruebas de PostgreSQL se omiten si no defines
@@ -476,6 +501,8 @@ servidor/
 ├── repositorio_amistades.py           # Amistades: invitación, respuesta y baja (Entrega 6)
 ├── repositorio_grupos.py              # Grupos y miembros: invitar, aceptar, rechazar (Entrega 6)
 ├── repositorio_gastos.py              # Gastos y partes con montos NUMERIC exactos (Entrega 6)
+├── division.py                        # División exacta y balances (funciones puras, Entrega 6)
+├── autorizacion.py                    # Miembro aceptado o el mismo 404 (Entrega 6)
 ├── reglas.py                          # Reglas de registro (funciones puras)
 ├── contrasenas.py                     # Hash argon2id y hash falso
 ├── token_sesion.py                    # Creación y verificación del JWT
@@ -495,7 +522,11 @@ servidor/
 │   ├── test_reglas.py                 # Reglas de registro
 │   ├── test_seguridad.py              # Hash, token, arranque e INV-16
 │   ├── test_registro.py               # Registro de usuarios
-│   └── test_sesion.py                 # Inicio de sesión y JWT
+│   ├── test_sesion.py                 # Inicio de sesión y JWT
+│   ├── flujo_http.py                  # Pasos del flujo social por HTTP (memoria y PostgreSQL)
+│   ├── test_vectores_division.py      # División y balances contra docs/vectores-division.json
+│   ├── test_gastos_grupo.py           # Gastos, detalle del grupo y flujo completo
+│   └── test_autorizacion.py           # Pertenencia y 404 uniforme
 ├── .env                               # Configuración local (no se versiona)
 ├── .env.example                       # Plantilla de configuración
 ├── .postgres/                         # Clúster PostgreSQL local generado (no se versiona)

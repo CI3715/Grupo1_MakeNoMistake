@@ -15,3 +15,4 @@ Este directorio contiene las Architecture Decision Records (ADRs) del proyecto.
 - [ADR-010: Sesión con token firmado, vigencia configurable y mensaje idéntico ante credenciales incorrectas](./ADR-010-sesion-con-token-firmado.md)
 - [ADR-011: Datos compartidos del servidor (amistades, grupos y gastos)](./ADR-011-datos-compartidos-de-grupos.md) — el punto 3 (tipo de los montos) queda sustituido por ADR-012
 - [ADR-012: Montos `NUMERIC` y repositorios compartidos implementados](./ADR-012-montos-numeric-y-repositorios-compartidos.md)
+- [ADR-013: División exacta, balances y autorización de grupo en el servidor](./ADR-013-division-balances-y-autorizacion-de-grupo.md)
