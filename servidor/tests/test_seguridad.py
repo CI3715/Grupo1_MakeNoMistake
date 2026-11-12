@@ -1,18 +1,19 @@
 """Pruebas unitarias del hash de contraseñas, del token firmado y de INV-16."""
 
 import os
-import sqlite3
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
 import pytest
+from conftest import TABLAS_PERMITIDAS
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-import bd
 import contrasenas
 import token_sesion
+from esquema import SENTENCIAS_ESQUEMA
 from main import app
 
 # ---------------------------------------------------------------- Hash
@@ -121,20 +122,38 @@ def test_servidor_no_arranca_sin_secreto(monkeypatch: pytest.MonkeyPatch) -> Non
         pass
 
 
+def test_servidor_no_arranca_sin_base_de_datos(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Sin CUENTAS_CLARAS_DB_URL no hay a dónde guardar usuarios: no arranca."""
+    monkeypatch.setattr("configuracion.RUTA_ENV", tmp_path / "no-existe.env")
+    monkeypatch.setenv("CUENTAS_CLARAS_SECRETO_JWT", "s" * 40)
+    monkeypatch.delattr(app.state, "repositorio_usuarios")
+    with pytest.raises(RuntimeError, match="CUENTAS_CLARAS_DB_URL"), TestClient(app):
+        pass
+
+
 # ---------------------------------------------------------------- INV-16
 
 
-def test_servidor_respeta_inv16_sin_tablas_financieras(bd_prueba: Path) -> None:
-    """Verifica que la base del servidor no contenga tablas financieras (INV-16)."""
-    bd.inicializar()
-    with sqlite3.connect(bd.ruta_bd()) as conn:
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
-        )
-        tablas = [fila[0] for fila in cursor.fetchall()]
+# Solo lo compartido entre varias personas (Entrega 6). La lista vive en
+# ``conftest`` para que las dos pruebas de INV-16 usen el mismo criterio.
 
-    assert tablas == ["usuarios"]
+
+def test_servidor_respeta_inv16_sin_tablas_financieras() -> None:
+    """Verifica que el esquema del servidor no cree tablas financieras (INV-16).
+
+    ``test_integracion_postgres.py`` comprueba lo mismo contra PostgreSQL real.
+    """
+    tablas = {
+        tabla
+        for sentencia in SENTENCIAS_ESQUEMA
+        for tabla in re.findall(
+            r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", sentencia, re.I
+        )
+    }
+
+    assert tablas == TABLAS_PERMITIDAS
     prohibidas = {
         "cuentas",
         "movimientos",
@@ -143,7 +162,7 @@ def test_servidor_respeta_inv16_sin_tablas_financieras(bd_prueba: Path) -> None:
         "categorias",
         "patrimonio",
     }
-    assert set(tablas).isdisjoint(prohibidas)
+    assert tablas.isdisjoint(prohibidas)
 
 
 def test_servidor_respeta_inv16_en_rutas_expuestas() -> None:

@@ -6,6 +6,8 @@
 //! [`Campo`], [`ErrorDominio`], [`MonedaCreada`], [`Tasa`], [`TasaRegistrada`], [`MonedaBase`],
 //! [`ConsolidacionSaldo`], [`DetalleConsolidacion`].
 
+pub mod division;
+
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use std::str::FromStr;

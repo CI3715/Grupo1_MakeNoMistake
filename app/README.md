@@ -1,6 +1,6 @@
 # Aplicación — Cuentas Claras
 
-Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. Desde la Entrega 2 la aplicación abre directamente en la pantalla **Mis cuentas**, sin registro ni inicio de sesión: permite crear cuentas (efectivo, banco o billetera digital) con su moneda y saldo inicial, y las guarda solo en el dispositivo, en un archivo SQLite, sin necesidad de internet ni del servidor. El comando de Rust `ping_servidor` de la Entrega 1 sigue existiendo, pero ya no participa en este flujo. Desde la Entrega 3 cada cuenta también registra gastos e ingresos, permite corregirlos mediante ajustes y calcula su saldo automáticamente, todo en el dispositivo y sin conexión.
+Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. Desde la Entrega 2 la aplicación abre directamente en la pantalla **Mis cuentas**, sin exigir registro ni inicio de sesión: permite crear cuentas (efectivo, banco o billetera digital) con su moneda y saldo inicial, y las guarda solo en el dispositivo, en un archivo SQLite, sin necesidad de internet ni del servidor. El comando de Rust `ping_servidor` de la Entrega 1 sigue existiendo, pero ya no participa en este flujo. Desde la Entrega 3 cada cuenta también registra gastos e ingresos, permite corregirlos mediante ajustes y calcula su saldo automáticamente, todo en el dispositivo y sin conexión. Desde la Entrega 5 se puede, de forma opcional, registrarse e iniciar sesión en el servidor: la sesión se guarda en el almacén de secretos del dispositivo y todo lo personal sigue funcionando sin ella (ver «Sesión: registro, inicio de sesión y almacén de secretos»).
 
 Los comandos de este documento se ejecutan desde la carpeta `app/`, salvo que se indique otra cosa. El archivo `package.json` vive aquí y no en la raíz del repositorio, así que si npm se queja de que no lo encuentra, casi seguro estás en la carpeta equivocada.
 
@@ -185,6 +185,76 @@ Corren tres pruebas con un repositorio en memoria (sin base de datos ni red): `t
 
 Registra tasas, cambia la moneda base y consulta el patrimonio; cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: las tasas, la moneda base y el patrimonio deben ser exactamente los mismos. Ninguna tasa ni saldo se envía al servidor.
 
+## Sesión: registro, inicio de sesión y almacén de secretos (Entrega 5)
+
+Desde la Entrega 5 la aplicación permite registrarse e iniciar sesión en el servidor. La sesión es opcional: sin ella, y con el servidor apagado, todo lo personal (cuentas, movimientos, tasas y patrimonio) sigue funcionando igual, sin conexión. Solo el registro y el inicio de sesión necesitan el servidor.
+
+### Comandos
+
+Los comandos viven en `src-tauri/src/sesion.rs` y los llama la interfaz con `invoke` (los tipos están en `app/utils/tauriCommands.ts`):
+
+| Comando | Qué hace | Ruta del servidor |
+|---|---|---|
+| `registrar_usuario` | Crea la cuenta de usuario. Los errores llegan por campo (`nombre_usuario`, `nombre_visible`, `correo`, `contrasena`). | `POST /usuarios` |
+| `iniciar_sesion` | Inicia sesión, pide el perfil y guarda token, vencimiento y nombre visible en el dispositivo. | `POST /sesiones` y `GET /usuarios/yo` |
+| `obtener_perfil` | Devuelve el perfil con el token guardado. | `GET /usuarios/yo` |
+| `estado_sesion` | Dice si hay sesión vigente, vencida o ninguna. **No usa red**: compara el vencimiento guardado con la hora actual, así la aplicación recuerda la sesión al abrir aunque no haya conexión. | (ninguna) |
+| `cerrar_sesion` | Borra el token y los datos de sesión del dispositivo. El servidor no tiene endpoint de cierre, por eso es solo local. | (ninguna) |
+
+Los errores tienen la forma `{ campo, mensaje }`, con el mensaje en español. Un error sin `campo` es general (por ejemplo, credenciales incorrectas o servidor apagado).
+
+### Dónde se guarda la sesión
+
+La sesión (token, fecha de vencimiento y nombre visible) se guarda en el **almacén de secretos del sistema** con el crate `keyring`: Secret Service en Linux, Keychain en macOS y Credential Manager en Windows. En Linux hace falta un servicio de secretos activo (por ejemplo GNOME Keyring).
+
+Si el sistema no ofrece almacén de secretos, la aplicación usa un **respaldo**: un archivo `sesion.json` en la carpeta de datos de la aplicación, con permisos `0600` en Linux y macOS. Ese archivo no está cifrado; es una deuda técnica registrada en `docs/deuda-tecnica.md`.
+
+El token **nunca llega a la interfaz**: se queda en Rust y en el almacén. La interfaz solo recibe el estado de la sesión (`sin_sesion`, `vigente` o `vencida`), el nombre visible y la fecha de vencimiento.
+
+### Token vencido y servidor apagado
+
+- **Token vencido.** El token vale 60 minutos (configurable en el servidor). Si el servidor responde 401, la sesión se marca como vencida pero se conserva el nombre visible, y la interfaz avisa «Tu sesión venció, inicia sesión de nuevo» sin bloquear las funciones personales.
+- **Servidor apagado o sin red.** Registro e inicio de sesión muestran «No hay conexión con el servidor. Puedes seguir usando la aplicación sin iniciar sesión.». Las peticiones esperan como máximo 5 segundos.
+
+### Qué viaja al servidor
+
+Solo el registro (nombre de usuario, nombre visible, correo y contraseña), el inicio de sesión (correo y contraseña) y el token en el encabezado `Authorization: Bearer`. Nada del libro personal (cuentas, movimientos, saldos y tasas) sale del dispositivo. La contraseña no se imprime en ningún `Debug` ni en los logs: las estructuras que la llevan no derivan `Debug`, y una prueba lo comprueba.
+
+### Dirección del servidor
+
+Los comandos de sesión usan la variable de entorno `CUENTAS_CLARAS_URL`; si no existe, usan `http://localhost:8000`. Se configura igual que para `ping_servidor` (ver «Configurar la dirección del servidor»):
+
+```bash
+CUENTAS_CLARAS_URL=http://localhost:8000 npm run tauri dev
+```
+
+### Probar la sesión a mano (con token de 1 minuto)
+
+1. En la carpeta `servidor/`, levanta la base y el servidor con vigencia de 1 minuto (ver el README del servidor para las variables de entorno):
+
+   ```bash
+   bash scripts/base_datos_local.sh iniciar
+   JWT_MINUTOS=1 CUENTAS_CLARAS_MINUTOS_TOKEN=1 uv run uvicorn main:app --port 8000
+   ```
+
+2. En `app/`, arranca la aplicación con `npm run tauri dev`.
+3. **Registro.** Regístrate con un usuario nuevo; prueba también una contraseña de menos de 10 caracteres y un usuario repetido, y comprueba que cada error sale bajo su campo.
+4. **Inicio de sesión.** Inicia sesión: debe verse tu nombre visible. Con una contraseña equivocada debe decir «Correo o contraseña incorrectos.».
+5. **Token vencido.** Espera más de un minuto y pide el perfil: debe avisar «Tu sesión venció, inicia sesión de nuevo» y el resto de la aplicación debe seguir funcionando.
+6. **Autonomía.** Apaga el servidor: puedes usar cuentas, movimientos, tasas y patrimonio, y solo el registro y el inicio de sesión avisan de que no hay conexión.
+7. **Cerrar y reabrir.** Inicia sesión de nuevo, cierra la aplicación y ábrela antes de que pase un minuto: la sesión sigue vigente, incluso con el servidor apagado.
+
+### Pruebas automatizadas de la sesión
+
+Se prueban con un cliente HTTP falso y un almacén en memoria, sin red ni almacén del sistema:
+
+```bash
+cd src-tauri
+cargo test --lib sesion
+```
+
+Cubren 201, 200, 400, 401, 409, servidor apagado, token vencido (por reloj y por 401), la sesión recordada sin red, y que la contraseña y el token no aparecen en `Debug`, en los errores ni en los logs.
+
 ## Ejecutar las pruebas
 
 Desde `src-tauri/`:
@@ -233,6 +303,8 @@ En PowerShell (Windows):
     $env:CUENTAS_CLARAS_URL="http://localhost:9999"
     npm run tauri dev
 
+La misma variable la usan los comandos de sesión (`registrar_usuario`, `iniciar_sesion` y `obtener_perfil`), no solo `ping_servidor`.
+
 La variable solo vale para esa ejecución. Si el servidor está apagado o la
 dirección es incorrecta, la pantalla muestra un mensaje de error en vez de
 "Conectado". Usa `http` solo en desarrollo: en producción el servidor debe
@@ -260,6 +332,7 @@ app/
 │   │   └── PingScreen.tsx          # Pantalla de la Entrega 1 (ya no se muestra)
 │   ├── types/cuentas.ts  # Tipos compartidos con el núcleo de Rust
 │   ├── utils/formato.ts  # Formato de montos y normalización del saldo
+│   ├── utils/tauriCommands.ts # Tipos y llamadas a los comandos de Tauri
 │   ├── layout.tsx        # Estructura común de todas las páginas
 │   ├── page.tsx          # Página principal (abre en Mis cuentas)
 │   └── globals.css       # Estilos globales (Tailwind)
@@ -282,6 +355,8 @@ app/
 │       ├── cuentas.rs    # Comandos listar_monedas, listar_cuentas y crear_cuenta
 │       ├── movimientos.rs # Comandos de movimientos, categorías y detalle de cuenta (Entrega 3)
 │       ├── dto.rs        # Tipos que viajan entre Rust y la interfaz
+│       ├── sesion.rs     # Registro, inicio de sesión y almacén de secretos (Entrega 5)
+│       ├── sesion/pruebas.rs # Pruebas de la sesión con cliente HTTP falso
 │       └── ping.rs       # Comando ping_servidor (Entrega 1, fuera del flujo de cuentas)
 ├── next.config.ts        # Configuración de Next.js (exportación estática)
 ├── package.json          # Dependencias y scripts de la interfaz

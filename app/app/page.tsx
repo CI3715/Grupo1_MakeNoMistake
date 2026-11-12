@@ -7,10 +7,13 @@ import { PantallaTasas } from './components/PantallaTasas';
 import { PantallaPatrimonio } from './components/PantallaPatrimonio';
 import { PantallaSesion } from './components/sesion/PantallaSesion';
 import { BienvenidaPrimerAcceso } from './components/sesion/BienvenidaPrimerAcceso';
+import { AvisoSesionVencida } from './components/sesion/AvisoSesionVencida';
+import { useSesion } from './utils/useSesion';
 
 export default function Home() {
   const [pantallaActual, setPantallaActual] = useState<string>('mis-cuentas');
   const [modoOscuro, setModoOscuro] = useState(true);
+  const control = useSesion();
 
   const toggleModoOscuro = () => {
     setModoOscuro((prev) => !prev);
@@ -37,9 +40,18 @@ export default function Home() {
         toggleModoOscuro={toggleModoOscuro}
         pantallaActual={pantallaActual}
         setPantallaActual={setPantallaActual}
+        control={control}
       />
       <main className="flex-1 overflow-y-auto p-6 min-w-0">
         <div className="max-w-[752px] mx-auto min-w-[320px]">
+          {control.avisoVencidaVisible && (
+            <AvisoSesionVencida
+              modoOscuro={modoOscuro}
+              mostrarBoton={pantallaActual !== 'inicio-sesion'}
+              onIniciarSesion={() => setPantallaActual('inicio-sesion')}
+              onCerrar={control.ocultarAviso}
+            />
+          )}
           {(pantallaActual === 'mis-cuentas' || pantallaActual === 'detalle-cuenta') && (
             <PantallaCuentas
               modoOscuro={modoOscuro}
@@ -51,11 +63,14 @@ export default function Home() {
           {pantallaActual === 'patrimonio' && (
             <PantallaPatrimonio modoOscuro={modoOscuro} />
           )}
-          {(pantallaActual === 'inicio-sesion' || pantallaActual === 'registro') && (
+          {(pantallaActual === 'inicio-sesion' ||
+            pantallaActual === 'registro' ||
+            pantallaActual === 'perfil') && (
             <PantallaSesion
               modoOscuro={modoOscuro}
               vista={pantallaActual}
               setPantallaActual={setPantallaActual}
+              control={control}
             />
           )}
         </div>

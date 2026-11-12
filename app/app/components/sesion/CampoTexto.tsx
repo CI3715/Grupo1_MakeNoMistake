@@ -16,6 +16,8 @@ interface Props {
   error?: string;
   autoComplete?: string;
   deshabilitado?: boolean;
+  /** Pone el foco en el campo al abrir la pantalla. */
+  autoFocus?: boolean;
   modoOscuro: boolean;
 }
 
@@ -31,6 +33,7 @@ export const CampoTexto: React.FC<Props> = ({
   error,
   autoComplete,
   deshabilitado = false,
+  autoFocus = false,
   modoOscuro,
 }) => {
   const [visible, setVisible] = useState(false);
@@ -56,6 +59,7 @@ export const CampoTexto: React.FC<Props> = ({
           placeholder={placeholder}
           autoComplete={autoComplete}
           disabled={deshabilitado}
+          autoFocus={autoFocus}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           style={error ? { ...tema.estiloInput, borderColor: '#f43f5e' } : tema.estiloInput}
@@ -70,7 +74,7 @@ export const CampoTexto: React.FC<Props> = ({
             aria-pressed={visible}
             aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
             disabled={deshabilitado}
-            className={`absolute inset-y-0 right-2 px-2 text-[11px] font-semibold cursor-pointer ${tema.textoEnlace}`}
+            className={`absolute inset-y-1 right-1.5 rounded-lg px-2 text-[11px] font-semibold cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 ${tema.textoEnlace}`}
           >
             {visible ? 'Ocultar' : 'Mostrar'}
           </button>

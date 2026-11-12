@@ -2,13 +2,15 @@
 
 import React from 'react';
 import { LogoCuentasClaras } from './LogoCuentasClaras';
-import { BotonIniciarSesion } from './sesion/BotonIniciarSesion';
+import { BloqueSesionSidebar } from './sesion/BloqueSesionSidebar';
+import type { ControlSesion } from '../utils/useSesion';
 
 export interface SidebarProps {
   modoOscuro: boolean;
   toggleModoOscuro: () => void;
   pantallaActual: string;
   setPantallaActual: (pantalla: string) => void;
+  control: ControlSesion;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -16,6 +18,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   toggleModoOscuro,
   pantallaActual,
   setPantallaActual,
+  control,
 }) => {
   return (
     <aside
@@ -76,9 +79,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <div className="pt-4 border-t border-purple-800/60 flex flex-col gap-3">
-        <BotonIniciarSesion
-          activo={pantallaActual === 'inicio-sesion' || pantallaActual === 'registro'}
-          onClick={() => setPantallaActual('inicio-sesion')}
+        <BloqueSesionSidebar
+          control={control}
+          pantallaActual={pantallaActual}
+          setPantallaActual={setPantallaActual}
         />
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
