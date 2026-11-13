@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { IconoCruz } from '../Iconos';
 
 interface Props {
   modoOscuro: boolean;
@@ -41,9 +42,9 @@ export const AvisoSesionVencida: React.FC<Props> = ({
       type="button"
       onClick={onCerrar}
       aria-label="Cerrar aviso"
-      className="rounded-md px-2 py-1 font-bold opacity-70 hover:opacity-100 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+      className="rounded-md p-1.5 opacity-70 hover:opacity-100 hover:bg-amber-500/20 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
     >
-      ✕
+      <IconoCruz className="w-3.5 h-3.5" />
     </button>
   </div>
 );

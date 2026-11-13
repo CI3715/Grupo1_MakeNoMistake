@@ -316,6 +316,18 @@ También: buscar `bet` no encuentra a nadie, invitar a `ana` da «No puedes invi
 ### Qué viaja al servidor
 
 Solo datos de amistades, grupos y gastos compartidos: nombres de usuario, nombre, moneda y actividad del grupo, y concepto, monto, fecha, pagador y participantes de cada gasto. Nada del libro personal (cuentas, movimientos, saldos ni tasas) sale del dispositivo. El token va solo en el encabezado `Authorization: Bearer`.
+## Prueba de autonomía de la Entrega 6
+
+Los grupos y los gastos compartidos viven en el servidor, pero nada del libro personal depende de él. La prueba automática está en `src-tauri/src/autonomia.rs`:
+
+```
+cd src-tauri
+cargo test --lib autonomia
+```
+
+Apunta el cliente a un puerto donde no escucha nadie y comprueba que el registro y el inicio de sesión fallan con «No hay conexión con el servidor. Puedes seguir usando la aplicación sin iniciar sesión.» sin guardar ninguna sesión; que en la misma ejecución se crean una cuenta y dos movimientos en un SQLite real; que la vista previa de la división (100,00 entre tres da 33,34 · 33,33 · 33,33) se calcula en local, y que al cerrar y reabrir la base el saldo sigue siendo 1.300,00.
+
+A mano: con el servidor encendido, registra un gasto en un grupo; después apaga el servidor y la red y vuelve a abrir la aplicación con `npm run tauri dev`. Cuentas, movimientos, tasas, patrimonio y la vista previa de la división funcionan igual; Amigos y Grupos son lo único que necesita el servidor.
 
 ## Ejecutar las pruebas
 
