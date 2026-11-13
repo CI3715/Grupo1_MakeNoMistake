@@ -8,6 +8,8 @@ Cubre los requisitos RF-SOC-04, RF-SOC-05, RF-SOC-06 e INV-10:
 - Eliminación de amistad sin borrado en cascada de grupos ni gastos.
 """
 
+from uuid import uuid4
+
 from conftest import encabezado_auth
 from fastapi.testclient import TestClient
 
@@ -244,6 +246,41 @@ class TestInvitacionesAmistad:
         )
         assert resp_otra.status_code == 409
 
+    def test_rechazar_invitacion_responde_200_y_permite_reintentar(
+        self, cliente: TestClient, token_ana: str, token_beto: str
+    ) -> None:
+        """Rechazar cierra la invitación y deja enviar una nueva después."""
+        resp = cliente.post(
+            "/amistades",
+            json={"usuario": "beto"},
+            headers=encabezado_auth(token_ana),
+        )
+        assert resp.status_code == 201
+        id_amistad = resp.json()["id"]
+
+        resp_rechazo = cliente.post(
+            f"/amistades/{id_amistad}/respuesta",
+            json={"aceptar": False},
+            headers=encabezado_auth(token_beto),
+        )
+        assert resp_rechazo.status_code == 200
+        datos = resp_rechazo.json()
+        assert datos["estado"] == "rechazada"
+        assert datos["fecha_respuesta"] is not None
+
+        resp_lista = cliente.get("/amistades", headers=encabezado_auth(token_ana))
+        assert not any(
+            a["otro_nombre_usuario"] == "beto" and a["estado"] == "aceptada"
+            for a in resp_lista.json()
+        )
+
+        resp_nueva = cliente.post(
+            "/amistades",
+            json={"usuario": "beto"},
+            headers=encabezado_auth(token_ana),
+        )
+        assert resp_nueva.status_code == 201
+
 
 class TestListarYEliminarAmistad:
     """Pruebas de listado y eliminación de amistad (sección 2.1.3, RF-SOC-06)."""
@@ -324,3 +361,81 @@ class TestListarYEliminarAmistad:
             f"/grupos/{grupo_id}", headers=encabezado_auth(token_beto)
         )
         assert resp_ver_grupo.status_code == 200
+
+    def test_el_destinatario_tambien_puede_eliminar_la_amistad(
+        self, cliente: TestClient, token_ana: str, token_beto: str
+    ) -> None:
+        """Cualquiera de los dos puede eliminar una amistad aceptada."""
+        resp = cliente.post(
+            "/amistades", json={"usuario": "beto"}, headers=encabezado_auth(token_ana)
+        )
+        id_amistad = resp.json()["id"]
+        cliente.post(
+            f"/amistades/{id_amistad}/respuesta",
+            json={"aceptar": True},
+            headers=encabezado_auth(token_beto),
+        )
+
+        resp_del = cliente.delete(
+            f"/amistades/{id_amistad}", headers=encabezado_auth(token_beto)
+        )
+        assert resp_del.status_code == 204
+        assert resp_del.content == b""
+
+        resp_lista = cliente.get("/amistades", headers=encabezado_auth(token_ana))
+        assert not any(
+            a["id"] == id_amistad and a["estado"] == "aceptada"
+            for a in resp_lista.json()
+        )
+
+    def test_un_tercero_no_puede_eliminar_la_amistad(
+        self, cliente: TestClient, token_ana: str, token_beto: str, token_carla: str
+    ) -> None:
+        """Quien no participa en la amistad recibe 404, sin revelar que existe."""
+        resp = cliente.post(
+            "/amistades", json={"usuario": "beto"}, headers=encabezado_auth(token_ana)
+        )
+        id_amistad = resp.json()["id"]
+
+        resp_del = cliente.delete(
+            f"/amistades/{id_amistad}", headers=encabezado_auth(token_carla)
+        )
+        assert resp_del.status_code == 404
+        assert resp_del.json() == {"mensaje": "Amistad no encontrada."}
+
+
+class TestAutorizacionAmistades:
+    """401 sin token en las cinco rutas de amistades (sección 2.6)."""
+
+    def test_las_cinco_rutas_sin_token_responden_401(self, cliente: TestClient) -> None:
+        id_amistad = str(uuid4())
+        peticiones = [
+            cliente.get("/usuarios", params={"usuario": "beto"}),
+            cliente.post("/amistades", json={"usuario": "beto"}),
+            cliente.get("/amistades"),
+            cliente.post(f"/amistades/{id_amistad}/respuesta", json={"aceptar": True}),
+            cliente.delete(f"/amistades/{id_amistad}"),
+        ]
+        for respuesta in peticiones:
+            assert respuesta.status_code == 401
+            assert respuesta.json() == {"mensaje": "Sesión no válida o vencida."}
+
+    def test_las_cinco_rutas_con_token_invalido_responden_401(
+        self, cliente: TestClient
+    ) -> None:
+        cabecera = encabezado_auth("token.invalido")
+        id_amistad = str(uuid4())
+        peticiones = [
+            cliente.get("/usuarios", params={"usuario": "beto"}, headers=cabecera),
+            cliente.post("/amistades", json={"usuario": "beto"}, headers=cabecera),
+            cliente.get("/amistades", headers=cabecera),
+            cliente.post(
+                f"/amistades/{id_amistad}/respuesta",
+                json={"aceptar": True},
+                headers=cabecera,
+            ),
+            cliente.delete(f"/amistades/{id_amistad}", headers=cabecera),
+        ]
+        for respuesta in peticiones:
+            assert respuesta.status_code == 401
+            assert respuesta.json() == {"mensaje": "Sesión no válida o vencida."}

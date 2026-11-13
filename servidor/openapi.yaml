@@ -6,7 +6,8 @@ info:
   description: |
     Servidor de Cuentas Claras.
  
-    Identifica a las personas (registro, inicio de sesión y perfil) y, desde la
+    Identifica a las personas (registro, inicio de sesión y perfil), gestiona
+    sus amistades (búsqueda exacta, invitaciones, listado y baja) y, desde la
     Entrega 6, guarda lo que comparten varias personas: grupos y gastos
     divididos. **No recibe ni guarda cuentas, movimientos, saldos, tasas ni
     categorías** (INV-16, RES-02): esos datos nunca salen del dispositivo.
@@ -20,7 +21,8 @@ info:
       Nunca repiten el valor enviado (la contraseña no aparece en ningún error).
     - **401** devuelve `{"mensaje": ...}`.
     - Los nombres de campo son `nombre_usuario`, `nombre_visible`, `correo` y
-      `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON). Los gastos
+      `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON). Las
+      amistades usan `usuario` y `aceptar`. Los gastos
       usan `concepto`, `monto`, `fecha`, `pagador`, `regla`, `participantes`,
       `porcentajes` y `montos`.
     - Nunca se responde 422: los errores de tipo también son 400 por campo.
@@ -57,6 +59,11 @@ tags:
     description: Registro y perfil.
   - name: Sesiones
     description: Inicio de sesión y clave de acceso temporal.
+  - name: Amistades
+    description: >-
+      Búsqueda exacta de personas, invitaciones de amistad, respuesta, listado
+      y baja. Todos los datos compartidos viven en el servidor; las amistades
+      solo existen tras la aceptación.
   - name: Grupos
     description: Grupos compartidos (solo sus miembros aceptados los ven).
   - name: Gastos
@@ -131,6 +138,57 @@ paths:
                   - campo: correo
                     mensaje: Ese correo ya está registrado.
  
+    get:
+      tags: [Usuarios]
+      summary: Buscar usuario por nombre de usuario exacto
+      description: |
+        Busca solo coincidencias exactas del nombre de usuario. Nunca devuelve
+        el correo ni permite enumerar personas: no hay búsqueda parcial, por
+        prefijo ni listados (RF-SOC-04). Sin el parámetro `usuario` responde 400.
+      operationId: buscarUsuario
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: usuario
+          in: query
+          required: true
+          description: Nombre de usuario exacto, por ejemplo `ana.perez`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 30
+            pattern: "^[a-z0-9._]{3,30}$"
+            example: ana.perez
+      responses:
+        "200":
+          description: >-
+            Usuario encontrado. Solo incluye `nombre_usuario` y
+            `nombre_visible`; nunca el correo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioPublico"
+        "400":
+          description: Falta el parámetro `usuario` o viene vacío.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "404":
+          description: No existe un usuario con ese nombre de usuario exacto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Usuario no encontrado.
+
   /sesiones:
     post:
       tags: [Sesiones]
@@ -337,6 +395,192 @@ paths:
         "404":
           $ref: "#/components/responses/GrupoNoEncontrado"
 
+  /amistades:
+    get:
+      tags: [Amistades]
+      summary: Listar amistades e invitaciones
+      description: >-
+        Devuelve los amigos aceptados y las invitaciones pendientes, enviadas y
+        recibidas, vistas desde la persona autenticada. Nunca incluye el correo
+        del otro usuario.
+      operationId: listarAmistades
+      security:
+        - tokenBearer: []
+      responses:
+        "200":
+          description: Amigos e invitaciones pendientes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Amistad"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+    post:
+      tags: [Amistades]
+      summary: Enviar solicitud de amistad
+      description: |
+        Crea una invitación pendiente. La amistad no existe hasta que el
+        destinatario la acepta (INV-10). No se puede invitar a uno mismo ni
+        duplicar una invitación pendiente o una amistad ya aceptada, en ningún
+        sentido (RF-SOC-05).
+      operationId: enviarSolicitudAmistad
+      security:
+        - tokenBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NuevaAmistad"
+            example:
+              usuario: beto
+      responses:
+        "201":
+          description: Invitación pendiente creada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Amistad"
+        "400":
+          description: >-
+            Falta el usuario, viene vacío o se intenta invitar a uno mismo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "404":
+          description: No existe un usuario con ese nombre de usuario exacto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Usuario no encontrado.
+        "409":
+          description: >-
+            Ya hay una invitación pendiente en cualquier sentido o ya son
+            amigos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+
+  /amistades/{id_amistad}/respuesta:
+    post:
+      tags: [Amistades]
+      summary: Responder a una solicitud de amistad
+      description: >-
+        Solo la persona destinataria puede aceptar o rechazar. Una invitación
+        ya respondida no se puede volver a responder.
+      operationId: responderSolicitudAmistad
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: id_amistad
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResponderAmistad"
+            example:
+              aceptar: true
+      responses:
+        "200":
+          description: Invitación aceptada o rechazada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaAmistad"
+        "400":
+          description: Falta el campo `aceptar`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "403":
+          description: Quien responde no es la persona destinataria.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Solo el destinatario puede responder a la invitación.
+        "404":
+          description: No existe una amistad con ese id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Amistad no encontrada.
+        "409":
+          description: La invitación ya fue respondida o cancelada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: La invitación ya fue respondida o cancelada.
+
+  /amistades/{id_amistad}:
+    delete:
+      tags: [Amistades]
+      summary: Eliminar una amistad
+      description: >-
+        Cualquiera de las dos personas puede eliminar la amistad. Los grupos y
+        gastos ya compartidos no se borran ni cambian (RF-SOC-06).
+      operationId: eliminarAmistad
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: id_amistad
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Amistad eliminada. No devuelve cuerpo.
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "404":
+          description: No existe la amistad o quien pide no participa en ella.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Amistad no encontrada.
+
 components:
   parameters:
     IdGrupo:
@@ -500,6 +744,111 @@ components:
         fecha_alta:
           $ref: "#/components/schemas/FechaHoraUtc"
  
+    UsuarioPublico:
+      type: object
+      description: >-
+        Resultado de la búsqueda exacta. Solo nombre de usuario y nombre
+        visible; nunca el correo (RF-SOC-04).
+      required: [nombre_usuario, nombre_visible]
+      properties:
+        nombre_usuario:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-z0-9._]{3,30}$"
+          example: beto
+        nombre_visible:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Beto Pérez
+
+    NuevaAmistad:
+      type: object
+      required: [usuario]
+      properties:
+        usuario:
+          type: string
+          minLength: 1
+          maxLength: 30
+          description: Nombre de usuario exacto del destinatario.
+          example: beto
+
+    ResponderAmistad:
+      type: object
+      required: [aceptar]
+      properties:
+        aceptar:
+          type: boolean
+          description: "`true` acepta la invitación; `false` la rechaza."
+          example: true
+
+    EstadoAmistad:
+      type: string
+      enum: [pendiente, aceptada, rechazada, eliminada]
+
+    Amistad:
+      type: object
+      description: >-
+        Amistad o invitación vista desde una de las dos personas. Nunca
+        incluye el correo del otro usuario.
+      required:
+        - id
+        - estado
+        - otro_id
+        - otro_nombre_usuario
+        - otro_nombre_visible
+        - enviada_por_mi
+        - fecha_invitacion
+        - fecha_respuesta
+      properties:
+        id:
+          type: string
+          format: uuid
+        estado:
+          $ref: "#/components/schemas/EstadoAmistad"
+        otro_id:
+          type: string
+          format: uuid
+        otro_nombre_usuario:
+          type: string
+          minLength: 3
+          maxLength: 30
+          example: beto
+        otro_nombre_visible:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Beto Pérez
+        enviada_por_mi:
+          type: boolean
+          description: >-
+            `true` si la invitación la envió quien consulta; `false` si la
+            recibió.
+        fecha_invitacion:
+          $ref: "#/components/schemas/FechaHoraUtc"
+        fecha_respuesta:
+          description: >-
+            `null` mientras la invitación está pendiente; la fecha de
+            aceptación, rechazo o baja en los demás casos.
+          oneOf:
+            - $ref: "#/components/schemas/FechaHoraUtc"
+            - type: "null"
+
+    RespuestaAmistad:
+      type: object
+      required: [id, estado, fecha_respuesta]
+      properties:
+        id:
+          type: string
+          format: uuid
+        estado:
+          $ref: "#/components/schemas/EstadoAmistad"
+        fecha_respuesta:
+          oneOf:
+            - $ref: "#/components/schemas/FechaHoraUtc"
+            - type: "null"
+
     Sesion:
       type: object
       required: [token, tipo, vence_en]
@@ -526,6 +875,7 @@ components:
             - contrasena
             - cuerpo
             - usuario
+            - aceptar
             - nombre
             - moneda
             - respuesta

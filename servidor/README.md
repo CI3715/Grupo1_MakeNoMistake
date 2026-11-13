@@ -249,6 +249,11 @@ propio de ese entorno.
 | `POST /usuarios` | Registro | 201, 400, 409 |
 | `POST /sesiones` | Inicio de sesión: entrega el token | 200, 400, 401 |
 | `GET /usuarios/yo` | Perfil propio (con `Authorization: Bearer <token>`) | 200, 401 |
+| `GET /usuarios?usuario=<exacto>` | Búsqueda exacta: solo nombre de usuario y nombre visible | 200, 400, 401, 404 |
+| `POST /amistades` | Enviar invitación de amistad | 201, 400, 401, 404, 409 |
+| `GET /amistades` | Amigos e invitaciones pendientes, enviadas y recibidas | 200, 401 |
+| `POST /amistades/{id}/respuesta` | Aceptar o rechazar (solo el destinatario) | 200, 400, 401, 403, 404, 409 |
+| `DELETE /amistades/{id}` | Eliminar la amistad (cualquiera de los dos) | 204, 401, 404 |
 | `GET /grupos/{id}` | Miembros, gastos y balances del grupo (solo miembros aceptados) | 200, 401, 404 |
 | `POST /grupos/{id}/gastos` | Registra un gasto: el servidor lo divide y lo guarda con sus partes | 201, 400, 401, 404 |
 
@@ -340,11 +345,18 @@ Forma de los errores:
 - `401`: `{"mensaje": "..."}`.
 - Los mensajes nunca repiten el valor enviado ni incluyen la contraseña.
 
-> **Estado de implementación:** hoy `main.py` solo expone `/ping`. Los tres
-> endpoints de identidad están definidos en el contrato y tienen el repositorio
-> de PostgreSQL preparado, pero todavía no están conectados. Cuando se
-> implementen, esta sección y `/openapi.json` deben coincidir con
-> `openapi.yaml`.
+### Endpoints de amistades (Entrega 6)
+
+Todos requieren `Authorization: Bearer <token>`; sin token, con token inválido
+o vencido responden `401`.
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `GET /usuarios?usuario=<exacto>` | Busca por nombre de usuario exacto. Devuelve solo `nombre_usuario` y `nombre_visible`, nunca el correo. No hay búsqueda parcial, por prefijo ni listados. | `200`; `400` si falta el parámetro; `404` si no hay coincidencia exacta. |
+| `POST /amistades` | Envía una invitación pendiente a `{"usuario": "<nombre>"}`. La amistad no existe hasta que la acepten (INV-10). | `201`; `400` si se invita a uno mismo o falta el usuario; `404` si no existe; `409` si ya hay una invitación pendiente en cualquier sentido o ya son amigos. |
+| `GET /amistades` | Lista los amigos aceptados y las invitaciones pendientes, enviadas y recibidas, desde la sesión actual. | `200` con un arreglo. |
+| `POST /amistades/{id}/respuesta` | Solo el destinatario acepta (`true`) o rechaza (`false`) la invitación. | `200`; `403` si no es el destinatario; `404` si no existe; `409` si ya fue respondida. |
+| `DELETE /amistades/{id}` | Cualquiera de los dos elimina la amistad. No borra grupos ni gastos ya compartidos (RF-SOC-06). | `204`; `404` si no existe o quien pide no participa. |
 
 ## HTTP en local y HTTPS en despliegue (RNF-06)
 
@@ -436,6 +448,9 @@ Así las pruebas de las rutas corren sin base de datos.
   repite la contraseña; nunca 422).
 - `test_sesion.py`: `POST /sesiones` (mensaje idéntico, hash falso si el
   correo no existe) y `GET /usuarios/yo` (todos los casos de 401).
+- `test_amistades.py`: búsqueda exacta sin correo, invitaciones en ambos
+  sentidos, solo el destinatario responde, listado, rechazo, baja por
+  cualquiera de los dos y 401 sin token en las cinco rutas.
 - `test_vectores_division.py`: `docs/vectores-division.json` es coherente y
   `division.dividir` y `division.calcular_balances` dan exactamente sus
   números (los mismos que comprueba la app en Rust).
