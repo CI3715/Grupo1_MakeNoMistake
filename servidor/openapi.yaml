@@ -1413,4 +1413,3 @@ components:
       properties:
         mensaje:
           type: string
- 
