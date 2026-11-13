@@ -4,8 +4,11 @@ El archivo fija los números que deben dar la división exacta y los balances
 (RNF-08, INV-07, INV-08, ESC-10). Estas pruebas no calculan nada con el código
 del servidor: solo revisan que los propios vectores cumplan las reglas del
 enunciado, de modo que un vector mal escrito falle aquí y no en la defensa.
-La prueba que compara el cálculo del servidor con estos vectores se añade
-junto con las funciones de división.
+
+Las últimas pruebas recorren los mismos vectores con ``division.dividir`` y
+``division.calcular_balances`` del servidor: lo que guarda el servidor tiene
+que coincidir céntimo a céntimo con la vista previa de la app, que lee este
+mismo archivo en ``app/src-tauri/tests/vectores_division.rs``.
 """
 
 import json
@@ -14,6 +17,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from division import (
+    ErrorValidacionDivision,
+    GastoParaBalance,
+    Participante,
+    calcular_balances,
+    dividir,
+)
 
 RUTA = Path(__file__).resolve().parents[2] / "docs" / "vectores-division.json"
 CENTIMO = Decimal("0.01")
@@ -149,3 +160,84 @@ def test_los_balances_salen_de_las_partes_de_los_gastos(
         usuario = fila["usuario"]
         assert dinero(fila["pago"]) == pago[usuario]
         assert dinero(fila["le_corresponde"]) == corresponde[usuario]
+
+
+# ------------------------------------------- El servidor contra los vectores
+
+
+def participantes_de(caso: dict[str, Any]) -> list[Participante]:
+    return [Participante(p["usuario"], p["valor"]) for p in caso["participantes"]]
+
+
+@pytest.mark.parametrize("caso", EXITOSAS, ids=lambda c: c["id"])
+def test_la_division_del_servidor_coincide_con_el_vector(
+    caso: dict[str, Any],
+) -> None:
+    division = dividir(caso["monto"], caso["regla"], participantes_de(caso))
+
+    obtenidas = [
+        {"usuario": p.usuario, "monto": p.monto, "incluye_redondeo": p.incluye_redondeo}
+        for p in division.partes
+    ]
+    assert obtenidas == caso["esperado"]["partes"]
+    assert division.residuo == caso["esperado"]["residuo"]
+
+
+@pytest.mark.parametrize("caso", ERRORES, ids=lambda c: c["id"])
+def test_la_division_del_servidor_falla_como_el_vector(caso: dict[str, Any]) -> None:
+    esperado = caso["error"]
+    with pytest.raises(ErrorValidacionDivision) as fallo:
+        dividir(caso["monto"], caso["regla"], participantes_de(caso))
+
+    errores = fallo.value.errores
+    # El campo coincide siempre, en el mismo orden.
+    assert [e.campo for e in errores] == [e["campo"] for e in esperado["errores"]]
+    assert all(e.no_cuadra == esperado["no_cuadra"] for e in errores)
+    if esperado["mensaje_exacto"]:
+        assert [e.mensaje for e in errores] == [
+            e["mensaje"] for e in esperado["errores"]
+        ]
+
+
+@pytest.mark.parametrize("balance", VECTORES["balances"], ids=lambda b: b["id"])
+def test_las_partes_de_los_gastos_de_balances_salen_de_la_division(
+    balance: dict[str, Any],
+) -> None:
+    for gasto in balance["gastos"]:
+        division = dividir(gasto["monto"], gasto["regla"], participantes_de(gasto))
+        assert [
+            {
+                "usuario": p.usuario,
+                "monto": p.monto,
+                "incluye_redondeo": p.incluye_redondeo,
+            }
+            for p in division.partes
+        ] == gasto["partes"]
+
+
+@pytest.mark.parametrize("balance", VECTORES["balances"], ids=lambda b: b["id"])
+def test_los_balances_del_servidor_coinciden_con_el_vector(
+    balance: dict[str, Any],
+) -> None:
+    gastos = [
+        GastoParaBalance(
+            pagador=g["pagador"],
+            monto=g["monto"],
+            partes=[(p["usuario"], p["monto"]) for p in g["partes"]],
+        )
+        for g in balance["gastos"]
+    ]
+    obtenidos = calcular_balances(balance["miembros"], gastos)
+
+    assert [
+        {
+            "usuario": b.usuario,
+            "pago": b.pago,
+            "le_corresponde": b.le_corresponde,
+            "balance": b.balance,
+        }
+        for b in obtenidos
+    ] == balance["esperado"]["balances"]
+    assert sum(dinero(b.balance) for b in obtenidos) == dinero(
+        balance["esperado"]["suma"]
+    )

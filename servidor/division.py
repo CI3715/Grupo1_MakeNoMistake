@@ -13,6 +13,7 @@ exactos. El procedimiento es determinista y coincide con el núcleo de Rust:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -20,6 +21,7 @@ from enum import StrEnum
 
 MAX_CENTIMOS: int = 999_999_999_999  # 9.999.999.999,99
 CIEN_POR_CIENTO: int = 10_000  # 100.00 %
+NUMERO_DECIMAL = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)")
 
 
 class ReglaDivision(StrEnum):
@@ -65,7 +67,8 @@ class ErrorValidacionDivision(Exception):
 def a_centesimas(texto: str) -> int | None:
     """Lee un número positivo con hasta dos decimales y lo devuelve ×100."""
     texto_limpio = texto.strip()
-    if not texto_limpio:
+    # Como en el núcleo de Rust: sin notación científica («1e2»), NaN ni infinito.
+    if not NUMERO_DECIMAL.fullmatch(texto_limpio):
         return None
     try:
         d = Decimal(texto_limpio).normalize()
@@ -288,30 +291,95 @@ def dividir(
     return Division(partes=partes, residuo=con_punto(residuo))
 
 
+@dataclass(frozen=True)
+class GastoParaBalance:
+    """Lo que el balance necesita de un gasto: quién pagó, cuánto y las partes."""
+
+    pagador: str
+    monto: str
+    partes: Sequence[tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class Balance:
+    """Balance de un miembro (sección 2.5). Montos como texto con punto.
+
+    ``balance = pago - le_corresponde``: positivo, le deben; negativo, debe.
+    """
+
+    usuario: str
+    pago: str
+    le_corresponde: str
+    balance: str
+
+
+def centimos_exactos(texto: str) -> int:
+    """Céntimos de un monto guardado («33.34» -> 3334). Admite 0 y negativos.
+
+    A diferencia de ``a_centesimas`` (que valida lo que escribe una persona),
+    esta función lee montos que ya pasaron por la división, así que un valor
+    con más de dos decimales es un error de programación y se rechaza en lugar
+    de truncarse en silencio.
+    """
+    try:
+        numero = Decimal(texto.strip())
+    except InvalidOperation as error:
+        raise ValueError(f"Monto no válido: {texto!r}") from error
+    if not numero.is_finite():
+        raise ValueError(f"Monto no válido: {texto!r}")
+    centimos = numero * 100
+    if centimos != centimos.to_integral_value():
+        raise ValueError(f"El monto {texto!r} tiene más de dos decimales.")
+    return int(centimos)
+
+
+def calcular_balances(
+    miembros: Sequence[str], gastos: Sequence[GastoParaBalance]
+) -> list[Balance]:
+    """Balance de cada persona del grupo, en orden alfabético (INV-08).
+
+    Aparece cada miembro, aunque no tenga gastos (con 0.00), y también quien
+    figure en un gasto sin estar en ``miembros``, para que la suma no pierda
+    ningún céntimo. Toda la aritmética es entera sobre céntimos, así que la suma
+    de los balances es exactamente 0.00 siempre que cada gasto cuadre (INV-07).
+    """
+    pago: dict[str, int] = {m.strip().lower(): 0 for m in miembros}
+    corresponde: dict[str, int] = dict.fromkeys(pago, 0)
+
+    for gasto in gastos:
+        pagador = gasto.pagador.strip().lower()
+        pago[pagador] = pago.get(pagador, 0) + centimos_exactos(gasto.monto)
+        corresponde.setdefault(pagador, 0)
+        for usuario, monto in gasto.partes:
+            nombre = usuario.strip().lower()
+            corresponde[nombre] = corresponde.get(nombre, 0) + centimos_exactos(monto)
+            pago.setdefault(nombre, 0)
+
+    return [
+        Balance(
+            usuario=usuario,
+            pago=con_punto(pago[usuario]),
+            le_corresponde=con_punto(corresponde[usuario]),
+            balance=con_punto(pago[usuario] - corresponde[usuario]),
+        )
+        for usuario in sorted(pago)
+    ]
+
+
 def calcular_balances_grupo(
     gastos: Sequence[tuple[str, list[tuple[str, str]]]],
 ) -> dict[str, str]:
-    """Calcula el balance neto de cada miembro dado un historial de gastos.
+    """Balance neto por usuario (versión compacta de ``calcular_balances``).
 
-    Cada gasto es una tupla: (pagador, [(participante, monto_parte)]).
-    El balance de un usuario es: total_pagado - total_debido.
-    La suma de todos los balances de todos los participantes es exactamente 0.00.
+    Cada gasto es ``(pagador, [(participante, monto_parte)])`` y el monto del
+    gasto es la suma de sus partes.
     """
-    balances_centimos: dict[str, int] = {}
-
-    for pagador, partes in gastos:
-        pagador_limpio = pagador.strip().lower()
-        monto_total_gasto = 0
-        for usuario_parte, monto_texto in partes:
-            usuario_limpio = usuario_parte.strip().lower()
-            monto_cent = a_centesimas(monto_texto) or 0
-            monto_total_gasto += monto_cent
-            balances_centimos[usuario_limpio] = (
-                balances_centimos.get(usuario_limpio, 0) - monto_cent
-            )
-
-        balances_centimos[pagador_limpio] = (
-            balances_centimos.get(pagador_limpio, 0) + monto_total_gasto
+    convertidos = [
+        GastoParaBalance(
+            pagador=pagador,
+            monto=con_punto(sum(centimos_exactos(m) for _, m in partes)),
+            partes=partes,
         )
-
-    return {u: con_punto(c) for u, c in sorted(balances_centimos.items())}
+        for pagador, partes in gastos
+    ]
+    return {b.usuario: b.balance for b in calcular_balances([], convertidos)}

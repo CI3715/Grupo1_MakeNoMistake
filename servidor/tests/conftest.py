@@ -16,11 +16,19 @@ from fastapi.testclient import TestClient
 from repositorio_en_memoria import (
     RepositorioAmistadesEnMemoria,
     RepositorioEnMemoria,
+    RepositorioGastosEnMemoria,
+    RepositorioGruposEnMemoria,
 )
 
 from base_datos import BaseDatos
 from configuracion import RUTA_ENV
-from main import app
+from main import (
+    AlmacenAmistades,
+    AlmacenGastos,
+    AlmacenGrupos,
+    AlmacenUsuarios,
+    app,
+)
 
 # Igual que en las pruebas de usuarios: en local ``servidor/.env`` ya trae la
 # base de pruebas y en un clon limpio las pruebas de PostgreSQL se omiten.
@@ -62,21 +70,34 @@ def entorno_prueba(
     monkeypatch: pytest.MonkeyPatch, repositorio_falso: RepositorioEnMemoria
 ) -> Generator[None, None, None]:
     """Aísla cada prueba: entorno propio y ninguna conexión a PostgreSQL."""
+    # Anotados con los protocolos de main: mypy avisa si el almacén en memoria
+    # deja de parecerse a lo que usan las rutas (y, por tanto, al real).
+    usuarios: AlmacenUsuarios = repositorio_falso
+    grupos: AlmacenGrupos = RepositorioGruposEnMemoria(repositorio_falso)
+    amistades: AlmacenAmistades = RepositorioAmistadesEnMemoria(repositorio_falso)
+    gastos: AlmacenGastos = RepositorioGastosEnMemoria(repositorio_falso)
     for variable in VARIABLES_AJENAS:
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setenv("JWT_SECRET", SECRETO_PRUEBA)
     monkeypatch.setenv("JWT_MINUTOS", str(MINUTOS_PRUEBA))
     # Con un almacén ya presente, el arranque de la app no abre conexiones.
+    monkeypatch.setattr(app.state, "repositorio_usuarios", usuarios, raising=False)
     monkeypatch.setattr(
-        app.state, "repositorio_usuarios", repositorio_falso, raising=False
-    )
-    monkeypatch.setattr(
-        app.state, "repositorio_grupos", repositorio_falso, raising=False
+        app.state,
+        "repositorio_grupos",
+        grupos,
+        raising=False,
     )
     monkeypatch.setattr(
         app.state,
         "repositorio_amistades",
-        RepositorioAmistadesEnMemoria(repositorio_falso),
+        amistades,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app.state,
+        "repositorio_gastos",
+        gastos,
         raising=False,
     )
     yield

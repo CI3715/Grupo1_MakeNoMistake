@@ -7,8 +7,9 @@ info:
     Servidor de Cuentas Claras.
  
     Identifica a las personas (registro, inicio de sesión y perfil), gestiona
-    sus amistades (búsqueda exacta, invitaciones, listado y baja) y responde al
-    ping. **No recibe ni guarda cuentas, movimientos, saldos, tasas ni
+    sus amistades (búsqueda exacta, invitaciones, listado y baja) y, desde la
+    Entrega 6, guarda lo que comparten varias personas: grupos y gastos
+    divididos. **No recibe ni guarda cuentas, movimientos, saldos, tasas ni
     categorías** (INV-16, RES-02): esos datos nunca salen del dispositivo.
  
     Este archivo se escribe a mano y se verifica contra `/openapi.json`, que
@@ -20,8 +21,21 @@ info:
       Nunca repiten el valor enviado (la contraseña no aparece en ningún error).
     - **401** devuelve `{"mensaje": ...}`.
     - Los nombres de campo son `nombre_usuario`, `nombre_visible`, `correo` y
-      `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON).
+      `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON). Las
+      amistades usan `usuario` y `aceptar`. Los gastos
+      usan `concepto`, `monto`, `fecha`, `pagador`, `regla`, `participantes`,
+      `porcentajes` y `montos`.
     - Nunca se responde 422: los errores de tipo también son 400 por campo.
+    - Un grupo inexistente, un identificador mal formado, una persona ajena y
+      un invitado que aún no aceptó reciben **el mismo 404** con el mismo
+      cuerpo, `{"mensaje": "Grupo no encontrado."}` (INV-17, RNF-07, ADR-013).
+
+    ## Dinero
+
+    Montos y porcentajes viajan como **texto** con punto decimal (`"100.00"`,
+    `"33.33"`), nunca como número JSON (RNF-08). En los mensajes de error se
+    escriben con coma (`"118,00"`). La división exacta y el reparto del residuo
+    están descritos en ADR-013 y fijados por `docs/vectores-division.json`.
  
     ## Fechas
 
@@ -50,6 +64,10 @@ tags:
       Búsqueda exacta de personas, invitaciones de amistad, respuesta, listado
       y baja. Todos los datos compartidos viven en el servidor; las amistades
       solo existen tras la aceptación.
+  - name: Grupos
+    description: Grupos compartidos (solo sus miembros aceptados los ven).
+  - name: Gastos
+    description: Gastos de un grupo y su división exacta.
  
 paths:
   /ping:
@@ -246,6 +264,137 @@ paths:
               example:
                 mensaje: Sesión no válida o vencida.
  
+  /grupos/{id_grupo}:
+    get:
+      tags: [Grupos]
+      summary: Detalle de grupo
+      description: |
+        Miembros aceptados, gastos (del más reciente al más antiguo) con sus
+        partes y el balance de cada miembro. Solo para miembros aceptados.
+        `balance = pago − le_corresponde`; la suma de todos es exactamente
+        `0.00` (INV-08). Un miembro sin gastos aparece con `0.00`.
+      operationId: obtenerGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+      responses:
+        "200":
+          description: Detalle del grupo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrupoDetalle"
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "404":
+          $ref: "#/components/responses/GrupoNoEncontrado"
+
+  /grupos/{id_grupo}/gastos:
+    post:
+      tags: [Gastos]
+      summary: Registrar gasto de grupo
+      description: |
+        El servidor divide el monto con la regla elegida (el mismo
+        procedimiento que la vista previa de la app) y guarda el gasto con
+        todas sus partes en una sola transacción: o queda todo o nada (INV-07).
+
+        1. Cada parte exacta se trunca a céntimos.
+        2. Residuo = monto − suma de las partes truncadas.
+        3. El residuo se reparte de a un céntimo en orden alfabético de nombre
+           de usuario; esas partes llevan `incluye_redondeo: true`.
+
+        Las comprobaciones van en este orden: sesión (401), pertenencia (404
+        uniforme) y datos (400 por campo). Pagador y participantes deben ser
+        miembros aceptados; un miembro puede quedar fuera del reparto.
+      operationId: registrarGastoGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NuevoGasto"
+            examples:
+              partesIguales:
+                summary: 100,00 entre tres (33,34 / 33,33 / 33,33)
+                value:
+                  concepto: Cena
+                  monto: "100.00"
+                  fecha: "2026-03-10"
+                  pagador: ana
+                  regla: partes_iguales
+                  participantes:
+                    - { usuario: ana, valor: "" }
+                    - { usuario: beto, valor: "" }
+                    - { usuario: carla, valor: "" }
+              porcentajes:
+                summary: 60,00 al 50 / 25 / 25
+                value:
+                  concepto: Taxi
+                  monto: "60.00"
+                  fecha: "2026-03-11"
+                  pagador: beto
+                  regla: porcentajes
+                  participantes:
+                    - { usuario: ana, valor: "50" }
+                    - { usuario: beto, valor: "25" }
+                    - { usuario: carla, valor: "25" }
+      responses:
+        "201":
+          description: Gasto guardado con la división calculada por el servidor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gasto"
+              example:
+                id: 7d1f0c2a-3b4e-4f5a-8c9d-0e1f2a3b4c5d
+                concepto: Cena
+                monto: "100.00"
+                fecha: "2026-03-10"
+                pagador: ana
+                regla: partes_iguales
+                partes:
+                  - { usuario: ana, monto: "33.34", incluye_redondeo: true }
+                  - { usuario: beto, monto: "33.33", incluye_redondeo: false }
+                  - { usuario: carla, monto: "33.33", incluye_redondeo: false }
+        "400":
+          description: >-
+            Datos inválidos, o porcentajes o montos que no cuadran. Cuando no
+            cuadran, el mensaje dice la suma y la diferencia exacta con
+            «faltan» o «sobran».
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              examples:
+                porcentajes:
+                  value:
+                    errores:
+                      - campo: porcentajes
+                        mensaje: Los porcentajes suman 95; faltan 5.
+                montos:
+                  value:
+                    errores:
+                      - campo: montos
+                        mensaje: Los montos suman 118,00; faltan 2,00.
+                datos:
+                  value:
+                    errores:
+                      - campo: monto
+                        mensaje: El monto debe ser mayor que 0 y tener hasta dos decimales.
+                      - campo: regla
+                        mensaje: Elige una regla de división válida.
+                      - campo: participantes
+                        mensaje: Elige al menos un participante.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "404":
+          $ref: "#/components/responses/GrupoNoEncontrado"
+
   /amistades:
     get:
       tags: [Amistades]
@@ -433,6 +582,44 @@ paths:
                 mensaje: Amistad no encontrada.
 
 components:
+  parameters:
+    IdGrupo:
+      name: id_grupo
+      in: path
+      required: true
+      description: >-
+        UUID del grupo. Un valor que no es UUID responde el mismo 404 que un
+        grupo inexistente.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    SesionInvalida:
+      description: Token ausente, alterado, vencido o con un esquema distinto de Bearer.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorMensaje"
+          example:
+            mensaje: Sesión no válida o vencida.
+    GrupoNoEncontrado:
+      description: >-
+        El grupo no existe, el identificador no es un UUID, quien consulta no
+        es miembro o su invitación aún no está aceptada. Los cuatro casos son
+        idénticos en código y cuerpo, para no revelar si el grupo existe.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorMensaje"
+          example:
+            mensaje: Grupo no encontrado.
+
   securitySchemes:
     tokenBearer:
       type: http
@@ -686,12 +873,23 @@ components:
             - nombre_visible
             - correo
             - contrasena
+            - cuerpo
             - usuario
             - aceptar
-            - cuerpo
+            - nombre
+            - moneda
+            - respuesta
+            - concepto
+            - monto
+            - fecha
+            - pagador
+            - regla
+            - participantes
+            - porcentajes
+            - montos
           description: >-
-            Campo que falla. `cuerpo` solo aparece si el cuerpo de la petición
-            no es un objeto JSON.
+            Campo que falla. `cuerpo` solo aparece si el cuerpo de la petición no
+            es un objeto JSON.
         mensaje:
           type: string
           description: En español, sin trazas técnicas y sin el valor enviado.
@@ -713,3 +911,171 @@ components:
         mensaje:
           type: string
  
+
+    Dinero:
+      type: string
+      description: >-
+        Monto como texto con punto y dos decimales. Nunca número JSON (RNF-08).
+        En la base es `NUMERIC(14, 2)`.
+      pattern: '^-?\d+\.\d{2}$'
+      example: "33.34"
+
+    ReglaDivision:
+      type: string
+      enum: [partes_iguales, porcentajes, montos_fijos]
+
+    ParticipanteGasto:
+      type: object
+      required: [usuario]
+      properties:
+        usuario:
+          type: string
+          description: Nombre de usuario de un miembro aceptado.
+          example: ana
+        valor:
+          type: string
+          description: >-
+            Porcentaje («50», «33.33», hasta dos decimales) con `porcentajes`;
+            monto («40.00») con `montos_fijos`; vacío con `partes_iguales`.
+          example: "50"
+
+    NuevoGasto:
+      type: object
+      required: [concepto, monto, fecha, pagador, regla, participantes]
+      properties:
+        concepto:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Cena del viernes
+        monto:
+          type: string
+          description: >-
+            Mayor que 0, hasta dos decimales y como máximo `9999999999.99`.
+          example: "100.00"
+        fecha:
+          type: string
+          format: date
+          example: "2026-11-12"
+        pagador:
+          type: string
+          description: Nombre de usuario de un miembro aceptado.
+          example: ana
+        regla:
+          $ref: "#/components/schemas/ReglaDivision"
+        participantes:
+          type: array
+          minItems: 1
+          description: >-
+            Sin repetidos. Los porcentajes deben sumar exactamente 100 y los
+            montos fijos, exactamente el monto.
+          items:
+            $ref: "#/components/schemas/ParticipanteGasto"
+
+    Parte:
+      type: object
+      required: [usuario, monto, incluye_redondeo]
+      properties:
+        usuario:
+          type: string
+        monto:
+          $ref: "#/components/schemas/Dinero"
+        incluye_redondeo:
+          type: boolean
+          description: Verdadero si esta parte recibió un céntimo del residuo.
+
+    Gasto:
+      type: object
+      required: [id, concepto, monto, fecha, pagador, regla, partes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        concepto:
+          type: string
+        monto:
+          $ref: "#/components/schemas/Dinero"
+        fecha:
+          type: string
+          format: date
+        pagador:
+          type: string
+        regla:
+          $ref: "#/components/schemas/ReglaDivision"
+        partes:
+          type: array
+          description: En orden alfabético de nombre de usuario; suman exactamente `monto`.
+          items:
+            $ref: "#/components/schemas/Parte"
+
+    GrupoResumen:
+      type: object
+      required: [id, nombre, descripcion, moneda, actividad, rol, cantidad_miembros]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        descripcion:
+          type: string
+        moneda:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        actividad:
+          type: string
+        rol:
+          type: string
+          enum: [administrador, miembro]
+          description: Rol de quien consulta.
+        cantidad_miembros:
+          type: integer
+          minimum: 1
+
+    MiembroGrupo:
+      type: object
+      required: [usuario, nombre_visible, rol]
+      description: Miembro aceptado. Nunca lleva el correo (RF-SOC-04).
+      properties:
+        usuario:
+          type: string
+        nombre_visible:
+          type: string
+        rol:
+          type: string
+          enum: [administrador, miembro]
+
+    Balance:
+      type: object
+      required: [usuario, pago, le_corresponde, balance]
+      properties:
+        usuario:
+          type: string
+        pago:
+          $ref: "#/components/schemas/Dinero"
+        le_corresponde:
+          $ref: "#/components/schemas/Dinero"
+        balance:
+          $ref: "#/components/schemas/Dinero"
+
+    GrupoDetalle:
+      type: object
+      required: [grupo, miembros, gastos, balances]
+      properties:
+        grupo:
+          $ref: "#/components/schemas/GrupoResumen"
+        miembros:
+          type: array
+          description: Miembros aceptados en orden alfabético.
+          items:
+            $ref: "#/components/schemas/MiembroGrupo"
+        gastos:
+          type: array
+          description: Del más reciente al más antiguo.
+          items:
+            $ref: "#/components/schemas/Gasto"
+        balances:
+          type: array
+          description: En orden alfabético; suman exactamente 0.00.
+          items:
+            $ref: "#/components/schemas/Balance"
