@@ -255,6 +255,67 @@ cargo test --lib sesion
 
 Cubren 201, 200, 400, 401, 409, servidor apagado, token vencido (por reloj y por 401), la sesión recordada sin red, y que la contraseña y el token no aparecen en `Debug`, en los errores ni en los logs.
 
+## Amigos, grupos y gastos compartidos (Entrega 6)
+
+Desde la Entrega 6 la aplicación permite agregar amigos, crear grupos con ellos y dividir gastos entre los miembros. Estas funciones **requieren sesión y conexión** con el servidor, porque lo compartido lo ven varias personas. Todo lo personal (cuentas, movimientos, saldos, tasas y patrimonio) sigue siendo solo local y sigue funcionando sin sesión y sin conexión.
+
+> **Estado actual.** Los comandos de esta sección responden con **datos fijos** (un simulador en memoria, sin servidor) para poder construir y probar la interfaz. Cuando las rutas del servidor estén disponibles, esta sección se actualiza: los comandos pasarán a hablar con el servidor y los datos de ejemplo desaparecen.
+
+### Comandos
+
+Viven en `src-tauri/src/social.rs` y sus tipos están en `src-tauri/src/dto_social.rs` y en `app/utils/tauriCommands.ts`. Las personas se identifican por su **nombre de usuario**; nunca viaja el correo de nadie.
+
+| Comando | Qué hace | Ruta del servidor (cuando se conecte) |
+|---|---|---|
+| `buscar_usuario` | Busca por nombre de usuario exacto. No hay búsqueda parcial ni listados. | `GET /usuarios?usuario=` |
+| `invitar_amigo` | Envía una invitación de amistad. | `POST /amistades` |
+| `responder_amistad` | Acepta o rechaza una invitación recibida. | `POST /amistades/{id}/respuesta` |
+| `listar_amistades` | Amigos e invitaciones pendientes, enviadas y recibidas. | `GET /amistades` |
+| `eliminar_amistad` | Elimina una amistad; no borra los grupos ni los gastos que ya comparten. | `DELETE /amistades/{id}` |
+| `crear_grupo` | Crea un grupo; quien lo crea queda como miembro y administrador. | `POST /grupos` |
+| `listar_grupos` | Mis grupos y mis invitaciones pendientes. | `GET /grupos` |
+| `invitar_al_grupo` | El administrador invita a un amigo. | `POST /grupos/{id}/miembros` |
+| `responder_invitacion_grupo` | El invitado acepta o rechaza. | `POST /grupos/{id}/miembros/yo/respuesta` |
+| `registrar_gasto_grupo` | Registra un gasto dividido entre los miembros. | `POST /grupos/{id}/gastos` |
+| `ver_grupo` | Miembros, gastos y balances. Solo para miembros. | `GET /grupos/{id}` |
+| `previsualizar_division` | Calcula la división antes de enviar. **No usa la red**: ya es real. | (ninguna) |
+
+Los errores tienen la forma `{ campo, mensaje }`, con el mensaje en español. Los montos y porcentajes viajan como texto con punto decimal (`"100.00"`).
+
+### División exacta de un gasto
+
+Hay tres reglas: **partes iguales**, **porcentajes** (deben sumar 100) y **montos fijos** (deben sumar el total del gasto). Si no cuadran, se rechaza indicando la diferencia, por ejemplo «Los porcentajes suman 95; faltan 5.».
+
+Las partes se calculan en céntimos y con aritmética exacta (nunca coma flotante). Cuando la división no es exacta, ningún céntimo se pierde ni se inventa:
+
+1. Se calcula la parte exacta de cada participante y se trunca a céntimos.
+2. El residuo es el total menos la suma de las partes truncadas.
+3. El residuo se reparte de a un céntimo, en orden alfabético de nombre de usuario, hasta agotarlo.
+4. Cada parte indica si recibió céntimos de residuo («incluye 0,01 de redondeo»).
+
+Por ejemplo, 100,00 en partes iguales entre ana, beto y carla da 33,34 · 33,33 · 33,33. El cálculo vive en `src-tauri/crates/dominio/src/division.rs`. La aplicación muestra la vista previa, pero **el servidor vuelve a calcular y es su resultado el que se guarda**. El balance de cada miembro es lo que pagó menos lo que le corresponde, y la suma de los balances del grupo es siempre exactamente 0,00.
+
+### Datos de ejemplo (mientras los comandos usan datos fijos)
+
+La persona con sesión es `ana`. Al abrir la aplicación hay:
+
+- **Amigos:** `beto`, `carla` y `luis`, y una invitación recibida de `dario`.
+- **Grupos:** «Viaje a Mérida» (USD), que administra `ana`, con `beto` y `carla` y dos gastos cuyos balances son +36,66 · +11,67 · −48,33; y «Cena del viernes», que administra `beto`.
+- **Invitación a un grupo:** «Cumpleaños de Luis».
+
+Todo reacciona a lo que se hace (invitar, aceptar, crear grupos, registrar gastos) y al cerrar la aplicación vuelve al estado inicial. Para probar los casos de error, escribe estos textos en cualquier campo de usuario, grupo o concepto:
+
+| Texto | Caso |
+|---|---|
+| `sin-conexion` | Servidor apagado |
+| `sesion-vencida` | Token vencido |
+| `sin-sesion` | No se ha iniciado sesión |
+
+También: buscar `bet` no encuentra a nadie, invitar a `ana` da «No puedes invitarte a ti mismo.», y ver el grupo `g2` (solo invitado) o `g99` (inexistente) da la misma respuesta.
+
+### Qué viaja al servidor
+
+Solo datos de amistades, grupos y gastos compartidos: nombres de usuario, nombre, moneda y actividad del grupo, y concepto, monto, fecha, pagador y participantes de cada gasto. Nada del libro personal (cuentas, movimientos, saldos ni tasas) sale del dispositivo. El token va solo en el encabezado `Authorization: Bearer`.
 ## Prueba de autonomía de la Entrega 6
 
 Los grupos y los gastos compartidos viven en el servidor, pero nada del libro personal depende de él. La prueba automática está en `src-tauri/src/autonomia.rs`:
