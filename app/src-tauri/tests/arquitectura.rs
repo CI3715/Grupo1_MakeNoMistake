@@ -4,8 +4,9 @@
 //! flotante (tipos, conversiones o literales como `1.5`) en el dominio o en la
 //! aplicación (INV-03), si los comandos de
 //! cuentas, movimientos y tasas tocan la red (INV-16, RNF-01), si una estructura
-//! de sesión lleva datos financieros (INV-16, RES-02) o si el código ejecuta
-//! UPDATE o DELETE sobre la tabla `eventos` (INV-04).
+//! de sesión o del cliente social lleva datos financieros, si el cliente social
+//! usa la red por su cuenta (INV-16, RES-02) o si el código ejecuta UPDATE o
+//! DELETE sobre la tabla `eventos` (INV-04).
 //! Corren con `cargo test --workspace`.
 
 use std::collections::BTreeSet;
@@ -594,6 +595,9 @@ fn aplicacion_no_usa_coma_flotante() {
 
 /// Archivos de `src/` que pueden hablar con el servidor: el ping (Entrega 1) y la
 /// sesión (Entrega 5). Cualquier otro archivo de `src/` tiene la red prohibida.
+/// Los archivos del cliente social (Entrega 6) no están aquí a propósito: llaman
+/// al servidor a través de `sesion.rs` (ver `el_cliente_social_usa_la_red_solo_
+/// a_traves_de_sesion`).
 const ARCHIVOS_CON_RED: [&str; 2] = ["ping.rs", "sesion.rs"];
 
 /// Archivos que deben existir y no pueden usar la red: el libro personal.
@@ -808,6 +812,97 @@ fn sesion_no_toca_el_libro_personal() {
         halladas.is_empty(),
         "sesion.rs no puede usar el libro personal: menciona {} (INV-16, RES-02)",
         halladas.join(", ")
+    );
+}
+
+// ---------- INV-16 / RES-02: el cliente social (Entrega 6) ----------
+
+/// Archivos del cliente social que hablan con el servidor de amistades, grupos y
+/// gastos. No usan la red por su cuenta: todo pasa por el adaptador de `sesion.rs`.
+const ARCHIVOS_DEL_CLIENTE_SOCIAL: [&str; 2] = ["social_cliente.rs", "social_real.rs"];
+
+/// Archivos con estructuras que viajan al servidor o vienen de él.
+const ARCHIVOS_CON_DATOS_SOCIALES: [&str; 3] =
+    ["dto_social.rs", "social_cliente.rs", "social_real.rs"];
+
+/// Raíces financieras que aparecen en una definición de datos del cliente social.
+/// La moneda solo se permite en las estructuras de grupo: el grupo lleva su moneda
+/// (código ISO), que no es la de ninguna cuenta del libro personal.
+fn financieros_no_permitidos(nombre: &str, contenido: &str) -> Vec<&'static str> {
+    let es_de_grupo = nombre.to_lowercase().contains("grupo");
+    nombres_financieros(&format!("{nombre} {contenido}"))
+        .into_iter()
+        .filter(|palabra| !(es_de_grupo && *palabra == "moneda"))
+        .collect()
+}
+
+#[test]
+fn las_estructuras_del_cliente_social_no_llevan_datos_financieros() {
+    let mut infracciones = Vec::new();
+    for archivo in ARCHIVOS_CON_DATOS_SOCIALES {
+        let Some(codigo) = codigo_de_produccion(archivo, false) else {
+            panic!("No se encontró {archivo} en src/: actualiza esta prueba");
+        };
+        let definiciones = definiciones_de_datos(&codigo);
+        assert!(!definiciones.is_empty(), "{archivo} no define estructuras");
+        for (nombre, contenido) in definiciones {
+            for palabra in financieros_no_permitidos(&nombre, &contenido) {
+                infracciones.push(format!(
+                    "{archivo}: `{nombre}` menciona `{palabra}` y viaja al servidor"
+                ));
+            }
+        }
+    }
+    assert!(
+        infracciones.is_empty(),
+        "Ningún dato financiero puede viajar al servidor (INV-16, RES-02):\n{}",
+        infracciones.join("\n")
+    );
+}
+
+#[test]
+fn el_cliente_social_usa_la_red_solo_a_traves_de_sesion() {
+    let prohibidas = [
+        "dominio",
+        "aplicacion",
+        "infraestructura",
+        "CasosDeUso",
+        "EstadoCasosDeUso",
+    ];
+    for archivo in ARCHIVOS_DEL_CLIENTE_SOCIAL {
+        let ruta = raiz().join("src").join(archivo);
+        assert!(
+            ruta.exists(),
+            "No se encontró {archivo}: actualiza esta prueba"
+        );
+
+        // Sin red propia. Los textos se conservan: una URL entre comillas también es red.
+        let red = red_en(&limpiar_codigo(&leer(&ruta), false, false));
+        assert!(
+            red.is_empty(),
+            "{archivo} usa la red por su cuenta: menciona {} (INV-16, RNF-01)",
+            red.join(", ")
+        );
+
+        // Sin libro personal: solo amistades, grupos y gastos compartidos.
+        let codigo = limpiar_codigo(&leer(&ruta), true, true);
+        let halladas: Vec<&str> = prohibidas
+            .iter()
+            .copied()
+            .filter(|p| contiene_palabra(&codigo, p))
+            .collect();
+        assert!(
+            halladas.is_empty(),
+            "{archivo} no puede usar el libro personal: menciona {} (INV-16, RES-02)",
+            halladas.join(", ")
+        );
+    }
+
+    // La red llega al servidor por el adaptador de `sesion.rs`, no por otro camino.
+    let cliente = codigo_de_produccion("social_cliente.rs", true).unwrap_or_default();
+    assert!(
+        cliente.contains("crate::sesion"),
+        "social_cliente.rs debe llamar al servidor a través de sesion.rs (INV-16, RNF-01)"
     );
 }
 
@@ -1076,4 +1171,15 @@ fn reconoce_las_estructuras_de_sesion_por_su_nombre() {
     assert!(es_nombre_de_sesion("PerfilDto"));
     assert!(!es_nombre_de_sesion("CuentaDto"));
     assert!(!es_nombre_de_sesion("MovimientoDto"));
+}
+
+#[test]
+fn la_moneda_solo_se_permite_en_las_estructuras_de_grupo() {
+    assert!(financieros_no_permitidos("NuevoGrupoDto", "{ pub moneda: String }").is_empty());
+    assert!(!financieros_no_permitidos("MonedaDto", "{ pub x: String }").is_empty());
+    assert!(!financieros_no_permitidos("GastoDto", "{ pub moneda: String }").is_empty());
+    assert_eq!(
+        financieros_no_permitidos("GrupoDto", "{ pub saldo: String, pub moneda: String }"),
+        vec!["saldo"]
+    );
 }
