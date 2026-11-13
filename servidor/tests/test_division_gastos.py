@@ -11,6 +11,8 @@ Cubre los requisitos RF-COM-05, INV-07, INV-08, RNF-08 y ESC-10:
 from decimal import Decimal
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from division import (
     ErrorValidacionDivision,
@@ -188,3 +190,73 @@ class TestBalancesGrupo:
 
         suma = sum(int(Decimal(b) * Decimal(100)) for b in balances.values())
         assert suma == 0
+
+
+class TestPropiedadesDivisionHypothesis:
+    """Pruebas con hypothesis para división y balances (RNF-08, INV-07, INV-08)."""
+
+    @given(
+        centimos=st.integers(min_value=1, max_value=1_000_000_000),
+        participantes=st.lists(
+            st.from_regex(r"[a-z]{3,10}", fullmatch=True),
+            min_size=1,
+            max_size=12,
+            unique=True,
+        ),
+    )
+    def test_propiedad_partes_iguales_conserva_total_y_residuo_alfabetico(
+        self, centimos: int, participantes: list[str]
+    ) -> None:
+        """Para cualquier monto y grupo, la suma de partes coincide con el total."""
+        monto_str = f"{centimos // 100}.{centimos % 100:02d}"
+        div = dividir(monto_str, "partes_iguales", participantes)
+
+        # 1. Conservación de la suma exacta (INV-07, RNF-08)
+        suma_partes = sum(a_centesimas(p.monto) or 0 for p in div.partes)
+        assert suma_partes == centimos
+
+        # 2. Cantidad de partes igual a cantidad de participantes
+        assert len(div.partes) == len(participantes)
+
+        # 3. Residuo alfabético determinista
+        n = len(participantes)
+        r = centimos % n
+        residuo_esperado = f"{r // 100}.{r % 100:02d}"
+        assert div.residuo == residuo_esperado
+
+        # Los participantes ordenados alfabéticamente
+        ordenados = sorted(participantes)
+        con_redondeo = [p.usuario for p in div.partes if p.incluye_redondeo]
+        assert con_redondeo == ordenados[:r]
+
+    @given(
+        gastos=st.lists(
+            st.tuples(
+                st.sampled_from(["ana", "beto", "carla", "dario"]),
+                st.integers(min_value=1, max_value=100_000),
+                st.lists(
+                    st.sampled_from(["ana", "beto", "carla", "dario"]),
+                    min_size=1,
+                    max_size=4,
+                    unique=True,
+                ),
+            ),
+            min_size=1,
+            max_size=10,
+        )
+    )
+    def test_propiedad_suma_de_balances_siempre_cero(
+        self,
+        gastos: list[tuple[str, int, list[str]]],
+    ) -> None:
+        """La suma algebraica de todos los balances siempre es exactamente 0.00."""
+        lista_gastos: list[tuple[str, list[tuple[str, str]]]] = []
+        for pagador, centimos, participantes in gastos:
+            monto_str = f"{centimos // 100}.{centimos % 100:02d}"
+            div = dividir(monto_str, "partes_iguales", participantes)
+            lista_gastos.append((pagador, [(p.usuario, p.monto) for p in div.partes]))
+
+        balances = calcular_balances_grupo(lista_gastos)
+        suma_centimos = sum(int(Decimal(b) * Decimal(100)) for b in balances.values())
+        assert suma_centimos == 0
+
