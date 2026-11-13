@@ -24,7 +24,8 @@ info:
       `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON). Las
       amistades usan `usuario` y `aceptar`. Los gastos
       usan `concepto`, `monto`, `fecha`, `pagador`, `regla`, `participantes`,
-      `porcentajes` y `montos`.
+      `porcentajes` y `montos`. Los grupos usan `nombre`, `moneda` y
+      `respuesta` (más `usuario` al invitar).
     - Nunca se responde 422: los errores de tipo también son 400 por campo.
     - Un grupo inexistente, un identificador mal formado, una persona ajena y
       un invitado que aún no aceptó reciben **el mismo 404** con el mismo
@@ -264,6 +265,97 @@ paths:
               example:
                 mensaje: Sesión no válida o vencida.
  
+  /grupos:
+    post:
+      tags: [Grupos]
+      summary: Crear grupo
+      description: |
+        Quien crea el grupo queda como miembro y administrador (RF-COM-01).
+        El nombre es obligatorio; la descripción y la actividad (por ejemplo,
+        «Viaje a Mérida, marzo») son opcionales. La moneda es un código de tres
+        letras y se guarda en mayúsculas; todos los gastos del grupo van en ella.
+      operationId: crearGrupo
+      security:
+        - tokenBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NuevoGrupo"
+            example:
+              nombre: Viaje a Mérida
+              descripcion: Gastos del viaje
+              moneda: USD
+              actividad: Viaje a Mérida, marzo
+      responses:
+        "201":
+          description: Grupo creado; quien lo creó es su administrador.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrupoResumen"
+              example:
+                id: 3f2b8c1e-5a47-4d9b-9e0a-1c2d3e4f5a6b
+                nombre: Viaje a Mérida
+                descripcion: Gastos del viaje
+                moneda: USD
+                actividad: Viaje a Mérida, marzo
+                rol: administrador
+                cantidad_miembros: 1
+        "400":
+          description: Falta el nombre o la moneda no es un código de tres letras.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: nombre
+                    mensaje: El nombre del grupo es obligatorio.
+                  - campo: moneda
+                    mensaje: La moneda debe ser un código ISO de tres letras mayúsculas.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+
+    get:
+      tags: [Grupos]
+      summary: Listar mis grupos e invitaciones
+      description: |
+        Devuelve los grupos donde la persona es miembro aceptado y, aparte, las
+        invitaciones pendientes con el nombre del grupo y quién invitó. Una
+        invitación pendiente no da acceso a los gastos ni a los balances
+        (RF-COM-02): para eso hay que aceptarla.
+      operationId: listarMisGrupos
+      security:
+        - tokenBearer: []
+      responses:
+        "200":
+          description: Grupos e invitaciones pendientes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListaGrupos"
+              example:
+                grupos:
+                  - id: 3f2b8c1e-5a47-4d9b-9e0a-1c2d3e4f5a6b
+                    nombre: Viaje a Mérida
+                    descripcion: ""
+                    moneda: USD
+                    actividad: Viaje a Mérida, marzo
+                    rol: administrador
+                    cantidad_miembros: 3
+                invitaciones:
+                  - grupo_id: 9a8b7c6d-1e2f-4a3b-8c4d-5e6f7a8b9c0d
+                    nombre: Cumpleaños de Luis
+                    moneda: USD
+                    actividad: ""
+                    invitado_por:
+                      nombre_usuario: luis
+                      nombre_visible: Luis Gómez
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+
   /grupos/{id_grupo}:
     get:
       tags: [Grupos]
@@ -285,6 +377,149 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GrupoDetalle"
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "404":
+          $ref: "#/components/responses/GrupoNoEncontrado"
+
+  /grupos/{id_grupo}/miembros:
+    post:
+      tags: [Grupos]
+      summary: Invitar a un amigo al grupo
+      description: |
+        Solo el administrador puede invitar, y solo a sus amigos (RF-COM-02).
+        Nadie entra al grupo sin aceptar: la persona queda como `invitado` y no
+        ve gastos ni balances hasta aceptar.
+
+        Las comprobaciones van en este orden: sesión (401), pertenencia (404
+        uniforme), rol de administrador (403), datos (400), existencia de la
+        persona (404 «Usuario no encontrado.»), amistad (403) y duplicado (409).
+      operationId: invitarAlGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitarMiembro"
+            example:
+              usuario: beto
+      responses:
+        "201":
+          description: Invitación creada; la persona todavía no es miembro.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiembroInvitado"
+              example:
+                usuario: beto
+                nombre_visible: Beto Ruiz
+                rol: miembro
+                estado: invitado
+        "400":
+          description: Falta el nombre de usuario.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: usuario
+                    mensaje: El nombre de usuario es obligatorio.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "403":
+          description: >-
+            Quien invita es miembro pero no administrador, o la persona
+            invitada no es su amiga.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              examples:
+                noAdministrador:
+                  value:
+                    mensaje: Solo el administrador puede invitar miembros.
+                noEsAmigo:
+                  value:
+                    mensaje: Solo puedes invitar a personas que sean tus amigos.
+        "404":
+          description: >-
+            El grupo no existe o quien consulta no es miembro aceptado (el
+            404 uniforme), o no hay ninguna persona con ese nombre de usuario.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              examples:
+                grupo:
+                  value:
+                    mensaje: Grupo no encontrado.
+                usuario:
+                  value:
+                    mensaje: Usuario no encontrado.
+        "409":
+          description: La persona ya es miembro o ya tiene una invitación pendiente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: usuario
+                    mensaje: El usuario ya pertenece al grupo o tiene una invitación pendiente.
+
+  /grupos/{id_grupo}/miembros/yo/respuesta:
+    post:
+      tags: [Grupos]
+      summary: Responder la invitación al grupo
+      description: |
+        Solo responde quien fue invitado. Al aceptar pasa a ser miembro y ya ve
+        gastos y balances; al rechazar, la invitación se cierra. Si el grupo no
+        existe, el identificador no es un UUID o la persona no tiene una
+        invitación pendiente (incluida una ya respondida), la respuesta es el
+        mismo 404 «Grupo no encontrado.»; esa comprobación va antes que la del
+        cuerpo.
+      operationId: responderInvitacionGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResponderInvitacionGrupo"
+            example:
+              respuesta: aceptar
+      responses:
+        "200":
+          description: Invitación aceptada o rechazada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaMensaje"
+              examples:
+                aceptada:
+                  value:
+                    mensaje: Invitación aceptada.
+                rechazada:
+                  value:
+                    mensaje: Invitación rechazada.
+        "400":
+          description: La respuesta no es `aceptar` ni `rechazar`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: respuesta
+                    mensaje: La respuesta debe ser 'aceptar' o 'rechazar'.
         "401":
           $ref: "#/components/responses/SesionInvalida"
         "404":
@@ -1079,3 +1314,103 @@ components:
           description: En orden alfabético; suman exactamente 0.00.
           items:
             $ref: "#/components/schemas/Balance"
+
+    NuevoGrupo:
+      type: object
+      required: [nombre, moneda]
+      properties:
+        nombre:
+          type: string
+          minLength: 1
+          description: Obligatorio; se recorta y no puede quedar vacío.
+          example: Viaje a Mérida
+        descripcion:
+          type: string
+          description: Opcional.
+          example: Gastos del viaje
+        moneda:
+          type: string
+          pattern: "^[A-Za-z]{3}$"
+          description: >-
+            Código de tres letras; el servidor lo guarda en mayúsculas. Es la
+            moneda de todos los gastos del grupo.
+          example: USD
+        actividad:
+          type: string
+          description: Opcional. Fecha o actividad asociada, en texto libre.
+          example: Viaje a Mérida, marzo
+
+    InvitacionGrupo:
+      type: object
+      required: [grupo_id, nombre, moneda, actividad, invitado_por]
+      description: >-
+        Invitación pendiente. Solo trae lo necesario para decidir; no incluye
+        gastos ni balances.
+      properties:
+        grupo_id:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        moneda:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        actividad:
+          type: string
+        invitado_por:
+          $ref: "#/components/schemas/UsuarioPublico"
+
+    ListaGrupos:
+      type: object
+      required: [grupos, invitaciones]
+      properties:
+        grupos:
+          type: array
+          description: Grupos donde la persona es miembro aceptado.
+          items:
+            $ref: "#/components/schemas/GrupoResumen"
+        invitaciones:
+          type: array
+          description: Invitaciones pendientes de responder.
+          items:
+            $ref: "#/components/schemas/InvitacionGrupo"
+
+    InvitarMiembro:
+      type: object
+      required: [usuario]
+      properties:
+        usuario:
+          type: string
+          description: Nombre de usuario exacto de un amigo de quien invita.
+          example: beto
+
+    MiembroInvitado:
+      type: object
+      required: [usuario, nombre_visible, rol, estado]
+      properties:
+        usuario:
+          type: string
+        nombre_visible:
+          type: string
+        rol:
+          type: string
+          enum: [miembro]
+        estado:
+          type: string
+          enum: [invitado]
+
+    ResponderInvitacionGrupo:
+      type: object
+      required: [respuesta]
+      properties:
+        respuesta:
+          type: string
+          enum: [aceptar, rechazar]
+
+    RespuestaMensaje:
+      type: object
+      required: [mensaje]
+      properties:
+        mensaje:
+          type: string
+ 
