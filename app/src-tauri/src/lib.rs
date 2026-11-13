@@ -8,7 +8,9 @@ mod ping;
 mod previsualizacion;
 mod sesion;
 mod social;
+mod social_cliente;
 mod social_fijo;
+mod social_real;
 mod tasas;
 
 use std::sync::{Arc, Mutex};

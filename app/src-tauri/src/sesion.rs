@@ -28,7 +28,7 @@ const ARCHIVO_RESPALDO: &str = "sesion.json";
 
 // ---------- Mensajes ----------
 
-fn sin_campo(mensaje: &str) -> ErroresDto {
+pub(crate) fn sin_campo(mensaje: &str) -> ErroresDto {
     ErroresDto {
         errores: vec![ErrorCampo {
             campo: None,
@@ -37,17 +37,17 @@ fn sin_campo(mensaje: &str) -> ErroresDto {
     }
 }
 
-fn sin_conexion() -> ErroresDto {
+pub(crate) fn sin_conexion() -> ErroresDto {
     sin_campo(
         "No hay conexión con el servidor. Puedes seguir usando la aplicación sin iniciar sesión.",
     )
 }
 
-fn inesperado() -> ErroresDto {
+pub(crate) fn inesperado() -> ErroresDto {
     sin_campo("El servidor respondió algo inesperado. Intenta de nuevo más tarde.")
 }
 
-fn sesion_vencida() -> ErroresDto {
+pub(crate) fn sesion_vencida() -> ErroresDto {
     sin_campo("Tu sesión venció, inicia sesión de nuevo.")
 }
 
@@ -114,6 +114,33 @@ impl ClienteHttp {
             .timeout(TIEMPO_MAXIMO)
             .build()
             .map_err(|_| SinConexion)
+    }
+}
+
+impl ClienteHttp {
+    /// Petición con el token en el encabezado, para los módulos de amistades y grupos.
+    pub async fn enviar_con_token(
+        &self,
+        metodo: &str,
+        ruta: &str,
+        token: &str,
+        cuerpo: Option<&str>,
+    ) -> Result<Respuesta, SinConexion> {
+        let cliente = Self::cliente()?;
+        let url = self.url(ruta);
+        let base = match metodo {
+            "GET" => cliente.get(url),
+            "POST" => cliente.post(url),
+            "DELETE" => cliente.delete(url),
+            _ => return Err(SinConexion),
+        };
+        let mut peticion = base.bearer_auth(token);
+        if let Some(texto) = cuerpo {
+            peticion = peticion
+                .header("Content-Type", "application/json")
+                .body(texto.to_string());
+        }
+        self.enviar(peticion).await
     }
 }
 
@@ -223,7 +250,7 @@ impl Almacen for AlmacenSistema {
 
 /// Hora actual en UTC con el mismo formato que `vence_en` (AAAA-MM-DDThh:mm:ssZ),
 /// que se puede comparar como texto.
-fn ahora_iso() -> String {
+pub(crate) fn ahora_iso() -> String {
     let segundos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -247,7 +274,7 @@ fn ahora_iso() -> String {
     )
 }
 
-fn estado_de(sesion: &SesionGuardada, ahora: &str) -> EstadoSesion {
+pub(crate) fn estado_de(sesion: &SesionGuardada, ahora: &str) -> EstadoSesion {
     if sesion.invalidada || sesion.vence_en.as_str() <= ahora {
         EstadoSesion::Vencida
     } else {
@@ -288,7 +315,7 @@ struct TokenServidor {
 }
 
 /// Convierte un 400, 401 o 409 del servidor en errores por campo o un mensaje general.
-fn errores_del_servidor(r: &Respuesta) -> ErroresDto {
+pub(crate) fn errores_del_servidor(r: &Respuesta) -> ErroresDto {
     if let Ok(e) = serde_json::from_str::<ErroresServidor>(&r.cuerpo) {
         return ErroresDto {
             errores: e
