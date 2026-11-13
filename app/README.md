@@ -259,13 +259,13 @@ Cubren 201, 200, 400, 401, 409, servidor apagado, token vencido (por reloj y por
 
 Desde la Entrega 6 la aplicación permite agregar amigos, crear grupos con ellos y dividir gastos entre los miembros. Estas funciones **requieren sesión y conexión** con el servidor, porque lo compartido lo ven varias personas. Todo lo personal (cuentas, movimientos, saldos, tasas y patrimonio) sigue siendo solo local y sigue funcionando sin sesión y sin conexión.
 
-> **Estado actual.** Los comandos de esta sección responden con **datos fijos** (un simulador en memoria, sin servidor) para poder construir y probar la interfaz. Cuando las rutas del servidor estén disponibles, esta sección se actualiza: los comandos pasarán a hablar con el servidor y los datos de ejemplo desaparecen.
+Los comandos hablan con el servidor real. La dirección sale de la variable de entorno `CUENTAS_CLARAS_URL` (por defecto `http://localhost:8000`), igual que en los comandos de sesión, y se configura como se explica en «Configurar la dirección del servidor». Cada comando toma el token guardado en el almacén de secretos y lo manda en el encabezado `Authorization`. Sin sesión no se hace ninguna petición y la pantalla invita a iniciar sesión. Si el servidor responde 401, la sesión se marca como vencida y se avisa «Tu sesión venció, inicia sesión de nuevo.». Con el servidor apagado aparece «No hay conexión con el servidor. Puedes seguir usando la aplicación sin iniciar sesión.» y el resto de la aplicación sigue igual. Los errores del servidor (400 con la diferencia exacta, 403, 404 y 409) llegan a la interfaz como `{ campo, mensaje }`.
 
 ### Comandos
 
 Viven en `src-tauri/src/social.rs` y sus tipos están en `src-tauri/src/dto_social.rs` y en `app/utils/tauriCommands.ts`. Las personas se identifican por su **nombre de usuario**; nunca viaja el correo de nadie.
 
-| Comando | Qué hace | Ruta del servidor (cuando se conecte) |
+| Comando | Qué hace | Ruta del servidor |
 |---|---|---|
 | `buscar_usuario` | Busca por nombre de usuario exacto. No hay búsqueda parcial ni listados. | `GET /usuarios?usuario=` |
 | `invitar_amigo` | Envía una invitación de amistad. | `POST /amistades` |
@@ -295,23 +295,9 @@ Las partes se calculan en céntimos y con aritmética exacta (nunca coma flotant
 
 Por ejemplo, 100,00 en partes iguales entre ana, beto y carla da 33,34 · 33,33 · 33,33. El cálculo vive en `src-tauri/crates/dominio/src/division.rs`. La aplicación muestra la vista previa, pero **el servidor vuelve a calcular y es su resultado el que se guarda**. El balance de cada miembro es lo que pagó menos lo que le corresponde, y la suma de los balances del grupo es siempre exactamente 0,00.
 
-### Datos de ejemplo (mientras los comandos usan datos fijos)
+### Cliente real y simulador de respaldo
 
-La persona con sesión es `ana`. Al abrir la aplicación hay:
-
-- **Amigos:** `beto`, `carla` y `luis`, y una invitación recibida de `dario`.
-- **Grupos:** «Viaje a Mérida» (USD), que administra `ana`, con `beto` y `carla` y dos gastos cuyos balances son +36,66 · +11,67 · −48,33; y «Cena del viernes», que administra `beto`.
-- **Invitación a un grupo:** «Cumpleaños de Luis».
-
-Todo reacciona a lo que se hace (invitar, aceptar, crear grupos, registrar gastos) y al cerrar la aplicación vuelve al estado inicial. Para probar los casos de error, escribe estos textos en cualquier campo de usuario, grupo o concepto:
-
-| Texto | Caso |
-|---|---|
-| `sin-conexion` | Servidor apagado |
-| `sesion-vencida` | Token vencido |
-| `sin-sesion` | No se ha iniciado sesión |
-
-También: buscar `bet` no encuentra a nadie, invitar a `ana` da «No puedes invitarte a ti mismo.», y ver el grupo `g2` (solo invitado) o `g99` (inexistente) da la misma respuesta.
+El cliente común (token, 401, servidor apagado y traducción de errores) está en `src-tauri/src/social_cliente.rs` y los comandos reales en `src-tauri/src/social_real.rs`. El simulador con datos fijos de `social_fijo.rs` se conserva como respaldo, pero ningún comando lo usa: la aplicación ya no trae amigos ni grupos de ejemplo, ni tienen efecto los textos especiales como `sin-conexion`. Para probar hay que registrar usuarios reales en el servidor.
 
 ### Qué viaja al servidor
 
