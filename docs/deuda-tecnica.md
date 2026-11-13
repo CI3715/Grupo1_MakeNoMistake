@@ -46,3 +46,18 @@
 * **Cómo resolverla:** Fijar un máximo (por ejemplo, 128 caracteres) en `reglas.py` para el registro y el inicio de sesión, agregar sus pruebas y restituir `maxLength` en `openapi.yaml` — estimación: 1 h
 * **Condición de disparo:** Antes de desplegar el servidor fuera del entorno local.
 
+**D-13 — Vulnerabilidad transitiva en `opentelemetry-api` en el servidor (`uv audit`)**
+
+- **Qué y dónde:** `uv audit` (ejecutado el 13/11/2026) reporta 1 vulnerabilidad conocida en `servidor/uv.lock`: `opentelemetry-api` 1.45.1 tiene el aviso `GHSA-mf5v-w3w3-f6cg` / `CVE-2026-126360` (*Denial of service through quadratic-time traceparent parsing*), corregido en la versión `1.45.2`.
+- **Por qué se aceptó:** Se verificó mediante `uv tree --invert --package opentelemetry-api` que la versión `1.45.1` viene fijada como dependencia transitiva de `fastapi` (`0.142.2`). Intentar actualizar el paquete de forma aislada (`uv lock --upgrade-package opentelemetry-api`) mantiene la versión anclada para no romper las restricciones del framework, y forzar un *override* en el cierre de la Entrega 6 introduce riesgo innecesario de regresión sobre el servidor ya validado.
+- **Impacto si no se paga:** Bajo. El vector de ataque requiere procesar cabeceras W3C `traceparent` malformadas de gran longitud para provocar consumo cuadrático de CPU, y el servidor actual no expone ni utiliza trazabilidad distribuida abierta a clientes externos.
+- **Cómo resolverla:** Actualizar `fastapi` (y su árbol de dependencias hacia `opentelemetry-api >= 1.45.2`) en cuanto una versión compatible esté disponible, o configurar `[tool.uv] override-dependencies` en `servidor/pyproject.toml`, ejecutando posteriormente `uv audit`, `uv run mypy .` y `uv run pytest` — estimación: 1 h
+- **Condición de disparo:** Antes de desplegar el servidor fuera del entorno local, o en cuanto `fastapi` libere compatibilidad nativa con `opentelemetry-api >= 1.45.2`.
+
+**D-14 — Rutas de amistades y grupos sin esquema de respuesta en `/openapi.json`**
+
+- **Qué y dónde:** Los endpoints de amistades y grupos en el servidor FastAPI (`servidor/`) construyen y devuelven objetos `JSONResponse` manualmente sin declarar `response_model` ni el diccionario `responses={...}` en sus decoradores de ruta. Como resultado, el esquema generado automáticamente en `/openapi.json` (y visible en `/docs`) omite la estructura de los cuerpos de respuesta exitosa y los posibles códigos y formatos de error (`400`, `403`, `404`, `409`).
+- **Por qué se aceptó:** Se priorizó implementar y validar la lógica de dominio y las pruebas de integración de amistades y grupos dentro del plazo de la Entrega 6, manteniendo la especificación manual `servidor/openapi.yaml` como referencia del contrato.
+- **Impacto si no se paga:** La documentación interactiva (`/docs`) y cualquier herramienta de validación o generación de clientes que consuma `/openapi.json` carecen de información sobre los campos devueltos y los errores HTTP, obligando a inspeccionar el código fuente de las rutas o mantener dos fuentes de verdad (`openapi.yaml` vs. código).
+- **Cómo resolverla:** Definir modelos Pydantic de salida para las respuestas y errores de amistades y grupos, añadir `response_model=...` y `responses={...}` en cada ruta del servidor y verificar que `/openapi.json` coincida con `servidor/openapi.yaml` ejecutando `uv run mypy .` y `uv run pytest` — estimación: 2 h
+- **Condición de disparo:** Antes de integrar nuevas pantallas del cliente con los endpoints de amistades y grupos, o antes de publicar la API para consumo externo.
