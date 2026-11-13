@@ -3,7 +3,7 @@
 import React, { useEffect, useId, useState } from 'react';
 import { CampoTexto } from '../sesion/CampoTexto';
 import type { ContextoSocial, ErroresCampos, TipoFallo } from '../../types/social';
-import { erroresDeAccion } from '../../utils/erroresSocial';
+import { erroresDeAccionEnCampo } from '../../utils/erroresSocial';
 import { normalizarUsuario } from '../../utils/formatoSocial';
 import {
   invitarAlGrupoCommand,
@@ -111,7 +111,7 @@ function FormularioInvitar({
       setUsuario('');
     } catch (err) {
       if (montado.current) {
-        const r = erroresDeAccion(err, CAMPOS);
+        const r = erroresDeAccionEnCampo(err, CAMPOS, 'usuario');
         setErrores(r.errores);
         setTipoError(r.tipo);
       }

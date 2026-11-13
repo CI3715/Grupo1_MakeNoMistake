@@ -36,3 +36,24 @@ export function erroresDeAccion<C extends string>(
 ): ResultadoError<C> {
   return { errores: erroresDeFormulario(err, campos), tipo: clasificarFallo(err).tipo };
 }
+
+/**
+ * Igual que `erroresDeAccion`, pero para formularios de UN solo dato (la persona escrita).
+ * Algunos rechazos del servidor llegan sin campo («Usuario no encontrado.», «No es tu amigo»,
+ * «Ya es miembro»…) aunque hablan de ese dato: se muestran debajo de `campoPorDefecto`.
+ * Sin sesión, sesión vencida, sin conexión y el mensaje genérico siguen como «general»,
+ * porque no son del campo (y algunos llevan su propio botón).
+ */
+export function erroresDeAccionEnCampo<C extends string>(
+  err: unknown,
+  campos: readonly C[],
+  campoPorDefecto: C
+): ResultadoError<C> {
+  const r = erroresDeAccion(err, campos);
+  const general = r.errores.general;
+  if (r.tipo !== 'otro' || !general || general === MENSAJE_GENERICO) return r;
+  const copia = { ...(r.errores as unknown as Record<string, string | undefined>) };
+  delete copia.general;
+  if (!copia[campoPorDefecto]) copia[campoPorDefecto] = general;
+  return { tipo: r.tipo, errores: copia as unknown as ErroresCampos<C> };
+}
