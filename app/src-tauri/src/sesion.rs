@@ -88,6 +88,16 @@ impl ClienteHttp {
         ClienteHttp { base }
     }
 
+    /// Cliente que apunta a un puerto donde no escucha nadie: el servidor
+    /// «apagado» de la prueba de autonomía (`autonomia.rs`). No toca la
+    /// variable de entorno, que comparten todas las pruebas.
+    #[cfg(test)]
+    pub fn hacia_servidor_apagado() -> Self {
+        ClienteHttp {
+            base: "http://127.0.0.1:9".to_string(),
+        }
+    }
+
     fn url(&self, ruta: &str) -> String {
         format!("{}{}", self.base.trim_end_matches('/'), ruta)
     }

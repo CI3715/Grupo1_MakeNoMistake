@@ -1,4 +1,4 @@
-"""Rutas de registro, sesión y perfil contra PostgreSQL real.
+"""Rutas de registro, sesión, perfil, grupos y gastos contra PostgreSQL real.
 
 La app arranca con su ciclo de vida normal (``CUENTAS_CLARAS_DB_URL`` apunta a
 la base de pruebas), así que se prueba el mismo camino que en producción. Se
@@ -8,11 +8,14 @@ omiten si no está definida ``CUENTAS_CLARAS_DB_URL_PRUEBAS``.
 import os
 from collections.abc import Callable, Generator
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from conftest import TABLAS_PERMITIDAS
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
+from flujo_http import BALANCES_2_5, gasto, grupo_de_tres, registrar_ejemplo_2_5
 
 import main
 import token_sesion
@@ -165,3 +168,66 @@ def test_base_del_servidor_solo_tiene_tablas_permitidas(
             "WHERE table_schema = 'public'"
         ).fetchall()
     assert {fila["table_name"] for fila in filas} == TABLAS_PERMITIDAS
+
+
+def test_flujo_de_grupo_y_gastos_como_usuario_nuevo(cliente_pg: TestClient) -> None:
+    """RF-COM-04/05/08 de punta a punta contra PostgreSQL: personas nuevas, grupo,
+    los dos gastos del enunciado 2.5 y los mismos balances para todos."""
+    grupo_id, auth = grupo_de_tres(cliente_pg)
+    registrar_ejemplo_2_5(cliente_pg, grupo_id, auth)
+
+    for quien in ("ana", "beto", "carla"):
+        respuesta = cliente_pg.get(f"/grupos/{grupo_id}", headers=auth[quien])
+        assert respuesta.status_code == 200, respuesta.text
+        assert respuesta.json()["balances"] == BALANCES_2_5
+
+    datos = cliente_pg.get(f"/grupos/{grupo_id}", headers=auth["ana"]).json()
+    assert [g["concepto"] for g in datos["gastos"]] == ["Taxi", "Cena"]
+    assert datos["gastos"][1]["partes"] == [
+        {"usuario": "ana", "monto": "33.34", "incluye_redondeo": True},
+        {"usuario": "beto", "monto": "33.33", "incluye_redondeo": False},
+        {"usuario": "carla", "monto": "33.33", "incluye_redondeo": False},
+    ]
+
+    # En la base: NUMERIC exacto, regla canónica y partes que suman el monto.
+    assert URL_PRUEBAS is not None
+    with BaseDatos(URL_PRUEBAS).conexion() as conexion:
+        filas = conexion.execute(
+            "SELECT g.regla, g.monto, sum(p.monto) AS suma, "
+            "array_agg(p.porcentaje ORDER BY p.porcentaje) AS porcentajes "
+            "FROM gastos g JOIN partes_gasto p ON p.gasto_id = g.id "
+            "GROUP BY g.id ORDER BY g.fecha"
+        ).fetchall()
+    assert [(f["regla"], f["monto"], f["suma"]) for f in filas] == [
+        ("iguales", Decimal("100.00"), Decimal("100.00")),
+        ("porcentajes", Decimal("60.00"), Decimal("60.00")),
+    ]
+    assert filas[1]["porcentajes"] == [2500, 2500, 5000]
+
+
+def test_gasto_invalido_o_ajeno_no_guarda_nada(cliente_pg: TestClient) -> None:
+    grupo_id, auth = grupo_de_tres(cliente_pg)
+
+    no_cuadra = cliente_pg.post(
+        f"/grupos/{grupo_id}/gastos",
+        json=gasto("100.00", "ana", "porcentajes", [("ana", "50"), ("beto", "45")]),
+        headers=auth["ana"],
+    )
+    assert no_cuadra.status_code == 400
+    assert no_cuadra.json()["errores"] == [
+        {"campo": "porcentajes", "mensaje": "Los porcentajes suman 95; faltan 5."}
+    ]
+
+    ajeno = cliente_pg.post(
+        f"/grupos/{grupo_id}/gastos",
+        json=gasto("10.00", "dario", "partes_iguales", [("dario", "")]),
+        headers=auth["dario"],
+    )
+    inventado = cliente_pg.get(f"/grupos/{uuid4()}", headers=auth["ana"])
+    assert ajeno.status_code == inventado.status_code == 404
+    assert ajeno.content == inventado.content
+
+    assert URL_PRUEBAS is not None
+    with BaseDatos(URL_PRUEBAS).conexion() as conexion:
+        fila = conexion.execute("SELECT count(*) AS n FROM gastos").fetchone()
+    assert fila is not None and fila["n"] == 0

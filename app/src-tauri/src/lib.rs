@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod autonomia;
 mod cuentas;
 mod dto;
 mod dto_social;
