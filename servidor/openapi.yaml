@@ -15,6 +15,11 @@ info:
     Este archivo se escribe a mano y se verifica contra `/openapi.json`, que
     genera FastAPI. Si una ruta cambia en el código, hay que cambiarla aquí.
  
+    Las rutas de amistades y grupos devuelven la respuesta armada a mano, así que
+    `/openapi.json` solo muestra de ellas el código de éxito y no sus cuerpos ni
+    sus errores. Para esas rutas este archivo es la referencia: rutas y métodos
+    coinciden con los del servidor y cada código documentado sale de `main.py`.
+ 
     ## Forma de los errores
  
     - **400** y **409** devuelven `{"errores": [{"campo": ..., "mensaje": ...}]}`.
