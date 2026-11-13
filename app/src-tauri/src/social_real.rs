@@ -480,6 +480,13 @@ mod pruebas {
                 p.ruta,
                 p.cuerpo.clone().unwrap_or_default()
             ));
+            let enviado = self.llamadas.lock().unwrap().last().unwrap().to_lowercase();
+            for palabra in ["cuenta", "movimiento", "saldo", "tasa"] {
+                assert!(
+                    !enviado.contains(palabra),
+                    "la petición lleva datos del libro: {enviado}"
+                );
+            }
             match self.respuestas.lock().unwrap().pop_front() {
                 Some((codigo, cuerpo)) => Ok(Respuesta { codigo, cuerpo }),
                 None => Err(SinConexion),

@@ -1,8 +1,6 @@
 //! Base de los comandos reales de amistades, grupos y gastos (Entrega 6).
 //!
-//! Todavía no la usa ningún comando: los comandos siguen con datos fijos
-//! (`social_fijo.rs`). Cuando existan las rutas del servidor, cada comando real
-//! arma una `Peticion` y la manda con `llamar`, que se ocupa de lo común:
+//! Cada comando real arma una `Peticion` y la manda con `llamar`, que se ocupa de lo común:
 //!
 //! - Sin sesión: no se llama al servidor y se pide iniciar sesión.
 //! - Sesión vencida por reloj: tampoco se llama.
@@ -15,9 +13,6 @@
 //! `ClienteHttp::enviar_con_token`, en `sesion.rs`, el único lugar permitido
 //! junto con `ping.rs` (INV-16, RNF-01). Los cuerpos que se envían son solo
 //! datos de amistades, grupos y gastos compartidos.
-
-// Se usa al conectar los comandos reales.
-#![allow(dead_code)]
 
 use std::future::Future;
 
