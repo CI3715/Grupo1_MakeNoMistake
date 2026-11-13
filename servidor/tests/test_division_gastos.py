@@ -259,4 +259,3 @@ class TestPropiedadesDivisionHypothesis:
         balances = calcular_balances_grupo(lista_gastos)
         suma_centimos = sum(int(Decimal(b) * Decimal(100)) for b in balances.values())
         assert suma_centimos == 0
-
