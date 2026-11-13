@@ -101,6 +101,8 @@ function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: Cu
   const [enviando, setEnviando] = useState(false);
   const [errores, setErrores] = useState<ErroresCampos<CampoGasto>>({});
   const [tipoError, setTipoError] = useState<TipoFallo>('otro');
+  // Con qué datos de la división se envió el gasto que el servidor rechazó (ver `delServidor`).
+  const [firmaRechazada, setFirmaRechazada] = useState<string | null>(null);
   const montado = useMontado();
   const tema = temaSocial(ctx.modoOscuro);
 
@@ -116,6 +118,7 @@ function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: Cu
   );
 
   const previa = useVistaPreviaDivision(monto, regla, participantes);
+  const firmaDivision = JSON.stringify([monto, regla, participantes]);
 
   // Tras un error del envío, el foco va al primer campo que falló.
   useEffect(() => {
@@ -144,6 +147,7 @@ function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: Cu
         const r = erroresDeAccion(err, CAMPOS);
         setErrores(r.errores);
         setTipoError(r.tipo);
+        setFirmaRechazada(firmaDivision);
       }
     } finally {
       if (montado.current) setEnviando(false);
@@ -154,7 +158,19 @@ function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: Cu
   const diferenciaPrevia = previa.estado === 'lista' && !previa.datos.cuadra ? previa.datos.diferencia : null;
   const partes = previa.estado === 'lista' && previa.datos.cuadra ? previa.datos.partes : [];
   const erroresPrevia = previa.estado === 'error' ? previa.errores : null;
-  const errorDelServidor = errores.participantes ?? errores.porcentajes ?? errores.montos;
+  // Los errores de la división que dio el servidor valen solo para los datos que se enviaron:
+  // si la persona cambia el monto, la regla o un valor, dejan de mostrarse (la vista previa en
+  // vivo ya dice cómo queda). Así no queda a la vista una diferencia que ya no es cierta.
+  const vigenteServidor = firmaRechazada === firmaDivision;
+  const delServidor = (campo: 'regla' | 'participantes' | 'porcentajes' | 'montos') =>
+    vigenteServidor ? errores[campo] : undefined;
+  const errorRegla = delServidor('regla') ?? erroresPrevia?.regla;
+  // Un mismo texto no se repite: si la vista previa ya muestra esa diferencia, basta con ella.
+  const erroresDivisionServidor = [
+    delServidor('participantes'),
+    delServidor('porcentajes'),
+    delServidor('montos'),
+  ].filter((m): m is string => !!m && m !== diferenciaPrevia);
   const avisoDatos =
     erroresPrevia?.participantes ?? erroresPrevia?.porcentajes ?? erroresPrevia?.montos ?? null;
   const errorMonto = errores.monto ?? (monto.trim() !== '' ? erroresPrevia?.monto : undefined);
@@ -250,6 +266,7 @@ function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: Cu
                 valor={regla}
                 opciones={REGLAS.map((r) => ({ valor: r, etiqueta: ETIQUETA_REGLA[r] }))}
                 onCambio={(v) => setRegla(v as ReglaDivision)}
+                error={errorRegla}
                 deshabilitado={enviando}
                 modoOscuro={ctx.modoOscuro}
               />
@@ -305,11 +322,11 @@ function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: Cu
                 )}
               </div>
 
-              {errorDelServidor && (
-                <p role="alert" className="text-[11px] font-medium text-rose-400">
-                  {errorDelServidor}
+              {erroresDivisionServidor.map((mensaje) => (
+                <p key={mensaje} role="alert" className="text-[11px] font-medium text-rose-400">
+                  {mensaje}
                 </p>
-              )}
+              ))}
             </div>
           </Tarjeta>
         </div>

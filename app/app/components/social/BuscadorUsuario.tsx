@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { CampoTexto } from '../sesion/CampoTexto';
 import type { ContextoSocial, ErroresCampos, TipoFallo } from '../../types/social';
-import { erroresDeAccion } from '../../utils/erroresSocial';
+import { erroresDeAccionEnCampo } from '../../utils/erroresSocial';
 import { normalizarUsuario } from '../../utils/formatoSocial';
 import {
   buscarUsuarioCommand,
@@ -59,7 +59,7 @@ export function BuscadorUsuario({ ctx, onInvitada }: Props) {
       if (montado.current) setEncontrado(resultado);
     } catch (err) {
       if (montado.current) {
-        const r = erroresDeAccion(err, CAMPOS);
+        const r = erroresDeAccionEnCampo(err, CAMPOS, 'usuario');
         setErrores(r.errores);
         setTipoError(r.tipo);
       }
@@ -81,7 +81,7 @@ export function BuscadorUsuario({ ctx, onInvitada }: Props) {
       onInvitada();
     } catch (err) {
       if (montado.current) {
-        const r = erroresDeAccion(err, CAMPOS);
+        const r = erroresDeAccionEnCampo(err, CAMPOS, 'usuario');
         setErrores(r.errores);
         setTipoError(r.tipo);
       }
