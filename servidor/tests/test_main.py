@@ -87,3 +87,39 @@ def test_openapi_documenta_rutas_de_la_entrega_5_sin_422() -> None:
     assert set(rutas["/sesiones"]["post"]["responses"]) == {"200", "400", "401"}
     assert set(rutas["/usuarios/yo"]["get"]["responses"]) == {"200", "401"}
     assert rutas["/usuarios/yo"]["get"]["security"] == [{"tokenBearer": []}]
+
+
+def test_openapi_documenta_las_rutas_de_amistades_sin_422() -> None:
+    esquema = client.get("/openapi.json").json()
+    rutas = esquema["paths"]
+
+    rutas_amistades = {
+        "/usuarios",
+        "/amistades",
+        "/amistades/{id_amistad}/respuesta",
+        "/amistades/{id_amistad}",
+    }
+    assert rutas_amistades.issubset(set(rutas))
+    assert rutas["/usuarios"]["get"]["operationId"] == "buscarUsuario"
+    assert rutas["/amistades"]["get"]["operationId"] == "listarAmistades"
+    assert rutas["/amistades"]["post"]["operationId"] == "enviarSolicitudAmistad"
+    assert (
+        rutas["/amistades/{id_amistad}/respuesta"]["post"]["operationId"]
+        == "responderSolicitudAmistad"
+    )
+    assert (
+        rutas["/amistades/{id_amistad}"]["delete"]["operationId"] == "eliminarAmistad"
+    )
+    assert set(rutas["/amistades"]["post"]["responses"]) == {
+        "201",
+        "400",
+        "401",
+        "404",
+        "409",
+    }
+    assert set(rutas["/amistades/{id_amistad}"]["delete"]["responses"]) == {
+        "204",
+        "401",
+        "404",
+    }
+    assert rutas["/amistades"]["get"]["security"] == [{"tokenBearer": []}]

@@ -469,6 +469,7 @@ def obtener_perfil(
     response_model=UsuarioPublicoRespuesta,
     tags=["Usuarios"],
     summary="Buscar usuario por coincidencia exacta",
+    operation_id="buscarUsuario",
     responses={
         400: {"model": ErroresPorCampo},
         401: {"model": ErrorMensaje},
@@ -511,6 +512,7 @@ def buscar_usuario(
     status_code=201,
     tags=["Amistades"],
     summary="Enviar solicitud de amistad",
+    operation_id="enviarSolicitudAmistad",
     responses={
         400: {"model": ErroresPorCampo},
         401: {"model": ErrorMensaje},
@@ -595,6 +597,7 @@ def enviar_solicitud_amistad(
     "/amistades",
     tags=["Amistades"],
     summary="Listar amistades e invitaciones",
+    operation_id="listarAmistades",
     responses={401: {"model": ErrorMensaje}},
 )
 def listar_amistades(
@@ -636,6 +639,7 @@ def listar_amistades(
     "/amistades/{id_amistad}/respuesta",
     tags=["Amistades"],
     summary="Responder a solicitud de amistad",
+    operation_id="responderSolicitudAmistad",
     responses={
         400: {"model": ErroresPorCampo},
         401: {"model": ErrorMensaje},
@@ -691,9 +695,17 @@ def responder_solicitud_amistad(
         )
 
     ahora = datetime.now(timezone.utc).replace(microsecond=0)
-    actualizada = repo_amistades.responder(
-        id_amistad=uuid_amistad, aceptar=cuerpo.aceptar, ahora=ahora
-    )
+    try:
+        actualizada = repo_amistades.responder(
+            id_amistad=uuid_amistad, aceptar=cuerpo.aceptar, ahora=ahora
+        )
+    except AmistadYaRespondida:
+        # Otra petición respondió o canceló la invitación entre la consulta y
+        # la actualización.
+        return JSONResponse(
+            status_code=409,
+            content={"mensaje": "La invitación ya fue respondida o cancelada."},
+        )
     return JSONResponse(
         status_code=200,
         content={
@@ -714,6 +726,7 @@ def responder_solicitud_amistad(
     response_class=Response,
     tags=["Amistades"],
     summary="Eliminar amistad",
+    operation_id="eliminarAmistad",
     responses={
         401: {"model": ErrorMensaje},
         404: {"model": ErrorMensaje},
