@@ -23,6 +23,10 @@
 //! ya es amigo da 409; «dario» no es amigo (403 al invitarlo a un grupo); ver el
 //! grupo «g2» (solo invitado) o «g99» (no existe) da el mismo 404.
 
+// Respaldo de datos fijos: los comandos reales ya no lo usan, pero sus pruebas
+// documentan los casos de la interfaz.
+#![allow(dead_code)]
+
 use std::sync::Mutex;
 
 use dominio::division::{self, Participante};

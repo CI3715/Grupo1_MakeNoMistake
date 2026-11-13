@@ -1,13 +1,9 @@
 //! Comandos reales de amistades y grupos (Entrega 6), contra el JSON que devuelve
 //! el servidor en la rama `entrega6A`.
 //!
-//! TODAVÍA NO ESTÁN REGISTRADOS: ningún comando de Tauri los llama, así que la
-//! interfaz sigue con los datos fijos de `social_fijo.rs`. Cuando las rutas estén
-//! en `main`, cada comando de `social.rs` pasa a llamar a su versión `*_real`.
-//!
-//! Faltan `registrar_gasto_grupo` (la ruta responde 501 en `entrega6A`; su forma la
-//! fija el servidor de John) y los gastos y balances de `ver_grupo`, que hoy el
-//! servidor devuelve vacíos. `previsualizar_division` es local y ya es real.
+//! Los usa `social.rs`: cada comando de Tauri llama a su versión `*_real`. El
+//! servidor devuelve el detalle del grupo y los gastos con la forma de los DTO;
+//! las amistades y la respuesta a invitaciones sí necesitan traducción.
 //!
 //! Aquí se traduce la forma del servidor a la de los DTO que usa la interfaz:
 //! - GET /amistades: lista plana -> amigos, enviadas y recibidas.
@@ -18,15 +14,15 @@
 #![allow(dead_code)]
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use tauri::Manager;
 
 use crate::dto::{ErrorCampo, ErroresDto};
 use crate::dto_social::{
-    AmigoDto, BalanceDto, BuscarUsuarioDto, GastoGrupoDto, GrupoDetalleDto, GrupoResumenDto,
+    AmigoDto, BuscarUsuarioDto, GastoGrupoDto, GrupoDetalleDto, GrupoResumenDto,
     InvitacionAmistadDto, InvitadoDto, InvitarAlGrupoDto, InvitarAmigoDto, ListaAmistadesDto,
-    ListaGruposDto, MiembroDto, NuevoGrupoDto, ResponderAmistadDto, ResponderInvitacionGrupoDto,
-    UsuarioPublicoDto,
+    ListaGruposDto, NuevoGastoGrupoDto, NuevoGrupoDto, ResponderAmistadDto,
+    ResponderInvitacionGrupoDto, UsuarioPublicoDto,
 };
 use crate::sesion::{Almacen, AlmacenSistema, ClienteHttp, ahora_iso, sin_campo};
 use crate::social_cliente::{ClienteSocial, Peticion, codificar, leer, llamar};
@@ -53,38 +49,6 @@ struct InvitadoServidor {
     nombre_visible: String,
     #[serde(default)]
     estado: String,
-}
-
-#[derive(Deserialize)]
-struct MiembroServidor {
-    usuario: String,
-    #[serde(default)]
-    nombre_visible: String,
-    #[serde(default)]
-    rol: String,
-    #[serde(default)]
-    estado: String,
-}
-
-#[derive(Deserialize)]
-struct GrupoServidor {
-    id: String,
-    #[serde(default)]
-    nombre: String,
-    #[serde(default)]
-    descripcion: String,
-    #[serde(default)]
-    moneda: String,
-    #[serde(default)]
-    actividad: String,
-    #[serde(default)]
-    rol: String,
-    #[serde(default)]
-    miembros: Vec<MiembroServidor>,
-    #[serde(default)]
-    gastos: Value,
-    #[serde(default)]
-    balances: Value,
 }
 
 // ---------- Traducciones ----------
@@ -129,16 +93,6 @@ fn respuesta_valida(texto: &str) -> Option<bool> {
         "rechazar" => Some(false),
         _ => None,
     }
-}
-
-fn convertir_lista<T: serde::de::DeserializeOwned>(v: &Value) -> Vec<T> {
-    v.as_array()
-        .map(|l| {
-            l.iter()
-                .filter_map(|x| serde_json::from_value(x.clone()).ok())
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 // ---------- Amistades ----------
@@ -323,33 +277,26 @@ pub async fn ver_grupo<C: ClienteSocial, A: Almacen>(
     grupo_id: &str,
 ) -> Result<GrupoDetalleDto, ErroresDto> {
     let ruta = format!("/grupos/{}", codificar(grupo_id));
-    let g: GrupoServidor = leer(&llamar(c, a, ahora, &Peticion::get(&ruta), &[200]).await?)?;
-    let miembros: Vec<MiembroDto> = g
-        .miembros
-        .iter()
-        .filter(|m| m.estado != "invitado" && m.estado != "rechazado")
-        .map(|m| MiembroDto {
-            usuario: m.usuario.clone(),
-            nombre_visible: m.nombre_visible.clone(),
-            rol: m.rol.clone(),
-        })
-        .collect();
-    Ok(GrupoDetalleDto {
-        grupo: GrupoResumenDto {
-            id: g.id,
-            nombre: g.nombre,
-            descripcion: g.descripcion,
-            moneda: g.moneda,
-            actividad: g.actividad,
-            rol: g.rol,
-            cantidad_miembros: u32::try_from(miembros.len()).unwrap_or(u32::MAX),
-        },
-        miembros,
-        // Pendiente del formato final de gastos y balances (servidor de John):
-        // hoy llegan vacíos; si ya vienen como lista con la forma de los DTO, se leen.
-        gastos: convertir_lista::<GastoGrupoDto>(&g.gastos),
-        balances: convertir_lista::<BalanceDto>(&g.balances),
-    })
+    leer(&llamar(c, a, ahora, &Peticion::get(&ruta), &[200]).await?)
+}
+
+/// El servidor recalcula la división y guarda su resultado; responde el gasto con las partes.
+pub async fn registrar_gasto<C: ClienteSocial, A: Almacen>(
+    c: &C,
+    a: &A,
+    ahora: &str,
+    datos: &NuevoGastoGrupoDto,
+) -> Result<GastoGrupoDto, ErroresDto> {
+    let ruta = format!("/grupos/{}/gastos", codificar(&datos.grupo_id));
+    let cuerpo = json!({
+        "concepto": datos.concepto,
+        "monto": datos.monto,
+        "fecha": datos.fecha,
+        "pagador": datos.pagador,
+        "regla": datos.regla,
+        "participantes": datos.participantes,
+    });
+    leer(&llamar(c, a, ahora, &Peticion::post(&ruta, &cuerpo), &[201]).await?)
 }
 
 // ---------- Comandos (envoltorios con la red real y el almacén del sistema) ----------
@@ -482,6 +429,19 @@ pub async fn ver_grupo_real(
         &almacen_de(app)?,
         &ahora_iso(),
         &grupo_id,
+    )
+    .await
+}
+
+pub async fn registrar_gasto_grupo_real(
+    app: &tauri::AppHandle,
+    datos: NuevoGastoGrupoDto,
+) -> Result<GastoGrupoDto, ErroresDto> {
+    registrar_gasto(
+        &ClienteHttp::desde_entorno(),
+        &almacen_de(app)?,
+        &ahora_iso(),
+        &datos,
     )
     .await
 }
@@ -760,17 +720,68 @@ mod pruebas {
         );
     }
 
+    const DETALLE: &str = r#"{"grupo":{"id":"g1","nombre":"Viaje","descripcion":"","moneda":"USD","actividad":"marzo","rol":"administrador","cantidad_miembros":2},
+      "miembros":[{"usuario":"ana","nombre_visible":"Ana","rol":"administrador"},{"usuario":"beto","nombre_visible":"Beto","rol":"miembro"}],
+      "gastos":[{"id":"x1","concepto":"Cena","monto":"100.00","fecha":"2026-11-12","pagador":"ana","regla":"partes_iguales","partes":[{"usuario":"ana","monto":"50.00","incluye_redondeo":false},{"usuario":"beto","monto":"50.00","incluye_redondeo":false}]}],
+      "balances":[{"usuario":"ana","pago":"100.00","le_corresponde":"50.00","balance":"50.00"},{"usuario":"beto","pago":"0.00","le_corresponde":"50.00","balance":"-50.00"}]}"#;
+
     #[tokio::test]
-    async fn ver_grupo_reordena_los_campos_y_deja_fuera_a_los_invitados() {
-        let cuerpo = r#"{"id":"g1","nombre":"Viaje","descripcion":"","moneda":"USD","actividad":"marzo","rol":"administrador",
-          "miembros":[{"usuario":"ana","nombre_visible":"Ana","rol":"administrador","estado":"aceptado"},
-                      {"usuario":"luis","nombre_visible":"Luis","rol":"miembro","estado":"invitado"}],
-          "gastos":[],"balances":{}}"#;
-        let c = guion(&[(200, cuerpo)]);
+    async fn ver_grupo_lee_el_detalle_con_gastos_y_balances() {
+        let c = guion(&[(200, DETALLE)]);
         let d = exito(ver_grupo(&c, &con_sesion(), AHORA, "g1").await);
         assert_eq!(d.grupo.nombre, "Viaje");
-        assert_eq!(d.miembros.len(), 1, "el invitado aún no es miembro");
-        assert_eq!(d.grupo.cantidad_miembros, 1);
-        assert!(d.gastos.is_empty() && d.balances.is_empty());
+        assert_eq!(d.miembros.len(), 2);
+        assert_eq!(d.gastos.len(), 1);
+        assert_eq!(d.gastos[0].partes.len(), 2);
+        assert_eq!(d.balances[1].balance, "-50.00");
+        assert_eq!(*c.llamadas.lock().unwrap(), ["Get /grupos/g1 "]);
+    }
+
+    #[tokio::test]
+    async fn registrar_un_gasto_envia_el_cuerpo_del_servidor_y_lee_el_gasto() {
+        let gasto = r#"{"id":"x9","concepto":"Cena","monto":"100.00","fecha":"2026-11-12","pagador":"ana","regla":"partes_iguales","partes":[{"usuario":"ana","monto":"33.34","incluye_redondeo":true},{"usuario":"beto","monto":"33.33","incluye_redondeo":false},{"usuario":"carla","monto":"33.33","incluye_redondeo":false}]}"#;
+        let c = guion(&[(201, gasto)]);
+        let datos = NuevoGastoGrupoDto {
+            grupo_id: "g1".into(),
+            concepto: "Cena".into(),
+            monto: "100.00".into(),
+            fecha: "2026-11-12".into(),
+            pagador: "ana".into(),
+            regla: "partes_iguales".into(),
+            participantes: vec![crate::dto_social::ParticipanteDto {
+                usuario: "ana".into(),
+                valor: String::new(),
+            }],
+        };
+        let g = exito(registrar_gasto(&c, &con_sesion(), AHORA, &datos).await);
+        assert_eq!(g.id, "x9");
+        assert!(g.partes[0].incluye_redondeo);
+        let enviada = c.llamadas.lock().unwrap()[0].clone();
+        assert!(enviada.starts_with("Post /grupos/g1/gastos "));
+        assert!(enviada.contains(r#""pagador":"ana""#) && enviada.contains(r#""monto":"100.00""#));
+        assert!(
+            !enviada.contains("grupo_id"),
+            "el grupo va en la ruta, no en el cuerpo"
+        );
+    }
+
+    #[tokio::test]
+    async fn un_gasto_que_no_cuadra_llega_con_la_diferencia_por_campo() {
+        let cuerpo = r#"{"errores":[{"campo":"porcentajes","mensaje":"Los porcentajes suman 95; faltan 5."}]}"#;
+        let c = guion(&[(400, cuerpo)]);
+        let datos = NuevoGastoGrupoDto {
+            grupo_id: "g1".into(),
+            concepto: "Cena".into(),
+            monto: "60.00".into(),
+            fecha: "2026-11-12".into(),
+            pagador: "beto".into(),
+            regla: "porcentajes".into(),
+            participantes: Vec::new(),
+        };
+        let Err(e) = registrar_gasto(&c, &con_sesion(), AHORA, &datos).await else {
+            panic!("se esperaba un error");
+        };
+        assert_eq!(e.errores[0].campo.as_deref(), Some("porcentajes"));
+        assert_eq!(e.errores[0].mensaje, "Los porcentajes suman 95; faltan 5.");
     }
 }
