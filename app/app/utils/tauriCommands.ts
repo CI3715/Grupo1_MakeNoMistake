@@ -558,3 +558,75 @@ export async function previsualizarDivisionCommand(
 ): Promise<PrevisualizacionDivisionDto> {
   return await invoke<PrevisualizacionDivisionDto>('previsualizar_division', { datos });
 }
+
+// ---------------------------------------------------------------------------
+// Entrega 7: sincronización, cuenta del grupo y cola sin conexión
+// ---------------------------------------------------------------------------
+
+export interface ParteGrupoPendienteDto {
+  evento_id: string;
+  grupo_id: string;
+  grupo_nombre: string;
+  concepto: string;
+  monto: string;
+  moneda: string;
+  fecha: string;
+}
+
+export interface GastoEnColaDto {
+  clave: string;
+  grupo_id: string;
+  grupo_nombre: string;
+  concepto: string;
+  monto: string;
+  moneda: string;
+  fecha: string;
+  estado: 'pendiente' | 'rechazado';
+  motivo: string | null;
+}
+
+export interface EstadoSincronizacionDto {
+  ultima_sincronizacion: string | null;
+  sincronizando: boolean;
+  partes_pendientes: ParteGrupoPendienteDto[];
+  cola: GastoEnColaDto[];
+}
+
+export interface CuentaParaGrupoDto {
+  id: string;
+  nombre: string;
+  moneda: string;
+}
+
+export interface CuentasParaGrupoDto {
+  grupo_id: string;
+  cuenta_elegida: string | null;
+  cuentas: CuentaParaGrupoDto[];
+}
+
+export async function sincronizar(): Promise<EstadoSincronizacionDto> {
+  return await invoke<EstadoSincronizacionDto>('sincronizar');
+}
+
+export async function estadoSincronizacion(): Promise<EstadoSincronizacionDto> {
+  return await invoke<EstadoSincronizacionDto>('estado_sincronizacion');
+}
+
+export async function cuentasParaGrupo(grupo_id: string): Promise<CuentasParaGrupoDto> {
+  return await invoke<CuentasParaGrupoDto>('cuentas_para_grupo', { datos: { grupo_id } });
+}
+
+export async function elegirCuentaGrupo(
+  grupo_id: string,
+  cuenta_id: string,
+): Promise<CuentasParaGrupoDto> {
+  return await invoke<CuentasParaGrupoDto>('elegir_cuenta_grupo', { datos: { grupo_id, cuenta_id } });
+}
+
+export async function listarPartesPendientes(): Promise<ParteGrupoPendienteDto[]> {
+  return await invoke<ParteGrupoPendienteDto[]>('listar_partes_pendientes');
+}
+
+export async function reiniciarCursor(): Promise<EstadoSincronizacionDto> {
+  return await invoke<EstadoSincronizacionDto>('reiniciar_cursor');
+}

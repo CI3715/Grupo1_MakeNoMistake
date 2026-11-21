@@ -2,11 +2,13 @@
 mod autonomia;
 mod cuentas;
 mod dto;
+mod dto_sincronizacion;
 mod dto_social;
 mod movimientos;
 mod ping;
 mod previsualizacion;
 mod sesion;
+mod sincronizacion;
 mod social;
 mod social_cliente;
 mod social_fijo;
@@ -72,6 +74,12 @@ pub fn run() {
             social::registrar_gasto_grupo,
             social::ver_grupo,
             social::previsualizar_division,
+            sincronizacion::sincronizar,
+            sincronizacion::estado_sincronizacion,
+            sincronizacion::cuentas_para_grupo,
+            sincronizacion::elegir_cuenta_grupo,
+            sincronizacion::listar_partes_pendientes,
+            sincronizacion::reiniciar_cursor,
             cuentas::listar_monedas,
             cuentas::listar_cuentas,
             cuentas::crear_cuenta,
