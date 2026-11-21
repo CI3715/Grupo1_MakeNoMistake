@@ -238,6 +238,8 @@ mod pruebas {
             token: TOKEN.to_string(),
             vence_en: vence_en.to_string(),
             nombre_visible: "Ana".to_string(),
+            usuario_id: String::new(),
+            nombre_usuario: String::new(),
             invalidada: false,
         })
         .unwrap();

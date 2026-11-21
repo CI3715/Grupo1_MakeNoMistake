@@ -516,6 +516,8 @@ mod pruebas {
             token: "t".into(),
             vence_en: "2099-01-01T00:00:00Z".into(),
             nombre_visible: "Ana".into(),
+            usuario_id: String::new(),
+            nombre_usuario: String::new(),
             invalidada: false,
         })
         .unwrap();

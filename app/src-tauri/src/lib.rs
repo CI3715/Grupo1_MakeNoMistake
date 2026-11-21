@@ -4,6 +4,7 @@ mod cuentas;
 mod dto;
 mod dto_sincronizacion;
 mod dto_social;
+mod libros;
 mod movimientos;
 mod ping;
 mod previsualizacion;
