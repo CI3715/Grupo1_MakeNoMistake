@@ -152,6 +152,8 @@ pub struct MovimientoDto {
     pub corrige_a: Option<String>,
     pub ajustes: Vec<String>,
     pub monto_correcto: Option<String>,
+    /// true si el movimiento viene de un gasto de grupo (no se corrige desde el libro).
+    pub gasto_de_grupo: bool,
 }
 
 /// Cómo se compone el saldo: saldo actual = saldo inicial + ingresos − gastos ± ajustes.
@@ -287,6 +289,7 @@ impl From<aplicacion::MovimientoListado> for MovimientoDto {
             corrige_a: m.corrige_a,
             ajustes: m.ajustes,
             monto_correcto: None,
+            gasto_de_grupo: false,
         }
     }
 }
@@ -531,6 +534,7 @@ mod tests {
             corrige_a: None,
             ajustes: vec!["m2".into()],
             monto_correcto: None,
+            gasto_de_grupo: false,
         }
     }
 
@@ -547,6 +551,7 @@ mod tests {
                 "cuenta_id",
                 "estado",
                 "fecha",
+                "gasto_de_grupo",
                 "id",
                 "monto",
                 "monto_con_signo",

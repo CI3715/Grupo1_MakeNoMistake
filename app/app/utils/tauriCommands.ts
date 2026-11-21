@@ -97,6 +97,8 @@ export interface MovimientoDto {
   corrige_a: string | null;
   ajustes: string[];
   monto_correcto: string | null;
+  /** true si viene de un gasto de grupo: no se corrige desde el libro */
+  gasto_de_grupo: boolean;
 }
 
 export interface ComposicionDto {
@@ -629,4 +631,10 @@ export async function listarPartesPendientes(): Promise<ParteGrupoPendienteDto[]
 
 export async function reiniciarCursor(): Promise<EstadoSincronizacionDto> {
   return await invoke<EstadoSincronizacionDto>('reiniciar_cursor');
+}
+
+export interface ResultadoGastoGrupoDto {
+  estado: 'registrado' | 'pendiente';
+  clave: string;
+  gasto: GastoGrupoDto | null;
 }

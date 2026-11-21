@@ -72,3 +72,17 @@ pub struct ElegirCuentaGrupoDto {
     pub grupo_id: String,
     pub cuenta_id: String,
 }
+
+/// Resultado de registrar un gasto de grupo cuando pasa por la cola local.
+/// `estado` es "registrado" (el servidor lo aceptó y `gasto` viene lleno) o
+/// "pendiente" (quedó en la cola sin conexión; `gasto` es `None`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[expect(
+    dead_code,
+    reason = "lo usa registrar_gasto_grupo cuando pase por la cola (Tarea 10)"
+)]
+pub struct ResultadoGastoGrupoDto {
+    pub estado: String,
+    pub clave: String,
+    pub gasto: Option<crate::dto_social::GastoGrupoDto>,
+}
