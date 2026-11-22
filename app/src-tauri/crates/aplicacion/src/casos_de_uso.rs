@@ -36,6 +36,8 @@ pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
 pub const TIPO_MOVIMIENTO_CORREGIDO: &str = "MovimientoCorregido";
 /// Identificador de tipo para los eventos de creación de categoría personalizada.
 pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
+/// Parte de un gasto de grupo aplicada al libro (Entrega 7).
+pub const TIPO_GASTO_DE_GRUPO_APLICADO: &str = "GastoDeGrupoAplicado";
 
 /// Datos de entrada requeridos para registrar una nueva cuenta.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -164,6 +166,31 @@ struct EstadoLibro {
     ajustes: Vec<AjusteProyectado>,
     tasas: Vec<dominio::Tasa>,
     moneda_base: String,
+    /// Ids de los movimientos que vienen de un gasto de grupo (no se corrigen desde el libro).
+    ids_de_grupo: HashSet<String>,
+}
+
+/// Datos de una parte de gasto de grupo que bajó del servidor (Entrega 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatosParteDeGrupo {
+    pub evento_servidor_id: String,
+    pub grupo_id: String,
+    pub gasto_id: String,
+    pub cuenta_id: String,
+    /// Texto con punto decimal, por ejemplo "33.33".
+    pub monto: String,
+    pub moneda: String,
+    pub fecha: String,
+    /// Ya armado: "<grupo> · <gasto>".
+    pub concepto: String,
+    pub incluye_redondeo: bool,
+}
+
+/// Qué pasó al aplicar una parte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultadoAplicar {
+    Aplicada,
+    YaAplicada,
 }
 
 pub struct CasosDeUso {
@@ -499,6 +526,71 @@ impl CasosDeUso {
         }
     }
 
+    /// Aplica al libro la parte de un gasto de grupo que bajó del servidor (Entrega 7).
+    ///
+    /// El id del evento del servidor es el id del evento local: si ya está aplicado no se
+    /// hace nada (INV-13, INV-15). La cuenta debe existir y ser de la moneda del grupo (INV-18).
+    pub fn aplicar_parte_de_grupo(
+        &mut self,
+        datos: DatosParteDeGrupo,
+    ) -> Result<ResultadoAplicar, ErrorAplicacion> {
+        let estado = self.proyectar_libro()?;
+        if estado.ids_de_grupo.contains(&datos.evento_servidor_id) {
+            return Ok(ResultadoAplicar::YaAplicada);
+        }
+        let rechazo = |campo: &str, mensaje: &str| {
+            ErrorAplicacion::Validacion(vec![crate::errores::ErrorValidacion {
+                campo: Some(campo.to_string()),
+                mensaje: mensaje.to_string(),
+            }])
+        };
+        let cuenta = estado
+            .cuentas
+            .iter()
+            .find(|c| c.cuenta.id == datos.cuenta_id)
+            .ok_or_else(|| rechazo("cuenta_id", "La cuenta elegida no existe."))?;
+        let moneda = cuenta.cuenta.moneda.clone();
+        if moneda.codigo != datos.moneda {
+            return Err(rechazo(
+                "cuenta_id",
+                "La cuenta debe estar en la moneda del grupo.",
+            ));
+        }
+        let mut monto: Decimal = datos
+            .monto
+            .parse()
+            .map_err(|_| rechazo("monto", "El monto de la parte no es válido."))?;
+        if monto <= Decimal::ZERO || monto.normalize().scale() > moneda.decimales {
+            return Err(rechazo(
+                "monto",
+                "El monto de la parte no es válido para esta moneda.",
+            ));
+        }
+        monto.rescale(moneda.decimales);
+        let parte = dominio::GastoDeGrupoAplicado {
+            id_evento_servidor: datos.evento_servidor_id.clone(),
+            id_grupo: datos.grupo_id,
+            id_gasto: datos.gasto_id,
+            id_cuenta: datos.cuenta_id,
+            monto,
+            moneda,
+            fecha: datos.fecha,
+            concepto: datos.concepto,
+            incluye_redondeo: datos.incluye_redondeo,
+        };
+        let evento = EventoRegistrado {
+            id: datos.evento_servidor_id,
+            tipo: TIPO_GASTO_DE_GRUPO_APLICADO.to_string(),
+            momento_registro: self.reloj.ahora_utc(),
+            dispositivo_origen: self.dispositivo.id_dispositivo(),
+            datos: codec::serializar_gasto_de_grupo(&parte),
+        };
+        Ok(match self.repositorio.guardar(&evento)? {
+            crate::puertos::ResultadoGuardado::Guardado => ResultadoAplicar::Aplicada,
+            crate::puertos::ResultadoGuardado::YaExistia => ResultadoAplicar::YaAplicada,
+        })
+    }
+
     /// Corrige un movimiento registrado creando un movimiento de ajuste por la diferencia
     /// que referencia al original, sin modificar ni borrar el registro original (INV-04).
     pub fn corregir_movimiento(
@@ -507,6 +599,15 @@ impl CasosDeUso {
     ) -> Result<MovimientoListado, ErrorAplicacion> {
         let estado = self.proyectar_libro()?;
         let id_buscado = entrada.movimiento_id.trim();
+        if estado.ids_de_grupo.contains(id_buscado) {
+            return Err(ErrorAplicacion::Validacion(vec![
+                crate::errores::ErrorValidacion {
+                    campo: None,
+                    mensaje: "Este movimiento viene de un gasto de grupo: se corrige en el grupo."
+                        .to_string(),
+                },
+            ]));
+        }
 
         let mut movimientos_para_dominio: Vec<Movimiento> = estado
             .movimientos
@@ -783,6 +884,7 @@ impl CasosDeUso {
         let mut categorias = categorias_de_fabrica();
         let mut movimientos: Vec<MovimientoProyectado> = Vec::new();
         let mut ajustes: Vec<AjusteProyectado> = Vec::new();
+        let mut ids_de_grupo: HashSet<String> = HashSet::new();
 
         for (indice, e) in eventos.iter().enumerate() {
             if !vistos.insert(e.id.clone()) {
@@ -875,6 +977,25 @@ impl CasosDeUso {
                         },
                     });
                 }
+                TIPO_GASTO_DE_GRUPO_APLICADO => {
+                    let parte = codec::deserializar_gasto_de_grupo(&e.datos, &monedas)?;
+                    let ev = parte.como_movimiento();
+                    ids_de_grupo.insert(ev.id_movimiento.clone());
+                    let monto = Monto::from_evento_interno(&ev, &ev.moneda);
+                    movimientos.push(MovimientoProyectado {
+                        orden: indice,
+                        movimiento: Movimiento {
+                            id: ev.id_movimiento,
+                            id_cuenta: ev.id_cuenta,
+                            tipo: ev.tipo,
+                            monto,
+                            fecha: ev.fecha,
+                            id_categoria: id_categoria_canonico(&ev.id_categoria),
+                            nota: ev.nota,
+                            estado: EstadoMovimiento::Vigente,
+                        },
+                    });
+                }
                 TIPO_TASA_REGISTRADA => {
                     let ev = codec::deserializar_tasa_registrada(&e.datos)?;
                     tasas.push(dominio::Tasa {
@@ -899,6 +1020,7 @@ impl CasosDeUso {
         }
 
         Ok(EstadoLibro {
+            ids_de_grupo,
             monedas,
             cuentas,
             categorias,

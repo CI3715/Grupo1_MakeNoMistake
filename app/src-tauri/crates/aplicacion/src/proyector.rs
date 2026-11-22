@@ -25,6 +25,8 @@ pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
 pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
 /// Identificador de tipo del evento que corrige un movimiento existente.
 pub const TIPO_MOVIMIENTO_CORREGIDO: &str = "MovimientoCorregido";
+/// Parte de un gasto de grupo aplicada al libro (Entrega 7).
+pub const TIPO_GASTO_DE_GRUPO_APLICADO: &str = "GastoDeGrupoAplicado";
 /// Identificador de tipo del evento que registra una tasa de cambio.
 pub const TIPO_TASA_REGISTRADA: &str = "TasaRegistrada";
 /// Identificador de tipo del evento que elimina una tasa registrada por error.
@@ -106,6 +108,33 @@ pub fn proyectar_categoria(
     }))
 }
 
+/// Proyecta un `GastoDeGrupoAplicado` como un gasto en «Otros gastos» (Entrega 7).
+/// El id del movimiento es el id del evento del servidor.
+fn proyectar_gasto_de_grupo(
+    evento: &EventoRegistrado,
+) -> Result<Option<MovimientoProyectado>, ErrorAplicacion> {
+    let v: serde_json::Value = serde_json::from_str(&evento.datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+    let campo = |clave: &str| {
+        v.get(clave)
+            .and_then(|x| x.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| ErrorAplicacion::Interno(format!("falta {clave} en el evento")))
+    };
+    Ok(Some(MovimientoProyectado {
+        id: campo("id_evento_servidor")?,
+        cuenta_id: campo("id_cuenta")?,
+        tipo: "egreso".to_string(),
+        monto: campo("monto")?,
+        fecha: campo("fecha")?,
+        categoria_id: "gasto:otros".to_string(),
+        nota: Some(campo("concepto")?),
+        estado: "vigente".to_string(),
+        reemplaza_a: None,
+        corregido_por_evento: None,
+    }))
+}
+
 /// Traduce un evento de movimiento (`MovimientoRegistrado` o `MovimientoCorregido`)
 /// a la fila que debe escribirse en la proyección `movimientos`.
 ///
@@ -116,6 +145,10 @@ pub fn proyectar_categoria(
 pub fn proyectar_movimiento(
     evento: &EventoRegistrado,
 ) -> Result<Option<MovimientoProyectado>, ErrorAplicacion> {
+    if evento.tipo == TIPO_GASTO_DE_GRUPO_APLICADO {
+        return proyectar_gasto_de_grupo(evento);
+    }
+
     if evento.tipo != TIPO_MOVIMIENTO_REGISTRADO && evento.tipo != TIPO_MOVIMIENTO_CORREGIDO {
         return Ok(None);
     }

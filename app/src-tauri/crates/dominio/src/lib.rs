@@ -696,6 +696,24 @@ pub struct GastoDeGrupoAplicado {
     pub incluye_redondeo: bool,
 }
 
+impl GastoDeGrupoAplicado {
+    /// El movimiento que esta parte produce en el libro: un gasto por el monto de la
+    /// parte, en «Otros gastos», con el concepto como nota y el mismo id del evento del
+    /// servidor (el libro no puede tener dos movimientos para el mismo evento).
+    pub fn como_movimiento(&self) -> MovimientoRegistrado {
+        MovimientoRegistrado {
+            id_movimiento: self.id_evento_servidor.clone(),
+            id_cuenta: self.id_cuenta.clone(),
+            tipo: TipoMovimiento::Gasto,
+            monto: self.monto,
+            moneda: self.moneda.clone(),
+            fecha: self.fecha.clone(),
+            id_categoria: "gasto:otros".to_string(),
+            nota: Some(self.concepto.clone()),
+        }
+    }
+}
+
 /// Evento emitido cuando se corrige un movimiento previo mediante un ajuste.
 /// Campos exactos acordados en el acuerdo del equipo.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4059,5 +4077,36 @@ mod tests {
                 "Para cuentas en moneda base, la consolidación debe ser exactamente igual a la suma directa"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod pruebas_gasto_de_grupo {
+    use super::*;
+
+    #[test]
+    fn la_parte_es_un_gasto_en_otros_gastos_con_el_id_del_evento_del_servidor() {
+        let usd = Moneda::catalogo()
+            .into_iter()
+            .find(|m| m.codigo == "USD")
+            .expect("USD");
+        let parte = GastoDeGrupoAplicado {
+            id_evento_servidor: "e-100".into(),
+            id_grupo: "g1".into(),
+            id_gasto: "x1".into(),
+            id_cuenta: "c1".into(),
+            monto: Decimal::new(3333, 2),
+            moneda: usd,
+            fecha: "2026-11-20".into(),
+            concepto: "Viaje a Mérida · Hotel".into(),
+            incluye_redondeo: false,
+        };
+        let m = parte.como_movimiento();
+        assert_eq!(m.id_movimiento, "e-100");
+        assert_eq!(m.id_cuenta, "c1");
+        assert!(matches!(m.tipo, TipoMovimiento::Gasto));
+        assert_eq!(m.monto, Decimal::new(3333, 2));
+        assert_eq!(m.id_categoria, "gasto:otros");
+        assert_eq!(m.nota.as_deref(), Some("Viaje a Mérida · Hotel"));
     }
 }
