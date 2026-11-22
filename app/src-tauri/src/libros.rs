@@ -11,8 +11,6 @@
 //! La adopción renombra el archivo, así que hay que llamar a `ruta_para_sesion`
 //! ANTES de abrir el libro nuevo y con el libro anterior ya cerrado.
 
-#![allow(dead_code)] // lo conecta Cristina - Tarea 6
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -61,6 +59,14 @@ fn adoptar(origen: &Path, destino: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Ruta que corresponde a la sesión, sin adoptar ni crear nada.
+pub fn ruta_objetivo(carpeta: &Path, usuario_id: Option<&str>) -> Result<PathBuf, String> {
+    match usuario_id {
+        None => Ok(ruta_sin_sesion(carpeta)),
+        Some(id) => ruta_de_usuario(carpeta, id),
+    }
 }
 
 /// Ruta del libro que corresponde a la sesión (`None` = sin sesión).

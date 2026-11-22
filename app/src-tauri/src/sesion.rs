@@ -451,7 +451,9 @@ pub async fn iniciar_sesion(
     app: tauri::AppHandle,
     datos: IniciarSesionDto,
 ) -> Result<SesionDto, ErroresDto> {
-    iniciar(&ClienteHttp::desde_entorno(), &almacen_de(&app)?, &datos).await
+    let vista = iniciar(&ClienteHttp::desde_entorno(), &almacen_de(&app)?, &datos).await?;
+    crate::cambio_libro::alinear_con_sesion(&app).map_err(|e| sin_campo(&e))?;
+    Ok(vista)
 }
 
 /// GET /usuarios/yo con el token guardado.
@@ -469,6 +471,7 @@ pub async fn obtener_perfil(app: tauri::AppHandle) -> Result<UsuarioDto, Errores
 #[tauri::command]
 pub async fn cerrar_sesion(app: tauri::AppHandle) -> Result<(), ErroresDto> {
     almacen_de(&app)?.borrar();
+    crate::cambio_libro::alinear_con_sesion(&app).map_err(|e| sin_campo(&e))?;
     Ok(())
 }
 

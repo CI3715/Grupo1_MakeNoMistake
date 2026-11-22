@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod autonomia;
+mod cambio_libro;
 mod cuentas;
 mod dto;
 mod dto_sincronizacion;
@@ -134,7 +135,8 @@ pub fn run() {
 
             let estado: EstadoCasosDeUso = Arc::new(Mutex::new(casos));
             app.manage(estado);
-            app.manage(base_datos);
+            app.manage(cambio_libro::LibroActual::nuevo(ruta, base_datos));
+            cambio_libro::alinear_con_sesion(app.handle())?;
 
             Ok(())
         })
