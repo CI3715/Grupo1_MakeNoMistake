@@ -5,3 +5,4 @@ pub mod dispositivo;
 pub mod id_gen;
 pub mod reloj;
 pub mod repositorios;
+pub mod sincronizacion;

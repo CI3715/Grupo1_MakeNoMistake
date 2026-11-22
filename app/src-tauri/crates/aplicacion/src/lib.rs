@@ -21,7 +21,7 @@ pub use casos_de_uso::{
 };
 pub type NuevaMonedaPropia = NuevaMoneda;
 
-pub use casos_de_uso::{DatosParteDeGrupo, ResultadoAplicar};
+pub use casos_de_uso::{DatosParteDeGrupo, ParteDeGrupoEntrante, ResultadoAplicar};
 pub use errores::{ErrorAplicacion, ErrorValidacion};
 pub use memoria::{
     DispositivoFijo, GeneradorSecuencial, RelojFijo, RelojModificable, RepositorioEnMemoria,
