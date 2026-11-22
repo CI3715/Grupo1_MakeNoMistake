@@ -289,7 +289,7 @@ impl From<aplicacion::MovimientoListado> for MovimientoDto {
             corrige_a: m.corrige_a,
             ajustes: m.ajustes,
             monto_correcto: None,
-            gasto_de_grupo: false,
+            gasto_de_grupo: m.gasto_de_grupo,
         }
     }
 }
@@ -568,6 +568,7 @@ mod tests {
     #[test]
     fn movimiento_corregido_conserva_el_monto_vigente() {
         let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
             id: "m1".into(),
             cuenta_id: "c1".into(),
             tipo: "gasto".into(),
@@ -598,6 +599,7 @@ mod tests {
     #[test]
     fn movimiento_vigente_expone_su_propio_monto() {
         let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
             id: "m1".into(),
             cuenta_id: "c1".into(),
             tipo: "gasto".into(),
@@ -623,6 +625,7 @@ mod tests {
     #[test]
     fn ajuste_no_expone_monto_vigente() {
         let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
             id: "a1".into(),
             cuenta_id: "c1".into(),
             tipo: "gasto".into(),

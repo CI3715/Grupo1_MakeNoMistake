@@ -103,6 +103,8 @@ pub struct MovimientoListado {
     pub corrige_a: Option<String>,
     /// Lista de identificadores de los ajustes asociados cuando este registro es un movimiento original.
     pub ajustes: Vec<String>,
+    /// `true` si viene de un gasto de grupo: no se corrige desde el libro (Entrega 7).
+    pub gasto_de_grupo: bool,
 }
 
 /// Desglose de los componentes que integran el saldo actual de una cuenta.

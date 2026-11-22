@@ -836,7 +836,8 @@ impl CasosDeUso {
                 id_categoria: mp.movimiento.id_categoria.clone(),
                 nota: mp.movimiento.nota.clone(),
             };
-            let vista = armar_movimiento_original_listado(&ev_equiv, cat, &ajustes_mov);
+            let mut vista = armar_movimiento_original_listado(&ev_equiv, cat, &ajustes_mov);
+            vista.gasto_de_grupo = estado.ids_de_grupo.contains(&mp.movimiento.id);
             items_ordenados.push((mp.movimiento.fecha.clone(), mp.orden, vista));
         }
 
@@ -1461,6 +1462,7 @@ fn armar_movimiento_original_listado(
     };
 
     MovimientoListado {
+        gasto_de_grupo: false,
         id: ev.id_movimiento.clone(),
         cuenta_id: ev.id_cuenta.clone(),
         tipo: codec::tipo_movimiento_a_texto(&ev.tipo).to_string(),
@@ -1492,6 +1494,7 @@ fn armar_ajuste_listado(
     };
 
     MovimientoListado {
+        gasto_de_grupo: false,
         id: ev.id_ajuste.clone(),
         cuenta_id: original.id_cuenta.clone(),
         tipo: codec::tipo_movimiento_a_texto(&original.tipo).to_string(),
