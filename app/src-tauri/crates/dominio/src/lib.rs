@@ -677,6 +677,25 @@ pub struct MovimientoRegistrado {
     pub nota: Option<String>,
 }
 
+/// Evento local (Entrega 7): la parte de un gasto de grupo que bajó del servidor y se
+/// aplicó a una cuenta personal. `id_evento_servidor` es también el id del evento y del
+/// movimiento resultante, de modo que aplicar dos veces el mismo evento del servidor deja
+/// el mismo estado que aplicarlo una vez (INV-13, INV-15).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GastoDeGrupoAplicado {
+    pub id_evento_servidor: String,
+    pub id_grupo: String,
+    pub id_gasto: String,
+    pub id_cuenta: String,
+    pub monto: Decimal,
+    pub moneda: Moneda,
+    pub fecha: String,
+    /// Concepto ya armado, por ejemplo "Viaje a Mérida · Hotel".
+    pub concepto: String,
+    /// La parte incluye céntimos de redondeo de la división.
+    pub incluye_redondeo: bool,
+}
+
 /// Evento emitido cuando se corrige un movimiento previo mediante un ajuste.
 /// Campos exactos acordados en el acuerdo del equipo.
 #[derive(Debug, Clone, PartialEq, Eq)]

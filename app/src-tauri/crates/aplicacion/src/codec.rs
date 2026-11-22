@@ -564,6 +564,103 @@ pub use deserializar as deserializar_con_catalogo;
 pub use deserializar_correccion as deserializar_correccion_con_catalogo;
 pub use deserializar_evento_movimiento as deserializar_evento_movimiento_con_catalogo;
 
+/// Serializa un [`dominio::GastoDeGrupoAplicado`] (Entrega 7).
+pub fn serializar_gasto_de_grupo(evento: &dominio::GastoDeGrupoAplicado) -> String {
+    let monto = format!(
+        "{:.prec$}",
+        evento.monto,
+        prec = evento.moneda.decimales as usize
+    );
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "id_evento_servidor".into(),
+        Value::String(evento.id_evento_servidor.clone()),
+    );
+    obj.insert("id_grupo".into(), Value::String(evento.id_grupo.clone()));
+    obj.insert("id_gasto".into(), Value::String(evento.id_gasto.clone()));
+    obj.insert("id_cuenta".into(), Value::String(evento.id_cuenta.clone()));
+    obj.insert("monto".into(), Value::String(monto));
+    obj.insert("moneda".into(), Value::String(evento.moneda.codigo.clone()));
+    obj.insert("fecha".into(), Value::String(evento.fecha.clone()));
+    obj.insert("concepto".into(), Value::String(evento.concepto.clone()));
+    obj.insert(
+        "incluye_redondeo".into(),
+        Value::Bool(evento.incluye_redondeo),
+    );
+    Value::Object(obj).to_string()
+}
+
+/// Reconstruye un [`dominio::GastoDeGrupoAplicado`] a partir de su JSON.
+pub fn deserializar_gasto_de_grupo(
+    datos: &str,
+    catalogo: &[Moneda],
+) -> Result<dominio::GastoDeGrupoAplicado, ErrorAplicacion> {
+    let valor: Value = serde_json::from_str(datos)
+        .map_err(|e| ErrorAplicacion::Interno(format!("evento con JSON inválido: {e}")))?;
+    let moneda = buscar_moneda(&texto(&valor, "moneda")?, catalogo)?;
+    let mut monto = Decimal::from_str(&texto(&valor, "monto")?)
+        .map_err(|e| ErrorAplicacion::Interno(format!("monto inválido: {e}")))?;
+    monto.rescale(moneda.decimales);
+    Ok(dominio::GastoDeGrupoAplicado {
+        id_evento_servidor: texto(&valor, "id_evento_servidor")?,
+        id_grupo: texto(&valor, "id_grupo")?,
+        id_gasto: texto(&valor, "id_gasto")?,
+        id_cuenta: texto(&valor, "id_cuenta")?,
+        monto,
+        moneda,
+        fecha: texto(&valor, "fecha")?,
+        concepto: texto(&valor, "concepto")?,
+        incluye_redondeo: valor
+            .get("incluye_redondeo")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+#[cfg(test)]
+mod pruebas_gasto_de_grupo {
+    use super::*;
+
+    fn evento() -> dominio::GastoDeGrupoAplicado {
+        let usd = Moneda::catalogo()
+            .into_iter()
+            .find(|m| m.codigo == "USD")
+            .expect("USD está en el catálogo de fábrica");
+        dominio::GastoDeGrupoAplicado {
+            id_evento_servidor: "e-100".into(),
+            id_grupo: "g1".into(),
+            id_gasto: "x1".into(),
+            id_cuenta: "c1".into(),
+            monto: Decimal::from_str("33.33").unwrap(),
+            moneda: usd,
+            fecha: "2026-11-20".into(),
+            concepto: "Viaje a Mérida · Hotel".into(),
+            incluye_redondeo: true,
+        }
+    }
+
+    #[test]
+    fn ida_y_vuelta_conserva_el_evento() {
+        let original = evento();
+        let json = serializar_gasto_de_grupo(&original);
+        let vuelta = deserializar_gasto_de_grupo(&json, &Moneda::catalogo()).unwrap();
+        assert_eq!(vuelta, original);
+    }
+
+    #[test]
+    fn el_json_guarda_el_id_del_evento_del_servidor_y_el_monto_como_texto() {
+        let v: Value = serde_json::from_str(&serializar_gasto_de_grupo(&evento())).unwrap();
+        assert_eq!(v["id_evento_servidor"], "e-100");
+        assert_eq!(v["monto"], "33.33");
+    }
+
+    #[test]
+    fn un_json_sin_monto_es_un_error_interno() {
+        let json = r#"{"id_evento_servidor":"e-1","moneda":"USD"}"#;
+        assert!(deserializar_gasto_de_grupo(json, &Moneda::catalogo()).is_err());
+    }
+}
+
 #[cfg(test)]
 mod pruebas {
     use super::*;
