@@ -339,3 +339,11 @@ def test_el_redondeo_y_los_pendientes_estan_cubiertos() -> None:
     assert len(sin_cuenta["pasos"][0]["esperado"]["pendientes"]) == 1
     assert sin_cuenta["pasos"][0]["esperado"]["movimientos"] == []
     assert sin_cuenta["pasos"][-1]["esperado"]["pendientes"] == []
+
+
+def test_el_rechazo_de_corregir_un_movimiento_de_grupo_dice_donde_corregir() -> None:
+    ejemplo = next(e for e in ESCENARIOS if e["id"] == "ejemplo-2-6")
+    rechazo = ejemplo["corregir_movimiento_de_grupo"]
+    assert rechazo["error"] == "Se corrige en el grupo."
+    aplicados = [m["evento_id"] for m in ejemplo["movimientos_finales"]]
+    assert rechazo["evento_id"] in aplicados
