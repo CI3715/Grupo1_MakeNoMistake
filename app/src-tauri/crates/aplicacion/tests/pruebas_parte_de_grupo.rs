@@ -1,6 +1,7 @@
 //! Pruebas de aplicar la parte de un gasto de grupo al libro (Entrega 7).
 //! Cubren INV-13, INV-15 e INV-18 y el rechazo de corregir desde el núcleo.
 
+use aplicacion::NuevoMovimiento;
 use aplicacion::{
     CasosDeUso, DatosCorregirMovimiento, DatosParteDeGrupo, DispositivoFijo, ErrorAplicacion,
     GeneradorSecuencial, NuevaCuenta, RelojFijo, RepositorioEnMemoria, ResultadoAplicar,
@@ -142,4 +143,45 @@ fn un_movimiento_de_grupo_no_se_puede_corregir_desde_el_nucleo() {
     assert_eq!(campo, None);
     assert_eq!(mensaje, "Se corrige en el grupo.");
     assert_eq!(saldo(&app, &c), "166.67");
+}
+
+#[test]
+fn la_marca_de_grupo_solo_esta_en_los_movimientos_de_grupo() {
+    let mut app = entorno();
+    let c = cuenta(&mut app, "Efectivo USD", "USD", "200.00");
+    app.aplicar_parte_de_grupo(parte("e-100", &c, "33.33", "USD"))
+        .unwrap();
+    let normal = app
+        .registrar_movimiento(NuevoMovimiento {
+            cuenta_id: c.clone(),
+            tipo: "gasto".to_string(),
+            monto: "10.00".to_string(),
+            fecha: "2026-11-20".to_string(),
+            categoria_id: "gasto:otros".to_string(),
+            nota: None,
+        })
+        .unwrap();
+
+    let detalle = app.detalle_cuenta(&c).unwrap();
+    assert_eq!(detalle.movimientos.len(), 2);
+    let de_grupo = detalle
+        .movimientos
+        .iter()
+        .find(|m| m.id == "e-100")
+        .unwrap();
+    let propio = detalle
+        .movimientos
+        .iter()
+        .find(|m| m.id == normal.id)
+        .unwrap();
+    assert!(
+        de_grupo.gasto_de_grupo,
+        "la parte de grupo debía venir marcada"
+    );
+    assert_eq!(de_grupo.monto_con_signo, "-33.33");
+    assert_eq!(de_grupo.nota, "Viaje a Mérida · Hotel");
+    assert!(
+        !propio.gasto_de_grupo,
+        "un gasto normal no debe venir marcado"
+    );
 }
