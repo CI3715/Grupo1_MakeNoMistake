@@ -109,6 +109,8 @@ fn sesion(vence_en: &str, invalidada: bool) -> SesionGuardada {
         token: TOKEN.to_string(),
         vence_en: vence_en.to_string(),
         nombre_visible: "Cristina".to_string(),
+        usuario_id: String::new(),
+        nombre_usuario: String::new(),
         invalidada,
     }
 }
@@ -210,7 +212,7 @@ async fn registro_con_respuesta_inesperada_no_muestra_trazas() {
 // ---------- Inicio de sesión: 200, 400, 401 y servidor apagado ----------
 
 #[tokio::test]
-async fn inicio_200_guarda_token_vencimiento_y_nombre_visible() {
+async fn inicio_200_guarda_token_vencimiento_nombre_visible_e_id_de_usuario() {
     let c = ClienteFalso {
         inicio: responde(200, &token_json(LEJOS)),
         perfil: responde(200, USUARIO),
@@ -225,6 +227,8 @@ async fn inicio_200_guarda_token_vencimiento_y_nombre_visible() {
     assert_eq!(guardada.token, TOKEN);
     assert_eq!(guardada.vence_en, LEJOS);
     assert_eq!(guardada.nombre_visible, "Cristina");
+    assert_eq!(guardada.usuario_id, "522b4761-a477-4fcf-91bc-4a6cf430262a");
+    assert_eq!(guardada.nombre_usuario, "cris");
     assert!(!guardada.invalidada);
     // El perfil se pide con el token recién emitido.
     assert_eq!(

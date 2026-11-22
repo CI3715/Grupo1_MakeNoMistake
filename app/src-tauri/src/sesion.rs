@@ -171,6 +171,12 @@ pub struct SesionGuardada {
     pub token: String,
     pub vence_en: String,
     pub nombre_visible: String,
+    /// Id del usuario (viene de GET /usuarios/yo): decide qué libro se abre.
+    /// Vacío en las sesiones guardadas antes de la Entrega 7.
+    #[serde(default)]
+    pub usuario_id: String,
+    #[serde(default)]
+    pub nombre_usuario: String,
     /// El servidor respondió 401 con este token: se trata como vencida.
     #[serde(default)]
     pub invalidada: bool,
@@ -375,6 +381,8 @@ pub async fn iniciar<C: ClienteSesiones, A: Almacen>(
         token: emitido.token,
         vence_en: emitido.vence_en,
         nombre_visible: usuario.nombre_visible,
+        usuario_id: usuario.id,
+        nombre_usuario: usuario.nombre_usuario,
         invalidada: false,
     };
     almacen
@@ -443,7 +451,9 @@ pub async fn iniciar_sesion(
     app: tauri::AppHandle,
     datos: IniciarSesionDto,
 ) -> Result<SesionDto, ErroresDto> {
-    iniciar(&ClienteHttp::desde_entorno(), &almacen_de(&app)?, &datos).await
+    let vista = iniciar(&ClienteHttp::desde_entorno(), &almacen_de(&app)?, &datos).await?;
+    crate::cambio_libro::alinear_con_sesion(&app).map_err(|e| sin_campo(&e))?;
+    Ok(vista)
 }
 
 /// GET /usuarios/yo con el token guardado.
@@ -461,6 +471,7 @@ pub async fn obtener_perfil(app: tauri::AppHandle) -> Result<UsuarioDto, Errores
 #[tauri::command]
 pub async fn cerrar_sesion(app: tauri::AppHandle) -> Result<(), ErroresDto> {
     almacen_de(&app)?.borrar();
+    crate::cambio_libro::alinear_con_sesion(&app).map_err(|e| sin_campo(&e))?;
     Ok(())
 }
 

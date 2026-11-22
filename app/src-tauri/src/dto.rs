@@ -152,6 +152,8 @@ pub struct MovimientoDto {
     pub corrige_a: Option<String>,
     pub ajustes: Vec<String>,
     pub monto_correcto: Option<String>,
+    /// true si el movimiento viene de un gasto de grupo (no se corrige desde el libro).
+    pub gasto_de_grupo: bool,
 }
 
 /// Cómo se compone el saldo: saldo actual = saldo inicial + ingresos − gastos ± ajustes.
@@ -287,6 +289,7 @@ impl From<aplicacion::MovimientoListado> for MovimientoDto {
             corrige_a: m.corrige_a,
             ajustes: m.ajustes,
             monto_correcto: None,
+            gasto_de_grupo: m.gasto_de_grupo,
         }
     }
 }
@@ -531,6 +534,7 @@ mod tests {
             corrige_a: None,
             ajustes: vec!["m2".into()],
             monto_correcto: None,
+            gasto_de_grupo: false,
         }
     }
 
@@ -547,6 +551,7 @@ mod tests {
                 "cuenta_id",
                 "estado",
                 "fecha",
+                "gasto_de_grupo",
                 "id",
                 "monto",
                 "monto_con_signo",
@@ -563,6 +568,7 @@ mod tests {
     #[test]
     fn movimiento_corregido_conserva_el_monto_vigente() {
         let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
             id: "m1".into(),
             cuenta_id: "c1".into(),
             tipo: "gasto".into(),
@@ -593,6 +599,7 @@ mod tests {
     #[test]
     fn movimiento_vigente_expone_su_propio_monto() {
         let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
             id: "m1".into(),
             cuenta_id: "c1".into(),
             tipo: "gasto".into(),
@@ -618,6 +625,7 @@ mod tests {
     #[test]
     fn ajuste_no_expone_monto_vigente() {
         let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
             id: "a1".into(),
             cuenta_id: "c1".into(),
             tipo: "gasto".into(),

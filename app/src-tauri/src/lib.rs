@@ -1,12 +1,16 @@
 #[cfg(test)]
 mod autonomia;
+mod cambio_libro;
 mod cuentas;
 mod dto;
+mod dto_sincronizacion;
 mod dto_social;
+mod libros;
 mod movimientos;
 mod ping;
 mod previsualizacion;
 mod sesion;
+mod sincronizacion;
 mod social;
 mod social_cliente;
 mod social_fijo;
@@ -72,6 +76,12 @@ pub fn run() {
             social::registrar_gasto_grupo,
             social::ver_grupo,
             social::previsualizar_division,
+            sincronizacion::sincronizar,
+            sincronizacion::estado_sincronizacion,
+            sincronizacion::cuentas_para_grupo,
+            sincronizacion::elegir_cuenta_grupo,
+            sincronizacion::listar_partes_pendientes,
+            sincronizacion::reiniciar_cursor,
             cuentas::listar_monedas,
             cuentas::listar_cuentas,
             cuentas::crear_cuenta,
@@ -125,7 +135,8 @@ pub fn run() {
 
             let estado: EstadoCasosDeUso = Arc::new(Mutex::new(casos));
             app.manage(estado);
-            app.manage(base_datos);
+            app.manage(cambio_libro::LibroActual::nuevo(ruta, base_datos));
+            cambio_libro::alinear_con_sesion(app.handle())?;
 
             Ok(())
         })
