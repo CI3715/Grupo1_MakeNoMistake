@@ -603,8 +603,7 @@ impl CasosDeUso {
             return Err(ErrorAplicacion::Validacion(vec![
                 crate::errores::ErrorValidacion {
                     campo: None,
-                    mensaje: "Este movimiento viene de un gasto de grupo: se corrige en el grupo."
-                        .to_string(),
+                    mensaje: "Se corrige en el grupo.".to_string(),
                 },
             ]));
         }
