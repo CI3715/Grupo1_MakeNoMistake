@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from psycopg import Connection, errors
@@ -66,7 +66,7 @@ SQL_LISTAR_PARTES = """
     ORDER BY p.gasto_id, u.nombre_usuario
 """
 
-SQL_EXISTE_GRUPO = "SELECT 1 FROM grupos WHERE id = %s"
+SQL_EXISTE_GRUPO = "SELECT nombre, moneda FROM grupos WHERE id = %s"
 SQL_EXISTE_MIEMBRO_ACEPTADO = """
     SELECT 1 FROM miembros
     WHERE grupo_id = %s AND usuario_id = %s AND estado = 'aceptado'
@@ -119,6 +119,24 @@ class ParteGasto:
     porcentaje: int | None
 
 
+class EscritorCambios(Protocol):
+    """Lo que el registro de gastos necesita del registro de cambios.
+
+    Se declara aquí para que este módulo no importe `repositorio_cambios` y
+    evitar un ciclo: el repositorio de cambios sí conoce los tipos de aquí.
+    """
+
+    def agregar_eventos(
+        self,
+        conexion: Connection[dict[str, Any]],
+        *,
+        gasto: Gasto,
+        nombre_grupo: str,
+        moneda: str,
+        partes: Sequence[ParteGasto],
+    ) -> None: ...
+
+
 # Una parte puede llegar ya con forma de fila (por compatibilidad con la
 # firma anterior) o como parte calculada sin `gasto_id`.
 ParteEntrada = ParteCalculada | ParteGasto
@@ -166,8 +184,13 @@ class ClaveYaUsada(Exception):
 class RepositorioGastos:
     """Consultas de las tablas `gastos` y `partes_gasto`."""
 
-    def __init__(self, base_datos: BaseDatos) -> None:
+    def __init__(
+        self,
+        base_datos: BaseDatos,
+        cambios: EscritorCambios | None = None,
+    ) -> None:
         self._base_datos = base_datos
+        self._cambios = cambios
 
     def registrar(
         self,
@@ -233,7 +256,7 @@ class RepositorioGastos:
         )
 
         with self._base_datos.conexion() as conexion:
-            _exigir_grupo(conexion, grupo_id)
+            nombre_grupo, moneda = _exigir_grupo(conexion, grupo_id)
             _exigir_miembro_aceptado(
                 conexion,
                 grupo_id,
@@ -267,6 +290,14 @@ class RepositorioGastos:
                     ),
                 )
                 _insertar_partes(conexion, partes_guardadas)
+                if self._cambios is not None:
+                    self._cambios.agregar_eventos(
+                        conexion,
+                        gasto=gasto,
+                        nombre_grupo=nombre_grupo,
+                        moneda=moneda,
+                        partes=partes_guardadas,
+                    )
             except errors.ForeignKeyViolation as error:
                 raise GastoInvalido(
                     "participantes",
@@ -530,9 +561,15 @@ def _centimos(monto: Decimal) -> int:
     return int(monto * 100)
 
 
-def _exigir_grupo(conexion: Connection[dict[str, Any]], grupo_id: UUID) -> None:
-    if conexion.execute(SQL_EXISTE_GRUPO, (grupo_id,)).fetchone() is None:
+def _exigir_grupo(
+    conexion: Connection[dict[str, Any]], grupo_id: UUID
+) -> tuple[str, str]:
+    """Exige que el grupo exista y devuelve nombre y moneda para el evento."""
+
+    fila = conexion.execute(SQL_EXISTE_GRUPO, (grupo_id,)).fetchone()
+    if fila is None:
         raise GastoInvalido("grupo_id", "El grupo no existe.")
+    return str(fila["nombre"]), str(fila["moneda"])
 
 
 def _exigir_miembro_aceptado(

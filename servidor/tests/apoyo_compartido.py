@@ -52,7 +52,7 @@ def verificar_no_supabase(url: str | None) -> None:
 def crear_grupo_merida_http(
     cliente: TestClient, usuarios: dict[str, dict[str, Any]]
 ) -> str:
-    """Crea «Viaje a Mérida» en USD con ana, beto y carla como miembros aceptados.
+    """Crea el grupo «Viaje a Mérida» en USD con ana, beto y carla aceptados.
 
     dario queda registrado pero fuera del grupo.
     """

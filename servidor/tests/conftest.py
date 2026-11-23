@@ -75,8 +75,8 @@ def verificar_no_supabase(url: str | None) -> None:
         pytest.fail(MENSAJE_ERROR_SUPABASE)
 
 
-# Solo lo compartido entre varias personas (Entrega 6 y 7). Cualquier tabla nueva
-# tiene que justificarse aquí: añadir una del libro personal rompe INV-16.
+# Solo lo compartido entre varias personas (Entregas 6 y 7). Cualquier tabla
+# nueva tiene que justificarse aquí: añadir una del libro personal rompe INV-16.
 TABLAS_PERMITIDAS = {
     "usuarios",
     "amistades",
@@ -261,7 +261,7 @@ def base_datos_pruebas() -> BaseDatos:
     base_datos = BaseDatos(URL_PRUEBAS)
     base_datos.crear_esquema()
     with base_datos.conexion() as conexion:
-        # CASCADE limpia también amistades, grupos, miembros, gastos y partes.
+        # CASCADE limpia también grupos, gastos, cambios y posiciones.
         conexion.execute("TRUNCATE TABLE usuarios CASCADE")
     return base_datos
 

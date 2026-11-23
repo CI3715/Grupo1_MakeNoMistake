@@ -7,6 +7,12 @@
 //! de sesión o del cliente social lleva datos financieros, si el cliente social
 //! usa la red por su cuenta (INV-16, RES-02) o si el código ejecuta UPDATE o
 //! DELETE sobre la tabla `eventos` (INV-04).
+//!
+//! Entrega 7 (sincronización y cola de envío): la red sigue permitida solo a
+//! `ping.rs` y `sesion.rs`; cualquier archivo que hable con `GET /cambios` o con
+//! el encabezado `Idempotency-Key` no puede tocar el libro personal ni llevar
+//! estructuras con cuentas, movimientos, saldos o tasas (INV-16, RES-02); y las
+//! tablas del cursor y de la cola se crean solo en `infraestructura`.
 //! Corren con `cargo test --workspace`.
 
 use std::collections::BTreeSet;
@@ -598,6 +604,12 @@ fn aplicacion_no_usa_coma_flotante() {
 /// Los archivos del cliente social (Entrega 6) no están aquí a propósito: llaman
 /// al servidor a través de `sesion.rs` (ver `el_cliente_social_usa_la_red_solo_
 /// a_traves_de_sesion`).
+///
+/// Entrega 7: los archivos de sincronización y de la cola de envío tampoco están
+/// aquí a propósito. Llaman al servidor por el adaptador de `sesion.rs`, igual que
+/// el cliente social, y el módulo que elige el libro de cada usuario no tiene red.
+/// Si se necesitara un adaptador HTTP nuevo, se añade aquí solo ese archivo, con
+/// la aprobación de todo el equipo.
 const ARCHIVOS_CON_RED: [&str; 2] = ["ping.rs", "sesion.rs"];
 
 /// Archivos que deben existir y no pueden usar la red: el libro personal.
@@ -906,6 +918,128 @@ fn el_cliente_social_usa_la_red_solo_a_traves_de_sesion() {
     );
 }
 
+// ---------- INV-16 / RES-02: sincronización y cola de envío (Entrega 7) ----------
+
+/// Indica si un código habla con lo que añade la Entrega 7 al servidor: `GET
+/// /cambios` o el encabezado `Idempotency-Key` del registro de gastos. Se busca por
+/// contenido y no por nombre de archivo, así la prueba no depende de cómo se
+/// llamen los archivos nuevos. Hay que pasarle código ya sin comentarios y con los
+/// textos (la ruta y el encabezado van entre comillas).
+fn habla_con_cambios(codigo: &str) -> bool {
+    let minusculas = codigo.to_lowercase();
+    minusculas.contains("/cambios") || minusculas.contains("idempotency-key")
+}
+
+/// Indica si un código crea o altera tablas SQL. Hay que pasarle código ya sin
+/// comentarios y con los textos (el SQL vive dentro de cadenas).
+fn define_tablas(codigo: &str) -> bool {
+    let normalizado = codigo
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_uppercase();
+    normalizado.contains("CREATE TABLE") || normalizado.contains("ALTER TABLE")
+}
+
+/// La red solo la usan `ping.rs` y `sesion.rs`. Esta prueba deja por escrito la
+/// decisión de la Entrega 7: los archivos de sincronización y de la cola no se
+/// añaden a la lista.
+#[test]
+fn solo_ping_y_sesion_pueden_usar_la_red() {
+    assert_eq!(
+        ARCHIVOS_CON_RED.to_vec(),
+        vec!["ping.rs", "sesion.rs"],
+        "ARCHIVOS_CON_RED cambió: los archivos de sincronización y de la cola deben \
+         llamar al servidor por el adaptador de sesion.rs (INV-16, RNF-01)"
+    );
+}
+
+/// Todo archivo de `src/` que hable con `GET /cambios` o con `Idempotency-Key`
+/// (el cliente de sincronización y el de la cola) viaja al servidor: no puede usar
+/// el libro personal ni definir estructuras con cuentas, movimientos, saldos o
+/// tasas. La moneda solo se permite en estructuras con «grupo» en el nombre (por
+/// ejemplo `EventoGastoDeGrupo`), como en el cliente social. Si el archivo que
+/// habla con `/cambios` también aplica movimientos al libro, la prueba falla: hay
+/// que separar el cliente (red, sin libro) del comando que aplica al libro (sin red).
+#[test]
+fn los_archivos_que_hablan_con_cambios_no_llevan_libro_ni_datos_financieros() {
+    const LIBRO: [&str; 5] = [
+        "dominio",
+        "aplicacion",
+        "infraestructura",
+        "CasosDeUso",
+        "EstadoCasosDeUso",
+    ];
+    let mut infracciones = Vec::new();
+    for ruta in lista_rs(&raiz().join("src")) {
+        let nombre = ruta
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        // `sesion.rs` y `ping.rs` ya tienen sus propias pruebas; `pruebas.rs` es
+        // un módulo de pruebas completo.
+        if ARCHIVOS_CON_RED.contains(&nombre.as_str()) || nombre == "pruebas.rs" {
+            continue;
+        }
+        let con_textos = limpiar_codigo(&leer(&ruta), false, true);
+        if !habla_con_cambios(&con_textos) {
+            continue;
+        }
+
+        let sin_textos = limpiar_codigo(&leer(&ruta), true, true);
+        for prohibida in LIBRO {
+            if contiene_palabra(&sin_textos, prohibida) {
+                infracciones.push(format!(
+                    "{nombre}: habla con /cambios o con Idempotency-Key y menciona `{prohibida}` (libro personal)"
+                ));
+            }
+        }
+        for (definicion, contenido) in definiciones_de_datos(&con_textos) {
+            for palabra in financieros_no_permitidos(&definicion, &contenido) {
+                infracciones.push(format!(
+                    "{nombre}: `{definicion}` menciona `{palabra}` y viaja al servidor"
+                ));
+            }
+        }
+    }
+    assert!(
+        infracciones.is_empty(),
+        "El cliente de sincronización y la cola no pueden tocar el libro ni llevar datos financieros (INV-16, RES-02):\n{}",
+        infracciones.join("\n")
+    );
+}
+
+/// El cursor, la cola de envío, la cuenta elegida y las partes pendientes viven en
+/// `infraestructura`. Ni el dominio, ni la aplicación, ni los comandos de `src/`
+/// crean tablas: lo hacen solo los repositorios.
+#[test]
+fn las_tablas_de_sincronizacion_viven_solo_en_infraestructura() {
+    let carpetas = [
+        dir_crate("dominio").join("src"),
+        dir_crate("aplicacion").join("src"),
+        raiz().join("src"),
+    ];
+    let mut infracciones = Vec::new();
+    let mut revisados = 0;
+    for carpeta in carpetas {
+        for ruta in lista_rs(&carpeta) {
+            revisados += 1;
+            // Los textos se conservan (el SQL vive dentro de cadenas) y se omiten
+            // los bloques `#[cfg(test)]`.
+            if define_tablas(&limpiar_codigo(&leer(&ruta), false, true)) {
+                infracciones.push(ruta.display().to_string());
+            }
+        }
+    }
+    assert!(revisados > 0, "No se revisó ningún archivo");
+    assert!(
+        infracciones.is_empty(),
+        "Las tablas se crean solo en infraestructura (cursor, cola, pendientes):\n{}",
+        infracciones.join("\n")
+    );
+}
+
 // ---------- INV-04: sin UPDATE ni DELETE sobre la tabla eventos (M-04) ----------
 
 #[test]
@@ -1180,6 +1314,48 @@ fn la_moneda_solo_se_permite_en_las_estructuras_de_grupo() {
     assert!(!financieros_no_permitidos("GastoDto", "{ pub moneda: String }").is_empty());
     assert_eq!(
         financieros_no_permitidos("GrupoDto", "{ pub saldo: String, pub moneda: String }"),
+        vec!["saldo"]
+    );
+}
+
+#[test]
+fn detecta_los_archivos_que_hablan_con_cambios() {
+    assert!(habla_con_cambios("let ruta = \"/cambios?desde=0\";"));
+    assert!(habla_con_cambios("cabecera(\"Idempotency-Key\", clave)"));
+    assert!(habla_con_cambios("cabecera(\"idempotency-key\", clave)"));
+    assert!(!habla_con_cambios("let ruta = \"/grupos\";"));
+    assert!(!habla_con_cambios("fn cambios_locales() {}"));
+}
+
+#[test]
+fn detecta_la_creacion_de_tablas() {
+    assert!(define_tablas("CREATE TABLE cursor (posicion INTEGER)"));
+    assert!(define_tablas("create table if not exists cola (id TEXT)"));
+    assert!(define_tablas("CREATE\n    TABLE pendientes (id TEXT)"));
+    assert!(define_tablas(
+        "ALTER TABLE movimientos ADD COLUMN origen TEXT"
+    ));
+    assert!(!define_tablas("SELECT posicion FROM cursor"));
+    assert!(!define_tablas("INSERT INTO cola VALUES (1)"));
+}
+
+#[test]
+fn las_estructuras_de_cambios_y_de_la_cola_siguen_la_regla_de_la_moneda() {
+    // El evento del servidor trae la moneda del grupo: solo vale si el nombre dice «grupo».
+    assert!(
+        financieros_no_permitidos(
+            "EventoGastoDeGrupo",
+            "{ pub monto: String, pub moneda: String, pub incluye_redondeo: bool }"
+        )
+        .is_empty()
+    );
+    assert!(!financieros_no_permitidos("EventoDeCambio", "{ pub moneda: String }").is_empty());
+    // La petición de cambios solo lleva el cursor.
+    assert!(financieros_no_permitidos("PeticionDeCambios", "{ pub desde: u64 }").is_empty());
+    // El cuerpo de la cola no puede llevar cuentas ni saldos.
+    assert!(!financieros_no_permitidos("GastoEnCola", "{ pub cuenta_id: String }").is_empty());
+    assert_eq!(
+        financieros_no_permitidos("GastoEnCola", "{ pub saldo: String, pub monto: String }"),
         vec!["saldo"]
     );
 }
