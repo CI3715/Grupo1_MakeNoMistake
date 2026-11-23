@@ -18,8 +18,6 @@ from apoyo_compartido import (
 )
 from fastapi.testclient import TestClient
 
-from esquema import SENTENCIAS_ESQUEMA
-
 Usuarios = dict[str, dict[str, Any]]
 HOTEL: dict[str, Any] = {
     "concepto": "Hotel",
@@ -212,17 +210,14 @@ class TestTrazabilidadSeccion2_1RegistroCambios:
     def test_regla_2_1_registro_solo_crece_sin_update_ni_delete(self) -> None:
         """El registro de cambios solo crece: no admite UPDATE ni DELETE.
 
-        En PostgreSQL lo hacen cumplir dos disparadores (lo prueba
-        ``test_repositorio_cambios.py``); en el código no hay ningún UPDATE ni
-        DELETE sobre la tabla ``cambios``.
+        Aquí se comprueba que el código del servidor no tiene ningún UPDATE ni
+        DELETE sobre la tabla ``cambios``. Los disparadores que lo impiden en
+        PostgreSQL llegan con el repositorio de cambios (prueba directa aparte).
         """
         raiz = Path(__file__).resolve().parents[1]
         prohibido = re.compile(r"(UPDATE|DELETE\s+FROM)\s+cambios\b", re.IGNORECASE)
         for archivo in raiz.glob("*.py"):
             assert not prohibido.search(archivo.read_text(encoding="utf-8")), archivo
-        ddl = " ".join(SENTENCIAS_ESQUEMA)
-        assert "BEFORE UPDATE ON cambios" in ddl
-        assert "BEFORE DELETE ON cambios" in ddl
 
     def test_regla_2_1_get_cambios_devuelve_en_orden_lotes_100_cursor_y_hay_mas(
         self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios

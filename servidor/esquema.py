@@ -6,9 +6,7 @@ hacen nada si las tablas y los índices ya existen.
 
 INV-16: aquí no hay tablas del libro personal (cuentas, movimientos, saldos,
 tasas ni categorías). Solo se guarda lo que ven varias personas: amistades,
-grupos, miembros, gastos y partes de cada gasto y, desde la Entrega 7, el
-registro de cambios de cada persona (su parte de cada gasto), la última
-posición de ese registro y las claves de idempotencia (ADR-015).
+grupos, miembros, gastos y partes de cada gasto.
 
 Los montos son `NUMERIC(14, 2)` (euros con dos decimales exactos) y los
 porcentajes `SMALLINT` en centésimas de punto. El dinero nunca se guarda como
@@ -184,81 +182,6 @@ SENTENCIAS_ESQUEMA: tuple[str, ...] = (
     """
     CREATE INDEX IF NOT EXISTS partes_por_usuario
         ON partes_gasto (usuario_id)
-    """,
-    # --------------------------------------------------------------- cambios
-    # Registro de cambios de cada persona (Entrega 7, ADR-015): una fila por
-    # participante de cada gasto, con su parte. Es lo que entrega
-    # `GET /cambios`. Solo crece: los disparadores de abajo rechazan UPDATE y
-    # DELETE (INV-13). No hay columna `tipo`: hoy todos los eventos son
-    # `gasto_de_grupo` y la ruta lo escribe como valor fijo. `grupo_nombre` es
-    # una copia del nombre al registrar el gasto, para que el movimiento de la
-    # app no cambie si luego se renombra el grupo. INV-16: ni cuenta ni saldo.
-    """
-    CREATE TABLE IF NOT EXISTS cambios (
-        id               UUID PRIMARY KEY,
-        usuario_id       UUID NOT NULL REFERENCES usuarios (id),
-        posicion         BIGINT NOT NULL CHECK (posicion >= 1),
-        gasto_id         UUID NOT NULL REFERENCES gastos (id),
-        grupo_id         UUID NOT NULL REFERENCES grupos (id),
-        grupo_nombre     VARCHAR(80) NOT NULL,
-        concepto         VARCHAR(200) NOT NULL,
-        fecha            DATE NOT NULL,
-        moneda           VARCHAR(3) NOT NULL,
-        monto            NUMERIC(14, 2) NOT NULL CHECK (monto > 0),
-        incluye_redondeo BOOLEAN NOT NULL,
-        fecha_registro   TIMESTAMPTZ NOT NULL,
-        CONSTRAINT cambios_posicion_unica UNIQUE (usuario_id, posicion),
-        CONSTRAINT cambios_un_evento_por_gasto UNIQUE (usuario_id, gasto_id),
-        CONSTRAINT cambios_moneda_iso CHECK (moneda ~ '^[A-Z]{3}$')
-    )
-    """,
-    """
-    CREATE OR REPLACE FUNCTION cambios_solo_crece() RETURNS trigger
-    LANGUAGE plpgsql AS $$
-    BEGIN
-        RAISE EXCEPTION 'El registro de cambios no se modifica ni se borra.'
-            USING ERRCODE = 'restrict_violation';
-    END
-    $$
-    """,
-    "DROP TRIGGER IF EXISTS cambios_sin_update ON cambios",
-    """
-    CREATE TRIGGER cambios_sin_update
-        BEFORE UPDATE ON cambios
-        FOR EACH ROW EXECUTE FUNCTION cambios_solo_crece()
-    """,
-    "DROP TRIGGER IF EXISTS cambios_sin_delete ON cambios",
-    """
-    CREATE TRIGGER cambios_sin_delete
-        BEFORE DELETE ON cambios
-        FOR EACH ROW EXECUTE FUNCTION cambios_solo_crece()
-    """,
-    # ---------------------------------------------------- posiciones_usuario
-    # Última posición usada en el registro de cada persona. El registro de un
-    # gasto bloquea estas filas (SELECT ... FOR UPDATE) para que dos gastos a
-    # la vez no le den la misma posición a nadie.
-    """
-    CREATE TABLE IF NOT EXISTS posiciones_usuario (
-        usuario_id      UUID PRIMARY KEY REFERENCES usuarios (id),
-        ultima_posicion BIGINT NOT NULL DEFAULT 0
-                        CHECK (ultima_posicion >= 0)
-    )
-    """,
-    # --------------------------------------------------- claves_idempotencia
-    # Una clave consumida por persona (alcance por usuario): qué gasto creó y
-    # la huella SHA-256 del cuerpo canónico (RNF-17, ESC-09). Se guarda en la
-    # misma transacción que el gasto: si el gasto no queda, la clave tampoco.
-    """
-    CREATE TABLE IF NOT EXISTS claves_idempotencia (
-        usuario_id     UUID NOT NULL REFERENCES usuarios (id),
-        clave          VARCHAR(128) NOT NULL,
-        huella         CHAR(64) NOT NULL,
-        gasto_id       UUID NOT NULL REFERENCES gastos (id),
-        fecha_registro TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (usuario_id, clave),
-        CONSTRAINT claves_idempotencia_visible
-            CHECK (clave ~ '^[!-~]{8,128}$')
-    )
     """,
     # --------------------------------------------------------- migración 6.1
     # Las primeras pruebas de la Entrega 6 crearon las columnas como BIGINT en

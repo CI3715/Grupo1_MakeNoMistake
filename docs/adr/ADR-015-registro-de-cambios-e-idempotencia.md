@@ -149,18 +149,21 @@ almacén en memoria de las pruebas usan las mismas funciones, y
 ## Implementación
 
 - `servidor/cambios.py` e `servidor/idempotencia.py`: reglas puras.
-- `servidor/esquema.py`: tablas `cambios` (con sus disparadores),
-  `posiciones_usuario` y `claves_idempotencia`.
-- `servidor/repositorio_cambios.py`: inserción de los eventos dentro de la
-  transacción del gasto y lectura por cursor.
-- `servidor/repositorio_gastos.py`: gasto, partes, clave y eventos en una sola
-  transacción; `buscar_clave` y `buscar`.
-- `servidor/main.py`: `GET /cambios` y la clave en `POST /grupos/{id}/gastos`.
-- Pruebas del servidor: `test_reglas_cambios.py`, `test_reglas_idempotencia.py`,
-  `test_cambios_http.py`, `test_idempotencia_http.py`, `test_flujo_entrega7.py`
-  (flujo completo como usuario nuevo, también contra PostgreSQL en
-  `test_integracion_postgres.py`) y `test_repositorio_cambios.py` (disparadores,
-  concurrencia de posiciones y reintentos simultáneos).
+- `servidor/main.py`: `GET /cambios` y la clave en `POST /grupos/{id}/gastos`,
+  con los protocolos `AlmacenGastos` (clave, huella, `buscar_clave`, `buscar`)
+  y `AlmacenCambios` (`listar_desde`) que deben cumplir los repositorios.
+- Almacenamiento en PostgreSQL (tablas `cambios` con sus disparadores,
+  `posiciones_usuario` y `claves_idempotencia`; contador con bloqueo de fila;
+  eventos y clave en la transacción del gasto): lo implementan los
+  repositorios de cambios y de claves de la Entrega 7, siguiendo los puntos 1
+  a 3. Hasta entonces `repositorio_cambios.py` y `repositorio_gastos.py` solo
+  traen las firmas.
+- Pruebas: `test_reglas_cambios.py`, `test_reglas_idempotencia.py`,
+  `test_cambios_http.py`, `test_idempotencia_http.py` y
+  `test_flujo_entrega7.py` (flujo completo como usuario nuevo) sobre el
+  almacén en memoria de `tests/repositorio_en_memoria.py`, que sigue las
+  mismas reglas. El mismo flujo contra PostgreSQL está en
+  `test_integracion_postgres.py`, omitido hasta que existan los repositorios.
 - `app/src-tauri/crates/infraestructura/tests/autonomia_entrega7.rs`: con el
   servidor apagado, lo ya sincronizado y lo personal siguen al reabrir, y cada
   usuario tiene su libro con solo sus partes.
