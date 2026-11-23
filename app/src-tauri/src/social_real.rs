@@ -280,6 +280,18 @@ pub async fn ver_grupo<C: ClienteSocial, A: Almacen>(
     leer(&llamar(c, a, ahora, &Peticion::get(&ruta), &[200]).await?)
 }
 
+/// El cuerpo JSON que se manda al servidor para registrar un gasto de grupo.
+pub(crate) fn cuerpo_de_gasto(datos: &NuevoGastoGrupoDto) -> serde_json::Value {
+    json!({
+        "concepto": datos.concepto,
+        "monto": datos.monto,
+        "fecha": datos.fecha,
+        "pagador": datos.pagador,
+        "regla": datos.regla,
+        "participantes": datos.participantes,
+    })
+}
+
 /// El servidor recalcula la división y guarda su resultado; responde el gasto con las partes.
 pub async fn registrar_gasto<C: ClienteSocial, A: Almacen>(
     c: &C,
@@ -288,20 +300,13 @@ pub async fn registrar_gasto<C: ClienteSocial, A: Almacen>(
     datos: &NuevoGastoGrupoDto,
 ) -> Result<GastoGrupoDto, ErroresDto> {
     let ruta = format!("/grupos/{}/gastos", codificar(&datos.grupo_id));
-    let cuerpo = json!({
-        "concepto": datos.concepto,
-        "monto": datos.monto,
-        "fecha": datos.fecha,
-        "pagador": datos.pagador,
-        "regla": datos.regla,
-        "participantes": datos.participantes,
-    });
+    let cuerpo = cuerpo_de_gasto(datos);
     leer(&llamar(c, a, ahora, &Peticion::post(&ruta, &cuerpo), &[201]).await?)
 }
 
 // ---------- Comandos (envoltorios con la red real y el almacén del sistema) ----------
 
-fn almacen_de(app: &tauri::AppHandle) -> Result<AlmacenSistema, ErroresDto> {
+pub(crate) fn almacen_de(app: &tauri::AppHandle) -> Result<AlmacenSistema, ErroresDto> {
     let carpeta = app
         .path()
         .app_data_dir()

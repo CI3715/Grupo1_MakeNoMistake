@@ -84,7 +84,10 @@ impl RepositorioEventosSqlite {
 /// (proyección incremental) como `reconstruir` (proyección completa). Los
 /// montos se guardan como enteros en unidades mínimas de la moneda de su cuenta
 /// (`monto × 10^decimales`); las tasas, con escala fija de 8 decimales.
-fn proyectar_evento(conn: &Connection, evento: &EventoRegistrado) -> Result<(), ErrorRepositorio> {
+pub(crate) fn proyectar_evento(
+    conn: &Connection,
+    evento: &EventoRegistrado,
+) -> Result<(), ErrorRepositorio> {
     if let Some(moneda) = proyectar_moneda(evento).map_err(error_repo)? {
         let fila = db::MonedaPropiaRow {
             codigo: moneda.codigo,

@@ -186,6 +186,40 @@ pub struct DatosParteDeGrupo {
     pub incluye_redondeo: bool,
 }
 
+/// Una parte tal como la entrega GET /cambios, antes de saber a qué cuenta va (Entrega 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParteDeGrupoEntrante {
+    pub evento_servidor_id: String,
+    /// Posición del evento en el registro de cambios del usuario.
+    pub posicion: i64,
+    pub grupo_id: String,
+    pub grupo_nombre: String,
+    pub gasto_id: String,
+    /// Concepto del gasto, sin el nombre del grupo.
+    pub concepto: String,
+    pub fecha: String,
+    pub moneda: String,
+    pub monto: String,
+    pub incluye_redondeo: bool,
+}
+
+impl ParteDeGrupoEntrante {
+    /// Los datos para aplicarla a una cuenta; el concepto queda «<grupo> · <gasto>».
+    pub fn con_cuenta(&self, cuenta_id: &str) -> DatosParteDeGrupo {
+        DatosParteDeGrupo {
+            evento_servidor_id: self.evento_servidor_id.clone(),
+            grupo_id: self.grupo_id.clone(),
+            gasto_id: self.gasto_id.clone(),
+            cuenta_id: cuenta_id.to_string(),
+            monto: self.monto.clone(),
+            moneda: self.moneda.clone(),
+            fecha: self.fecha.clone(),
+            concepto: format!("{} · {}", self.grupo_nombre, self.concepto),
+            incluye_redondeo: self.incluye_redondeo,
+        }
+    }
+}
+
 /// Qué pasó al aplicar una parte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultadoAplicar {
@@ -534,9 +568,25 @@ impl CasosDeUso {
         &mut self,
         datos: DatosParteDeGrupo,
     ) -> Result<ResultadoAplicar, ErrorAplicacion> {
+        let Some(evento) = self.preparar_parte_de_grupo(datos)? else {
+            return Ok(ResultadoAplicar::YaAplicada);
+        };
+        Ok(match self.repositorio.guardar(&evento)? {
+            crate::puertos::ResultadoGuardado::Guardado => ResultadoAplicar::Aplicada,
+            crate::puertos::ResultadoGuardado::YaExistia => ResultadoAplicar::YaAplicada,
+        })
+    }
+
+    /// Valida una parte y arma el evento local que la aplicaría, sin guardarlo.
+    /// `None` si ese evento del servidor ya está aplicado. Permite guardar un lote
+    /// entero junto con su cursor en una sola transacción.
+    pub fn preparar_parte_de_grupo(
+        &self,
+        datos: DatosParteDeGrupo,
+    ) -> Result<Option<EventoRegistrado>, ErrorAplicacion> {
         let estado = self.proyectar_libro()?;
         if estado.ids_de_grupo.contains(&datos.evento_servidor_id) {
-            return Ok(ResultadoAplicar::YaAplicada);
+            return Ok(None);
         }
         let rechazo = |campo: &str, mensaje: &str| {
             ErrorAplicacion::Validacion(vec![crate::errores::ErrorValidacion {
@@ -585,10 +635,7 @@ impl CasosDeUso {
             dispositivo_origen: self.dispositivo.id_dispositivo(),
             datos: codec::serializar_gasto_de_grupo(&parte),
         };
-        Ok(match self.repositorio.guardar(&evento)? {
-            crate::puertos::ResultadoGuardado::Guardado => ResultadoAplicar::Aplicada,
-            crate::puertos::ResultadoGuardado::YaExistia => ResultadoAplicar::YaAplicada,
-        })
+        Ok(Some(evento))
     }
 
     /// Corrige un movimiento registrado creando un movimiento de ajuste por la diferencia
