@@ -523,7 +523,7 @@ export async function listarAmistadesCommand(): Promise<ListaAmistadesDto> {
 }
 
 export async function eliminarAmistadCommand(amistadId: string): Promise<void> {
-  return await invoke<void>('eliminar_amistad', { amistad_id: amistadId });
+  return await invoke<void>('eliminar_amistad', { amistad_id: amistadId, amistadId });
 }
 
 export async function crearGrupoCommand(datos: NuevoGrupoPayload): Promise<GrupoResumenDto> {
@@ -551,7 +551,7 @@ export async function registrarGastoGrupoCommand(
 }
 
 export async function verGrupoCommand(grupoId: string): Promise<GrupoDetalleDto> {
-  return await invoke<GrupoDetalleDto>('ver_grupo', { grupo_id: grupoId });
+  return await invoke<GrupoDetalleDto>('ver_grupo', { grupo_id: grupoId, grupoId });
 }
 
 /** Cálculo local con decimales exactos; no usa la red. */
