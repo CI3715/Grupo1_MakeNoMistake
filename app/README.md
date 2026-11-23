@@ -315,6 +315,76 @@ Apunta el cliente a un puerto donde no escucha nadie y comprueba que el registro
 
 A mano: con el servidor encendido, registra un gasto en un grupo; después apaga el servidor y la red y vuelve a abrir la aplicación con `npm run tauri dev`. Cuentas, movimientos, tasas, patrimonio y la vista previa de la división funcionan igual; Amigos y Grupos son lo único que necesita el servidor.
 
+## Libro por usuario, sincronización y cola sin conexión (Entrega 7)
+
+Desde la Entrega 7 cada usuario tiene su propio libro SQLite en el dispositivo y las partes de los gastos compartidos en los que participa bajan automáticamente a la cuenta local que elija para cada grupo, sin duplicarse aunque sincronice muchas veces (RF-COM-10, RNF-17, INV-13, INV-15).
+
+### Libro personal por usuario (ADR-014)
+
+Para que dos personas que usen la aplicación en el mismo computador no mezclen sus cuentas ni sus movimientos, cada sesión usa su propio archivo SQLite en el directorio de datos de la aplicación (`com.cuentasclaras.desktop`):
+
+- **Con sesión iniciada:** `cuentas_claras_<id_usuario>.db` (donde `<id_usuario>` es el UUID devuelto por `GET /usuarios/yo`).
+- **Sin sesión:** `cuentas_claras.db` (sigue funcionando igual que en las entregas anteriores).
+- **Adopción inicial:** la primera persona que inicia sesión cuando todavía no existe ningún `cuentas_claras_<id>.db` adopta automáticamente el `cuentas_claras.db` previo (se renombra a su identificador) para no perder lo que ya tenía anotado localmente.
+- **Cambio en caliente:** al iniciar sesión, registrarse o cerrar sesión, la aplicación sustituye el libro activo en memoria sin necesidad de reiniciar la ventana de Tauri. Si el token vence (`401`), conserva abierto el libro del usuario para que siga consultando y registrando movimientos locales mientras vuelve a iniciar sesión.
+
+### Sincronización con grupos y partes pendientes
+
+Al sincronizar, la aplicación consulta `GET /cambios?desde=<cursor>` en lotes hasta que `hay_mas` sea falso:
+
+- **Cuenta por grupo:** en el detalle de cada grupo se elige a qué cuenta local activa (de la **misma moneda** del grupo) van los gastos compartidos (`cuentas_para_grupo` y `elegir_cuenta_grupo`). Si se cambia la cuenta elegida, solo afecta a las partes pendientes y a los gastos futuros; los movimientos ya aplicados no se mueven.
+- **Partes pendientes:** si llega una parte de un grupo que aún no tiene cuenta elegida (o cuya cuenta ya no es válida), queda en `partes_pendientes` hasta que el usuario elija la cuenta.
+- **Movimiento de grupo inmutable:** cada parte se aplica una sola vez (idempotente por `evento_servidor_id`) como un egreso en la categoría **Otros gastos** con concepto `<grupo> · <gasto>` y marca `gasto_de_grupo: true`. No se puede corregir desde el libro personal (INV-04 / acuerdo de Entrega 7) y se guarda junto con el nuevo cursor en una única transacción SQLite.
+- **Control de concurrencia y demostración:** un candado evita dos sincronizaciones simultáneas (`sincronizando: true`), y `reiniciar_cursor` vuelve el cursor a `0` para demostrar en vivo que volver a bajar todo el historial no duplica ningún movimiento.
+
+### Cola de gastos sin conexión e idempotencia
+
+Registrar un gasto compartido (`registrar_gasto_grupo_con_cola`) entra siempre por la tabla local `cola_envio` antes de salir a la red:
+
+1. Se genera una clave UUID (`Idempotency-Key`) **una única vez** por operación y se guarda como `pendiente`.
+2. Si hay conexión y sesión vigente, se envía `POST /grupos/{id}/gastos` con el encabezado `Idempotency-Key`. Si se pierde la respuesta (corte de red o error `5xx`), la operación permanece en la cola y se reintenta en orden con la **misma clave**, de modo que el servidor devuelve el gasto ya creado (`200`) sin duplicarlo.
+3. Si el servidor rechaza la operación (`400`, `403`, `404` o `409`), si ocurre en vivo devuelve los errores al formulario; si ocurre al vaciar la cola en segundo plano, queda marcada como `rechazado` con su motivo visible y no bloquea el envío de las demás operaciones (el usuario puede quitarla con `descartar_gasto_en_cola`).
+4. Si el servidor responde `401`, el envío se pausa sin perder las operaciones pendientes hasta que el usuario renueve su sesión.
+
+### Qué viaja al servidor y `CUENTAS_CLARAS_URL`
+
+Se mantiene estrictamente el aislamiento de privacidad (INV-16, RES-02):
+
+- **Qué viaja:** únicamente el entero del cursor (`desde` en `GET /cambios?desde=N`), el encabezado `Idempotency-Key` y los datos propios del gasto de grupo (`concepto`, `monto`, `fecha`, `pagador`, `regla`, `participantes`).
+- **Qué nunca sale del dispositivo:** cuentas locales, saldos, movimientos personales, tasas de cambio, categorías propias ni qué cuenta local se asoció a cada grupo.
+- **Dirección del servidor:** todos los clientes HTTP (`sesion.rs`, `social_cliente.rs`, `sincronizacion_cliente.rs` y `social_envio.rs`) leen `CUENTAS_CLARAS_URL` (por defecto `http://localhost:8000`; ver «Configurar la dirección del servidor»).
+
+### Reproducir el flujo 2.8 a mano y pruebas automatizadas
+
+Con el servidor levantado (`servidor/README.md`) y `npm run tauri dev` en `app/`:
+
+1. **Cuatro usuarios (`ana`, `beto`, `carla` y `dario`):** registra e inicia sesión con `ana`, crea cuentas en `USD` y el grupo **Viaje a Mérida** con `beto` y `carla` (deja a `dario` fuera).
+2. **Cuenta por grupo y primer gasto:** sin elegir cuenta aún, registra el gasto **Hotel** (`100,00 USD`, partes iguales) y sincroniza: verás la parte de `ana` (`33,34 USD`) en **Partes pendientes**. Elige tu cuenta en `USD` y comprueba que pasa al libro como movimiento de grupo y descuenta el saldo.
+3. **Cola sin conexión e idempotencia:** inicia sesión con `beto`, elige su cuenta en `USD`, corta la red (o detén temporalmente el servidor), registra **Cena** (`60,00 USD`, porcentajes 50/25/25) y comprueba que queda en **Cola de envío** como `pendiente`. Restaura el servidor y pulsa **Sincronizar**: la cola se vacía sin duplicar y baja su parte (`15,00 USD`).
+4. **Tercer gasto, cuarto usuario y cambio de sesión:** registra **Taxi** (`20,00 USD`, `ana` y `beto`). Comprueba con `carla` que recibe Hotel y Cena pero no Taxi, y con `dario` que no recibe ningún evento. Cambia entre usuarios en la misma ventana y verifica que cada uno ve únicamente su propio `cuentas_claras_<id>.db`.
+5. **Autonomía:** apaga el servidor; las cuentas, movimientos, tasas, patrimonio y la vista previa de división siguen funcionando sin conexión.
+
+Pruebas automatizadas de la Entrega 7 (desde `app/src-tauri/`):
+
+```bash
+cargo test --test vectores_sincronizacion
+cargo test -p infraestructura --test libros_por_usuario --test cola_envio --test autonomia_entrega7
+cargo test --lib sincronizacion
+```
+
+## Libro por usuario, sincronización y cola sin conexión (Entrega 7)
+
+Cada usuario tiene su propio SQLite (`cuentas_claras_<id>.db` con sesión; `cuentas_claras.db` sin sesión). El primer login adopta `cuentas_claras.db` y el libro cambia en caliente sin reiniciar Tauri (ADR-014); ante `401` conserva el libro abierto.
+
+- **Sincronización (`GET /cambios?desde=N`):** baja lotes hasta `hay_mas = false` (`sincronizar`, `estado_sincronizacion`, `reiniciar_cursor`).
+- **Cuenta por grupo y pendientes:** `cuentas_para_grupo` y `elegir_cuenta_grupo` aplican `partes_pendientes` en **Otros gastos** (`<grupo> · <gasto>`, `gasto_de_grupo: true`, no corregibles) en una transacción.
+- **Cola offline:** `registrar_gasto_grupo_con_cola` encola en `cola_envio` con `Idempotency-Key` UUID y reintenta sin duplicar; rechazos (`400`/`403`/`404`/`409`) quedan con motivo (`descartar_gasto_en_cola`); `401` pausa la cola. Solo viajan cursor, clave y gasto compartido (INV-16). Usa `CUENTAS_CLARAS_URL`.
+
+```bash
+cargo test --test vectores_sincronizacion
+cargo test -p infraestructura --test libros_por_usuario --test cola_envio --test autonomia_entrega7
+```
+
 ## Ejecutar las pruebas
 
 Desde `src-tauri/`:
@@ -415,8 +485,23 @@ app/
 │       ├── cuentas.rs    # Comandos listar_monedas, listar_cuentas y crear_cuenta
 │       ├── movimientos.rs # Comandos de movimientos, categorías y detalle de cuenta (Entrega 3)
 │       ├── dto.rs        # Tipos que viajan entre Rust y la interfaz
+│       ├── libros.rs     # Resolución de archivo SQLite por usuario y adopción (Entrega 7)
+│       ├── cambio_libro.rs # Sustitución del libro en caliente al iniciar/cerrar sesión (Entrega 7)
 │       ├── sesion.rs     # Registro, inicio de sesión y almacén de secretos (Entrega 5)
 │       ├── sesion/pruebas.rs # Pruebas de la sesión con cliente HTTP falso
+│       ├── social.rs     # Comandos de amistades, grupos y gastos compartidos (Entrega 6)
+│       ├── social_cliente.rs # Cliente HTTP común con bearer token e Idempotency-Key
+│       ├── social_real.rs # Implementación real de comandos sociales
+│       ├── social_envio.rs # Envío de gastos de la cola con Idempotency-Key (Entrega 7)
+│       ├── sincronizacion.rs # Comandos de sincronización, cuenta de grupo y cola (Entrega 7)
+│       ├── sincronizacion_cliente.rs # Cliente de GET /cambios?desde=N (Entrega 7)
+│       ├── sincronizacion_libro.rs # Aplicación de lotes y pendientes al libro local (Entrega 7)
+│       ├── libros.rs     # Archivo SQLite por usuario y adopción (Entrega 7)
+│       ├── cambio_libro.rs # Cambio de libro en caliente al iniciar/cerrar sesión (Entrega 7)
+│       ├── social_envio.rs # Envío de cola con Idempotency-Key (Entrega 7)
+│       ├── sincronizacion.rs # Comandos de sincronización, cuenta de grupo y cola (Entrega 7)
+│       ├── sincronizacion_cliente.rs # Cliente GET /cambios?desde=N (Entrega 7)
+│       ├── sincronizacion_libro.rs # Aplicación de lotes al libro local (Entrega 7)
 │       └── ping.rs       # Comando ping_servidor (Entrega 1, fuera del flujo de cuentas)
 ├── next.config.ts        # Configuración de Next.js (exportación estática)
 ├── package.json          # Dependencias y scripts de la interfaz

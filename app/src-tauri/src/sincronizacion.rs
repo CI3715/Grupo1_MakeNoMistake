@@ -463,16 +463,24 @@ mod pruebas {
             .len()
     }
 
-    /// Cliente falso: responde en orden; sin más respuestas, simula el servidor apagado.
+    /// Cliente falso: responde en orden; `None` o sin más respuestas simula el servidor apagado.
+    type PeticionRegistrada = (String, Option<String>, Option<String>);
+
     struct Guion {
-        respuestas: Mutex<VecDeque<(u16, String)>>,
+        respuestas: Mutex<VecDeque<Option<(u16, String)>>>,
         pedidas: Mutex<Vec<String>>,
+        peticiones: Mutex<Vec<PeticionRegistrada>>,
     }
 
     fn guion(r: Vec<(u16, String)>) -> Guion {
+        guion_pasos(r.into_iter().map(Some).collect())
+    }
+
+    fn guion_pasos(r: Vec<Option<(u16, String)>>) -> Guion {
         Guion {
             respuestas: Mutex::new(r.into()),
             pedidas: Mutex::new(Vec::new()),
+            peticiones: Mutex::new(Vec::new()),
         }
     }
 
@@ -483,10 +491,41 @@ mod pruebas {
             _token: &str,
         ) -> Result<Respuesta, SinConexion> {
             self.pedidas.lock().unwrap().push(peticion.ruta.clone());
+            self.peticiones.lock().unwrap().push((
+                peticion.ruta.clone(),
+                peticion.cuerpo.clone(),
+                peticion.clave.clone(),
+            ));
             match self.respuestas.lock().unwrap().pop_front() {
-                Some((codigo, cuerpo)) => Ok(Respuesta { codigo, cuerpo }),
-                None => Err(SinConexion),
+                Some(Some((codigo, cuerpo))) => Ok(Respuesta { codigo, cuerpo }),
+                _ => Err(SinConexion),
             }
+        }
+    }
+
+    struct SinSesion;
+
+    impl Almacen for SinSesion {
+        fn guardar(&self, _sesion: &SesionGuardada) -> Result<(), String> {
+            Ok(())
+        }
+        fn leer(&self) -> Option<SesionGuardada> {
+            None
+        }
+        fn borrar(&self) {}
+    }
+
+    const GASTO_RESPUESTA: &str = r#"{"id":"x-99","concepto":"Cena","monto":"60.00","fecha":"2026-11-20","pagador":"ana","regla":"partes_iguales","partes":[]}"#;
+
+    fn gasto_nuevo(grupo_id: &str, concepto: &str) -> NuevoGastoGrupoDto {
+        NuevoGastoGrupoDto {
+            grupo_id: grupo_id.to_string(),
+            concepto: concepto.to_string(),
+            monto: "60.00".to_string(),
+            fecha: "2026-11-20".to_string(),
+            pagador: "ana".to_string(),
+            regla: "partes_iguales".to_string(),
+            participantes: Vec::new(),
         }
     }
 
@@ -643,5 +682,227 @@ mod pruebas {
         assert!(Turno::tomar().is_none());
         drop(primero);
         assert!(Turno::tomar().is_some());
+    }
+
+    #[tokio::test]
+    async fn cola_registra_en_linea_con_clave_de_idempotencia() {
+        let l = libro("cola_201");
+        let cliente = guion(vec![(201, GASTO_RESPUESTA.to_string())]);
+        let r = ok(registrar_con_cola(
+            &cliente,
+            &ConSesion,
+            AHORA,
+            &l.sync,
+            &gasto_nuevo("g1", "Cena"),
+            "Viaje",
+            "USD",
+        )
+        .await);
+        assert_eq!(r.estado, "registrado");
+        assert!(r.gasto.is_some() && !r.clave.is_empty());
+        assert!(l.sync.cola().unwrap().is_empty());
+        let peticiones = cliente.peticiones.lock().unwrap().clone();
+        assert_eq!(peticiones.len(), 1);
+        assert_eq!(peticiones[0].2.as_deref(), Some(r.clave.as_str()));
+    }
+
+    #[tokio::test]
+    async fn cola_sin_conexion_queda_pendiente_y_reintenta_con_la_misma_clave() {
+        let l = libro("cola_reintento");
+        let cliente = guion_pasos(vec![
+            None,
+            Some((200, GASTO_RESPUESTA.to_string())),
+            Some(pagina(&[], 0, false)),
+        ]);
+        let r = ok(registrar_con_cola(
+            &cliente,
+            &ConSesion,
+            AHORA,
+            &l.sync,
+            &gasto_nuevo("g1", "Cena"),
+            "Viaje",
+            "USD",
+        )
+        .await);
+        assert_eq!(r.estado, "pendiente");
+        assert_eq!(l.sync.cola_pendiente().unwrap().len(), 1);
+
+        ok(sincronizar_con(&l, &cliente).await);
+        assert!(l.sync.cola().unwrap().is_empty());
+        let peticiones = cliente.peticiones.lock().unwrap().clone();
+        assert_eq!(peticiones[0].2.as_deref(), Some(r.clave.as_str()));
+        assert_eq!(peticiones[1].2.as_deref(), Some(r.clave.as_str()));
+    }
+
+    #[tokio::test]
+    async fn cola_rechazo_400_en_linea_devuelve_diferencia_exacta_sin_encolar() {
+        let l = libro("cola_400_linea");
+        let cuerpo = r#"{"errores":[{"campo":"participantes","mensaje":"La suma no coincide (faltan 0.01)."}]}"#;
+        let cliente = guion(vec![(400, cuerpo.to_string())]);
+        let err = registrar_con_cola(
+            &cliente,
+            &ConSesion,
+            AHORA,
+            &l.sync,
+            &gasto_nuevo("g1", "Cena"),
+            "Viaje",
+            "USD",
+        )
+        .await
+        .expect_err("debía fallar con 400");
+        let json = serde_json::to_string(&err).unwrap();
+        assert!(json.contains("La suma no coincide (faltan 0.01)."));
+        assert!(l.sync.cola().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cola_rechazos_400_403_404_409_quedan_marcados_y_no_bloquean_el_resto() {
+        let l = libro("cola_rechazos");
+        let offline = guion_pasos(vec![None, None, None, None, None]);
+        for c in ["G1", "G2", "G3", "G4", "G5"] {
+            ok(registrar_con_cola(
+                &offline,
+                &ConSesion,
+                AHORA,
+                &l.sync,
+                &gasto_nuevo("g1", c),
+                "Viaje",
+                "USD",
+            )
+            .await);
+        }
+        let cliente = guion(vec![
+            (
+                400,
+                r#"{"errores":[{"campo":null,"mensaje":"Monto inválido."}]}"#.to_string(),
+            ),
+            (
+                403,
+                r#"{"errores":[{"campo":null,"mensaje":"Sin permiso."}]}"#.to_string(),
+            ),
+            (
+                404,
+                r#"{"errores":[{"campo":null,"mensaje":"Grupo no existe."}]}"#.to_string(),
+            ),
+            (
+                409,
+                r#"{"errores":[{"campo":null,"mensaje":"Clave en conflicto."}]}"#.to_string(),
+            ),
+            (201, GASTO_RESPUESTA.to_string()),
+            pagina(&[], 0, false),
+        ]);
+        let estado = ok(sincronizar_con(&l, &cliente).await);
+        assert_eq!(estado.cola.len(), 4);
+        assert!(estado.cola.iter().all(|g| g.estado == "rechazado"));
+        let motivos: Vec<_> = estado
+            .cola
+            .iter()
+            .filter_map(|g| g.motivo.as_deref())
+            .collect();
+        assert_eq!(
+            motivos,
+            [
+                "Monto inválido.",
+                "Sin permiso.",
+                "Grupo no existe.",
+                "Clave en conflicto."
+            ]
+        );
+        assert!(l.sync.cola_pendiente().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cola_401_pausa_el_envio_sin_perder_pendientes() {
+        let l = libro("cola_401");
+        ok(registrar_con_cola(
+            &guion_pasos(vec![None]),
+            &ConSesion,
+            AHORA,
+            &l.sync,
+            &gasto_nuevo("g1", "Cena"),
+            "Viaje",
+            "USD",
+        )
+        .await);
+        let cliente = guion(vec![(401, "{}".to_string()), (401, "{}".to_string())]);
+        let err = sincronizar_con(&l, &cliente)
+            .await
+            .expect_err("debía detenerse con 401");
+        assert!(
+            serde_json::to_string(&err)
+                .unwrap()
+                .contains("sesión venció")
+        );
+        assert_eq!(l.sync.cola_pendiente().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn sin_sesion_no_hace_ninguna_peticion_al_servidor() {
+        let l = libro("sin_sesion");
+        let cliente = guion(vec![]);
+        assert!(
+            sincronizar_libro(&cliente, &SinSesion, AHORA, &l.casos, &l.sync)
+                .await
+                .is_err()
+        );
+        let r = ok(registrar_con_cola(
+            &cliente,
+            &SinSesion,
+            AHORA,
+            &l.sync,
+            &gasto_nuevo("g1", "Cena"),
+            "Viaje",
+            "USD",
+        )
+        .await);
+        assert_eq!(r.estado, "pendiente");
+        assert!(cliente.peticiones.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn privacidad_peticiones_no_envian_cuentas_movimientos_saldos_ni_tasas() {
+        let l = libro("privacidad");
+        bloquear(&l.casos)
+            .crear_cuenta(NuevaCuenta {
+                nombre: "Caja Banesco Privada".to_string(),
+                tipo: "banco".to_string(),
+                moneda: "USD".to_string(),
+                saldo_inicial: "987.65".to_string(),
+            })
+            .unwrap();
+        let cliente = guion_pasos(vec![
+            None,
+            Some((201, GASTO_RESPUESTA.to_string())),
+            Some(pagina(&[], 0, false)),
+        ]);
+        ok(registrar_con_cola(
+            &cliente,
+            &ConSesion,
+            AHORA,
+            &l.sync,
+            &gasto_nuevo("g1", "Cena"),
+            "Viaje",
+            "USD",
+        )
+        .await);
+        ok(sincronizar_con(&l, &cliente).await);
+
+        for (ruta, cuerpo, _) in cliente.peticiones.lock().unwrap().iter() {
+            let texto = format!("{ruta} {}", cuerpo.as_deref().unwrap_or(""));
+            for prohibido in [
+                "Banesco",
+                "Privada",
+                "987.65",
+                "saldo",
+                "cuenta",
+                "movimiento",
+                "tasa",
+            ] {
+                assert!(
+                    !texto.contains(prohibido),
+                    "se filtró '{prohibido}' en {texto}"
+                );
+            }
+        }
     }
 }
