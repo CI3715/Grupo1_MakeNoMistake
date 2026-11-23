@@ -18,3 +18,4 @@ Este directorio contiene las Architecture Decision Records (ADRs) del proyecto.
 - [ADR-013: División exacta, balances y autorización de grupo en el servidor](./ADR-013-division-balances-y-autorizacion-de-grupo.md)
 - [ADR-014: Libro personal por usuario en el dispositivo](./ADR-014-libro-personal-por-usuario.md)
 - [ADR-015: Registro de cambios por usuario y clave de idempotencia en el servidor](./ADR-015-registro-de-cambios-e-idempotencia.md)
+- [ADR-016: PostgreSQL con Docker Compose y Supabase para el servidor](./ADR-016-postgresql-con-docker-compose-y-supabase.md) — sustituye las partes de ADR-009 sobre Neon y sobre el clúster local como única forma de desarrollo

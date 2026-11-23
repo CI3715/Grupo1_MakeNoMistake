@@ -11,8 +11,9 @@ están en [ADR-010](../docs/adr/ADR-010-sesion-con-token-firmado.md).
 ## Prerrequisitos
 
 - [uv](https://docs.astral.sh/uv/) 0.12 o superior
-- PostgreSQL 17 (puedes usar el clúster local incluido, que necesita los
-  binarios de PostgreSQL instalados)
+- PostgreSQL 17. Puedes usar el clúster local incluido (necesita los binarios
+  de PostgreSQL), Docker Compose o Supabase; las tres formas están en «Las
+  tres formas de configurar PostgreSQL»
 - Git
 
 `uv` se encarga de instalar y gestionar la versión de Python que
@@ -83,9 +84,11 @@ Para detenerlo, presiona `Ctrl + C`.
 
 ## Base de datos y configuración
 
-El servidor usa PostgreSQL 17 y crea la tabla `usuarios` al arrancar. Toda la
-configuración se lee de variables de entorno; el archivo `servidor/.env` no se
-sube a Git.
+El servidor usa PostgreSQL 17 y crea el esquema completo al arrancar:
+`usuarios`, `amistades`, `grupos`, `miembros`, `gastos`, `partes_gasto`,
+`cambios`, `posiciones_usuario` y `claves_idempotencia`. Todas las tablas de
+`public` llevan RLS. Toda la configuración se lee de variables de entorno; el
+archivo `servidor/.env` no se sube a Git.
 
 ### Dónde se colocan las variables
 
@@ -100,24 +103,134 @@ repositorio ni dentro de `app/`: el servidor no lo leería.
    chmod 600 .env
 ```
 
-2. Si no tienes PostgreSQL configurado, levanta el clúster local incluido.
-   Crea la base de desarrollo y la de pruebas en el puerto 55432, sin Docker
-   ni permisos de superusuario:
-
-```bash
-   bash scripts/base_datos_local.sh iniciar
-```
-
-   Para detenerlo:
-
-```bash
-   bash scripts/base_datos_local.sh detener
-```
+2. Consigue un PostgreSQL y apunta `CUENTAS_CLARAS_DB_URL` a él. Las tres
+   formas —Docker Compose, Supabase y PostgreSQL propio— están en «Las tres
+   formas de configurar PostgreSQL», más abajo.
 
 3. Arranca el servidor:
 
 ```bash
    uv run uvicorn main:app --reload --port 8000
+```
+
+### Las tres formas de configurar PostgreSQL
+
+El servidor solo necesita `CUENTAS_CLARAS_DB_URL`; lo demás es cómo consigues
+ese PostgreSQL. Las tres opciones están en `.env.example`: elige una y deja las
+otras comentadas.
+
+| Opción | Para qué sirve | Qué necesitas |
+|---|---|---|
+| **Docker Compose** | Desarrollo y pruebas | Docker con Compose |
+| **Supabase** | Trabajo compartido y demostración | Cuenta del equipo en Supabase |
+| **PostgreSQL propio** | Desarrollo sin Docker | PostgreSQL 17 instalado, o el clúster local incluido |
+
+#### Opción A: Docker Compose (desarrollo y pruebas)
+
+`docker-compose.yml` levanta PostgreSQL 17 en `127.0.0.1:55432` con las bases
+`cuentas_claras` y `cuentas_claras_pruebas`. El usuario y la clave salen de
+`CUENTAS_CLARAS_DB_USUARIO` y `CUENTAS_CLARAS_DB_CLAVE` de `.env`, así que no
+están escritos en el archivo.
+
+```bash
+docker compose up -d
+docker compose ps
+uv run pytest
+```
+
+Para detenerlo conservando los datos, y para empezar de cero:
+
+```bash
+docker compose down
+docker compose down -v
+```
+
+La base de pruebas se crea sola la primera vez que se inicializa el volumen
+(`scripts/base_pruebas.sql`). Si el clúster local del script está corriendo en
+el mismo puerto, deténlo antes con `bash scripts/base_datos_local.sh detener`.
+
+#### Opción B: Supabase (trabajo compartido y demostración)
+
+Supabase da un PostgreSQL accesible por red para que el equipo pruebe con una
+base común y para la demostración. El servidor no usa nada más de Supabase: ni
+su autenticación ni sus librerías; la sesión sigue siendo el token propio
+(ADR-010).
+
+1. Crea el proyecto en `supabase.com/dashboard` y guarda la contraseña de la
+   base en el gestor de contraseñas del equipo.
+2. Abre **Connect** (o **Project Settings → Database → Connection string**) y
+   copia la cadena del **Session pooler**:
+   - host `aws-<n>-<region>.pooler.supabase.com`, puerto `5432`,
+     usuario `postgres.<referencia>`, base `postgres`;
+   - **no** uses *Direct connection* (solo IPv6) ni el *Transaction pooler*
+     (puerto 6543: no admite los *prepared statements* que usa `psycopg`).
+3. Añade `sslmode=require`. Si la clave tiene caracteres especiales (`@`, `:`,
+   `/`, `#`, `[`, `]`…), codifícala:
+
+   ```bash
+   python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" 'la-clave'
+   ```
+
+4. Deja la cadena **solo** en `servidor/.env`, en `CUENTAS_CLARAS_DB_URL`.
+   `CUENTAS_CLARAS_DB_URL_PRUEBAS` sigue apuntando a local: las pruebas hacen
+   `TRUNCATE` y nunca deben tocar Supabase.
+
+   ```env
+   CUENTAS_CLARAS_DB_URL=postgresql://postgres.<referencia>:<clave-codificada>@aws-<n>-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+   ```
+
+5. Arranca y comprueba el flujo completo:
+
+   ```bash
+   uv run uvicorn main:app --reload --port 8000
+
+   curl -s localhost:8000/ping
+
+   curl -s -X POST localhost:8000/usuarios -H 'Content-Type: application/json' \
+     -d '{"nombre_usuario":"prueba","nombre_visible":"Prueba","correo":"prueba@example.com","contrasena":"Password123!"}'
+
+   curl -s -X POST localhost:8000/sesiones -H 'Content-Type: application/json' \
+     -d '{"correo":"prueba@example.com","contrasena":"Password123!"}'
+   ```
+
+   Debe responder `200` en `/ping`, `201` en el registro y `200` con un
+   `token` en el inicio de sesión. El esquema se crea solo al arrancar;
+   compruébalo con:
+
+   ```bash
+   set -a; source .env; set +a
+   psql "$CUENTAS_CLARAS_DB_URL" -c '\dt'
+   ```
+
+Detalles que suelen fallar:
+
+- **No dejes los corchetes** del marcador `[YOUR-PASSWORD]`: la contraseña va
+  sin corchetes.
+- **Cada variable en su propia línea.** Si pegas dos URLs seguidas, la base
+  termina llamándose `/postgresCUENTAS_CLARAS_DB_URL_PRUEBAS=...`.
+- La base final es **`postgres`**, no el nombre del proyecto, y el usuario
+  lleva la referencia: `postgres.<referencia>`.
+- La cadena y la contraseña se comparten por un canal privado, nunca por el
+  repositorio, un issue o el chat del equipo.
+
+> El servidor no usa la `anon key` ni la autenticación de Supabase. La única
+> credencial es la contraseña de la base: trátala como un secreto. Las tablas
+> llevan además RLS y no conceden permisos a `anon` ni `authenticated`.
+
+El plan gratuito pausa el proyecto tras una semana sin actividad: ábrelo en el
+panel antes de una demostración.
+
+#### Opción C: PostgreSQL propio o clúster local
+
+Con un PostgreSQL 17 ya instalado, apunta `CUENTAS_CLARAS_DB_URL` a él (por
+defecto en el puerto 5432). Si no tienes ninguno, el clúster incluido crea la
+base de desarrollo y la de pruebas en el puerto 55432, sin Docker ni permisos
+de superusuario:
+
+```bash
+bash scripts/base_datos_local.sh iniciar
+bash scripts/base_datos_local.sh estado
+bash scripts/base_datos_local.sh detener
 ```
 
 ### RLS en todas las tablas
@@ -146,6 +259,32 @@ CUENTAS_CLARAS_DB_URL_PRUEBAS="$CUENTAS_CLARAS_DB_URL" \
 
 La prueba no borra datos: aplica el esquema, que es idempotente, y lee los
 catálogos de PostgreSQL.
+
+### Secretos y archivos que no se versionan
+
+`servidor/.env` está en `.gitignore` y nunca se versiona; el repositorio solo
+incluye `.env.example` con marcadores. El volumen de Docker Compose es un
+volumen con nombre (`cuentas-claras-postgres-datos`), no una carpeta del
+repositorio, y el clúster local vive en `.postgres/`, también ignorado.
+
+Antes de abrir un pull request, revisa que ninguna credencial haya quedado en
+el código ni en el historial:
+
+```bash
+# Cadenas de Supabase y otras pistas, solo en archivos versionados
+git grep -n -E 'pooler\.supabase\.com|supabase\.co|postgres\.[a-z0-9]+' -- .
+
+# Repite por cada valor real de .env, sin escribirlo en la terminal compartida
+git log -S'<valor-real>' --oneline -- .
+
+# .env y el volumen no deben aparecer
+git ls-files | grep -E '(^|/)\.env$|postgres-datos'
+```
+
+Si una clave llegó a subirse, se restablece en el panel de Supabase y se
+considera comprometida. El servidor se niega a arrancar sin
+`CUENTAS_CLARAS_DB_URL` o sin un `CUENTAS_CLARAS_SECRETO_JWT` de al menos 32
+caracteres, con un mensaje claro.
 
 ### Variables de entorno
 
@@ -261,8 +400,8 @@ CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://... uv run pytest
 
 En un despliegue no se usa `.env`: se configuran las mismas variables en el
 panel del proveedor o en el entorno del proceso. La cadena de conexión cambia
-a la del PostgreSQL de producción (por ejemplo, Neon) y el secreto debe ser
-propio de ese entorno.
+a la del PostgreSQL de producción (por ejemplo, Supabase o un PostgreSQL
+gestionado) y el secreto debe ser propio de ese entorno.
 
 > Si falta `CUENTAS_CLARAS_DB_URL` o el secreto es corto, el servidor no
 > arranca. Es intencional: el error aparece al iniciar y no en la primera
@@ -282,7 +421,8 @@ propio de ese entorno.
 | `POST /amistades/{id}/respuesta` | Aceptar o rechazar (solo el destinatario) | 200, 400, 401, 403, 404, 409 |
 | `DELETE /amistades/{id}` | Eliminar la amistad (cualquiera de los dos) | 204, 401, 404 |
 | `GET /grupos/{id}` | Miembros, gastos y balances del grupo (solo miembros aceptados) | 200, 401, 404 |
-| `POST /grupos/{id}/gastos` | Registra un gasto: el servidor lo divide y lo guarda con sus partes | 201, 400, 401, 404 |
+| `POST /grupos/{id}/gastos` | Registra un gasto: el servidor lo divide y lo guarda con sus partes. Acepta `Idempotency-Key` | 201, 200, 400, 401, 404, 409 |
+| `GET /cambios?desde=<cursor>` | Eventos propios de gastos de grupo posteriores al cursor | 200, 400, 401 |
 
 El contrato completo está en [`openapi.yaml`](openapi.yaml). Resumen:
 
@@ -385,6 +525,40 @@ o vencido responden `401`.
 | `POST /amistades/{id}/respuesta` | Solo el destinatario acepta (`true`) o rechaza (`false`) la invitación. | `200`; `403` si no es el destinatario; `404` si no existe; `409` si ya fue respondida. |
 | `DELETE /amistades/{id}` | Cualquiera de los dos elimina la amistad. No borra grupos ni gastos ya compartidos (RF-SOC-06). | `204`; `404` si no existe o quien pide no participa. |
 
+### Endpoints del registro de cambios (Entrega 7)
+
+Todos requieren `Authorization: Bearer <token>`; sin token, con token inválido
+o vencido responden `401`.
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `GET /cambios?desde=<cursor>` | Devuelve los eventos del usuario autenticado posteriores al cursor, en orden de posición y como máximo 100. Incluye `cursor` (posición del último evento, o el mismo `desde` si no hay nada) y `hay_mas`. Sin `desde` se empieza en 0. Nunca devuelve eventos de otras personas. | `200`; `400` si el cursor no es un entero no negativo; `401` sin token. |
+| `POST /grupos/{id}/gastos` con `Idempotency-Key` | Registra el gasto una sola vez aunque el cliente reintente. La clave es opcional, de 8 a 128 caracteres ASCII visibles y su alcance es por usuario. Se guarda con la huella SHA-256 del cuerpo canónico. | `201` clave nueva; `200` misma clave y mismo cuerpo, con el gasto ya registrado; `409` misma clave y otro cuerpo; `400`, `401` y `404` como en la Entrega 6. |
+
+Un evento `gasto_de_grupo` lleva solo lo necesario para el movimiento personal:
+`id`, `posicion`, `grupo` (id y nombre), `gasto` (id y concepto), `fecha`,
+`moneda`, `monto` (texto con dos decimales), `incluye_redondeo` y `tipo`. No
+lleva cuentas, saldos ni movimientos: eso sigue viviendo solo en el libro local
+(INV-16).
+
+Ejemplo con `curl`:
+
+```bash
+TOKEN="<token-de-sesion>"
+GRUPO="<id-del-grupo>"
+
+curl "localhost:8000/cambios?desde=0" -H "Authorization: Bearer $TOKEN"
+
+curl -X POST "localhost:8000/grupos/$GRUPO/gastos" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: cena-0b7d4e21" \
+  -H "Content-Type: application/json" \
+  -d '{"concepto":"Cena","monto":"60.00","fecha":"2026-03-15","pagador":"beto","regla":"porcentajes","participantes":[{"usuario":"ana","valor":"50"},{"usuario":"beto","valor":"25"},{"usuario":"carla","valor":"25"}]}'
+```
+
+Repetir el mismo `POST` con la misma clave y el mismo cuerpo responde `200`
+con el gasto original; con otro cuerpo responde `409`.
+
 ## HTTP en local y HTTPS en despliegue (RNF-06)
 
 En desarrollo se usa **HTTP** porque el servidor escucha únicamente en la
@@ -485,6 +659,16 @@ Así las pruebas de las rutas corren sin base de datos.
   (división, mensajes de «faltan»/«sobran», errores por campo, 404 uniforme,
   balances del ejemplo 2.5 y el flujo completo como usuario nuevo).
 - `test_autorizacion.py`: la decisión de pertenencia, sin HTTP.
+- `test_reglas_cambios.py` y `test_reglas_idempotencia.py`: reglas puras de la
+  Entrega 7 (evento por participante, posición siguiente, cursor, huella
+  SHA-256 y decisión 201/200/409), sin base ni HTTP.
+- `test_cambios_http.py`, `test_idempotencia_http.py` y
+  `test_flujo_entrega7.py`: `GET /cambios`, el encabezado `Idempotency-Key` y
+  el flujo completo de la sección 2.8 sobre el almacén en memoria.
+- `test_cambios_postgres.py`: el registro de cambios contra PostgreSQL real:
+  un evento por parte en la misma transacción, posiciones por usuario sin
+  saltos, lotes de 100, aislamiento entre usuarios y que `UPDATE`/`DELETE`
+  sobre `cambios` están prohibidos.
 
 Para `/ping` (`test_main.py`) comprueban que:
 
@@ -511,10 +695,21 @@ recorre registro, inicio de sesión, perfil y el flujo de grupo con los gastos
 del ejemplo 2.5 (montos `NUMERIC`, regla canónica y nada guardado si el gasto
 falla): fecha en UTC aunque la base use
 otra zona horaria, 409 con todos los campos repetidos, duplicado detectado por
-la restricción `UNIQUE` y que la base solo tenga las seis tablas permitidas
-(INV-16). Todas las pruebas de PostgreSQL se omiten si no defines
-`CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en un clon
-limpio sin base de datos.
+la restricción `UNIQUE` y que la base solo tenga las tablas permitidas
+(INV-16). También recorre el flujo completo de la Entrega 7 contra PostgreSQL
+(cambios, cursor, reintentos con la misma clave y 409), comprueba que la misma
+clave de dos usuarios no choca y que usuarios, grupos, gastos y cambios siguen
+ahí tras reiniciar el servidor. Todas las pruebas de PostgreSQL se omiten si no
+defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en
+un clon limpio sin base de datos.
+
+Con Docker Compose, arranca la base y ejecuta la suite; las variables se leen
+de `.env`:
+
+```bash
+   docker compose up -d
+   uv run pytest
+```
 
 Con el clúster local, ejecútalas así:
 
@@ -542,14 +737,18 @@ servidor/
 ├── repositorio_usuarios.py            # Consultas de la tabla usuarios
 ├── repositorio_amistades.py           # Amistades: invitación, respuesta y baja (Entrega 6)
 ├── repositorio_grupos.py              # Grupos y miembros: invitar, aceptar, rechazar (Entrega 6)
-├── repositorio_gastos.py              # Gastos y partes con montos NUMERIC exactos (Entrega 6)
+├── repositorio_gastos.py              # Gastos, partes y claves de idempotencia (Entregas 6 y 7)
+├── repositorio_cambios.py             # Registro de cambios y posiciones por usuario (Entrega 7)
+├── cambios.py                         # Reglas puras del registro de cambios (Entrega 7)
+├── idempotencia.py                    # Clave, huella SHA-256 y decisión 201/200/409 (Entrega 7)
 ├── division.py                        # División exacta y balances (funciones puras, Entrega 6)
 ├── autorizacion.py                    # Miembro aceptado o el mismo 404 (Entrega 6)
 ├── reglas.py                          # Reglas de registro (funciones puras)
 ├── contrasenas.py                     # Hash argon2id y hash falso
 ├── token_sesion.py                    # Creación y verificación del JWT
 ├── scripts/
-│   └── base_datos_local.sh            # Clúster PostgreSQL local para desarrollo
+│   ├── base_datos_local.sh            # Clúster PostgreSQL local para desarrollo
+│   └── base_pruebas.sql               # Crea cuentas_claras_pruebas en Docker Compose
 ├── tests/
 │   ├── conftest.py                    # Fixtures: secreto de prueba y almacén en memoria
 │   ├── repositorio_en_memoria.py      # Almacén de usuarios falso para las rutas
@@ -559,9 +758,16 @@ servidor/
 │   ├── test_repositorio_amistades.py  # Amistades contra PostgreSQL (ídem)
 │   ├── test_repositorio_grupos.py     # Grupos y miembros contra PostgreSQL (ídem)
 │   ├── test_repositorio_gastos.py     # Gastos, partes y NUMERIC contra PostgreSQL (ídem)
-│   ├── apoyo_compartido.py            # Utilidades de las pruebas de la Entrega 6
-│   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL (ídem)
+│   ├── apoyo_compartido.py            # Utilidades de las pruebas de las Entregas 6 y 7
+│   ├── flujo_entrega7.py              # Flujo 2.8 por HTTP (memoria y PostgreSQL)
+│   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL, incluido el reinicio (ídem)
+│   ├── test_cambios_postgres.py       # Cambios, posiciones y lotes contra PostgreSQL (ídem)
 │   ├── test_reglas.py                 # Reglas de registro
+│   ├── test_reglas_cambios.py         # Reglas puras del registro de cambios
+│   ├── test_reglas_idempotencia.py    # Reglas puras de la clave de idempotencia
+│   ├── test_cambios_http.py           # GET /cambios sobre el almacén en memoria
+│   ├── test_idempotencia_http.py      # Idempotency-Key sobre el almacén en memoria
+│   ├── test_flujo_entrega7.py         # Flujo 2.8 completo sobre el almacén en memoria
 │   ├── test_seguridad.py              # Hash, token, arranque e INV-16
 │   ├── test_registro.py               # Registro de usuarios
 │   ├── test_sesion.py                 # Inicio de sesión y JWT
@@ -571,6 +777,7 @@ servidor/
 │   └── test_autorizacion.py           # Pertenencia y 404 uniforme
 ├── .env                               # Configuración local (no se versiona)
 ├── .env.example                       # Plantilla de configuración
+├── docker-compose.yml                 # PostgreSQL 17 para desarrollo y pruebas
 ├── .postgres/                         # Clúster PostgreSQL local generado (no se versiona)
 ├── openapi.yaml                       # Contrato de la API
 ├── pyproject.toml                     # Dependencias y configuración de pytest, ruff y mypy
