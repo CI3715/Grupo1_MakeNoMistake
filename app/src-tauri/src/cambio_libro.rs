@@ -19,6 +19,7 @@ use infraestructura::dispositivo::DispositivoOrigenSqlite;
 use infraestructura::id_gen::GeneradorUuid;
 use infraestructura::reloj::RelojSistema;
 use infraestructura::repositorios::RepositorioEventosSqlite;
+use infraestructura::sincronizacion::SincronizacionSqlite;
 use tauri::Manager;
 
 use crate::EstadoCasosDeUso;
@@ -35,6 +36,20 @@ pub struct LibroActual(Mutex<Actual>);
 impl LibroActual {
     pub fn nuevo(ruta: PathBuf, base: BaseDatos) -> Self {
         Self(Mutex::new(Some((ruta, base))))
+    }
+
+    /// Estado local de sincronización del libro que está abierto ahora. Toma el candado
+    /// del libro solo un instante; quien lo usa no debe tener tomado el de los casos de uso
+    /// a la vez que lo pide.
+    pub fn sincronizacion(&self) -> Result<SincronizacionSqlite, String> {
+        let actual = self
+            .0
+            .lock()
+            .map_err(|_| "El libro está ocupado, inténtalo de nuevo.".to_string())?;
+        let (_, base) = actual
+            .as_ref()
+            .ok_or_else(|| "No hay un libro abierto.".to_string())?;
+        SincronizacionSqlite::nuevo(base.conexion()).map_err(|e| e.to_string())
     }
 }
 

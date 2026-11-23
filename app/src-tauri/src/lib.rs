@@ -11,8 +11,11 @@ mod ping;
 mod previsualizacion;
 mod sesion;
 mod sincronizacion;
+mod sincronizacion_cliente;
+mod sincronizacion_libro;
 mod social;
 mod social_cliente;
+mod social_envio;
 mod social_fijo;
 mod social_real;
 mod tasas;
@@ -78,6 +81,7 @@ pub fn run() {
             social::previsualizar_division,
             sincronizacion::sincronizar,
             sincronizacion::estado_sincronizacion,
+            sincronizacion::registrar_gasto_grupo_con_cola,
             sincronizacion::cuentas_para_grupo,
             sincronizacion::elegir_cuenta_grupo,
             sincronizacion::listar_partes_pendientes,

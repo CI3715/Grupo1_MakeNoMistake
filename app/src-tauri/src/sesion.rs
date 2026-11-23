@@ -21,7 +21,10 @@ use crate::dto::{
 
 const URL_POR_DEFECTO: &str = "http://localhost:8000";
 const VARIABLE_URL: &str = "CUENTAS_CLARAS_URL";
-const TIEMPO_MAXIMO: Duration = Duration::from_secs(5);
+// Registrar crea el hash argon2 y escribe en PostgreSQL: contra Supabase una
+// petición normal ronda los 5,5 s. Con 5 s el cliente abortaba, pero el servidor
+// terminaba de guardar el usuario y la interfaz decía que no había conexión.
+const TIEMPO_MAXIMO: Duration = Duration::from_secs(20);
 const SERVICIO: &str = "cuentas-claras";
 const USUARIO_ALMACEN: &str = "sesion";
 const ARCHIVO_RESPALDO: &str = "sesion.json";
@@ -125,6 +128,7 @@ impl ClienteHttp {
         ruta: &str,
         token: &str,
         cuerpo: Option<&str>,
+        clave: Option<&str>,
     ) -> Result<Respuesta, SinConexion> {
         let cliente = Self::cliente()?;
         let url = self.url(ruta);
@@ -139,6 +143,9 @@ impl ClienteHttp {
             peticion = peticion
                 .header("Content-Type", "application/json")
                 .body(texto.to_string());
+        }
+        if let Some(clave) = clave {
+            peticion = peticion.header("Idempotency-Key", clave);
         }
         self.enviar(peticion).await
     }

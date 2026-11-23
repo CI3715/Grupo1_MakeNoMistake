@@ -678,4 +678,24 @@ mod pruebas {
             }
         }
     }
+
+    use proptest::proptest;
+
+    proptest! {
+        #[test]
+        fn propiedad_proptest_division_partes_iguales(
+            total in 1u64..100_000_000u64,
+            n in 1u64..15u64,
+        ) {
+            let g: Vec<Participante> = nombres(n)
+                .into_iter()
+                .map(|u| Participante {
+                    usuario: u,
+                    valor: String::new(),
+                })
+                .collect();
+            let d = dividir(&con_punto(i128::from(total)), "partes_iguales", &g).unwrap();
+            comprobar(&d, i128::from(total), i128::from(n));
+        }
+    }
 }

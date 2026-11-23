@@ -1570,6 +1570,11 @@ def esquema_openapi() -> dict[str, Any]:
         for ruta in esquema["paths"].values():
             for operacion in ruta.values():
                 operacion["responses"].pop("422", None)
+        # Asegura que GET /usuarios documente el query param 'usuario' como obligatorio
+        if "/usuarios" in esquema["paths"] and "get" in esquema["paths"]["/usuarios"]:
+            for param in esquema["paths"]["/usuarios"]["get"].get("parameters", []):
+                if param.get("name") == "usuario":
+                    param["required"] = True
         esquemas = esquema.get("components", {}).get("schemas", {})
         esquemas.pop("HTTPValidationError", None)
         esquemas.pop("ValidationError", None)

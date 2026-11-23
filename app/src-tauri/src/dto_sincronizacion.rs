@@ -56,6 +56,8 @@ pub struct CuentaParaGrupoDto {
 #[serde(default)]
 pub struct ConsultaCuentasGrupoDto {
     pub grupo_id: String,
+    /// Moneda del grupo: solo se ofrecen cuentas de esa moneda.
+    pub moneda: String,
 }
 
 /// Las cuentas elegibles de un grupo y cuál está elegida hoy (si hay alguna).
@@ -71,16 +73,13 @@ pub struct CuentasParaGrupoDto {
 pub struct ElegirCuentaGrupoDto {
     pub grupo_id: String,
     pub cuenta_id: String,
+    pub moneda: String,
 }
 
 /// Resultado de registrar un gasto de grupo cuando pasa por la cola local.
 /// `estado` es "registrado" (el servidor lo aceptó y `gasto` viene lleno) o
 /// "pendiente" (quedó en la cola sin conexión; `gasto` es `None`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[expect(
-    dead_code,
-    reason = "lo usa registrar_gasto_grupo cuando pase por la cola (Tarea 10)"
-)]
 pub struct ResultadoGastoGrupoDto {
     pub estado: String,
     pub clave: String,
