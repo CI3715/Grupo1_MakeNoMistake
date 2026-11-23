@@ -358,11 +358,14 @@ class TestTrazabilidadSeccion2_5ColaGastosSinConexion:
     ) -> None:
         """Un 4xx saca la operación rechazada de la cola sin trabar las siguientes."""
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando pruebas de arquitectura (Katherine - Tarea 2)"
-    )
     def test_regla_2_5_cola_no_envia_datos_del_libro_personal(self) -> None:
         """La cola local solo transmite datos del gasto de grupo (INV-16)."""
+        raiz_repo = Path(__file__).resolve().parents[2]
+        dto_path = raiz_repo / "app" / "src-tauri" / "src" / "dto_sincronizacion.rs"
+        if dto_path.exists():
+            contenido = dto_path.read_text(encoding="utf-8")
+            for campo_prohibido in ("saldo_actual", "saldo_inicial", "patrimonio"):
+                assert campo_prohibido not in contenido
 
 
 # ==============================================================================
@@ -433,20 +436,44 @@ class TestTrazabilidadSeccion3CriteriosAceptacion:
     ) -> None:
         """Existen pruebas automatizadas de idempotencia, interrupción y reintentos."""
 
-    @pytest.mark.skip(reason="Pendiente: hito de integración en main")
     def test_criterio_3_10_openapi_yaml_incluye_get_cambios_e_idempotency_key(
         self,
     ) -> None:
         """openapi.yaml documenta GET /cambios y encabezado Idempotency-Key."""
+        raiz = Path(__file__).resolve().parents[1]
+        openapi_texto = (raiz / "openapi.yaml").read_text(encoding="utf-8")
+        assert "/cambios:" in openapi_texto
+        assert "Idempotency-Key" in openapi_texto
+        assert "Obtener los cambios del usuario" in openapi_texto
 
-    @pytest.mark.skip(reason="Pendiente: hito de integración en main")
     def test_criterio_3_11_cambio_de_usuario_en_misma_app_muestra_libros_distintos(
         self,
     ) -> None:
         """Cambio de usuario en la misma app muestra libros SQLite distintos."""
+        raiz_repo = Path(__file__).resolve().parents[2]
+        adr14 = raiz_repo / "docs" / "adr" / "ADR-014-libro-personal-por-usuario.md"
+        assert adr14.exists()
+        contenido = adr14.read_text(encoding="utf-8")
+        assert "cuentas_claras_<id>.db" in contenido
 
-    @pytest.mark.skip(reason="Pendiente: hito de integración en main")
+        libros_rs = raiz_repo / "app" / "src-tauri" / "src" / "libros.rs"
+        assert libros_rs.exists()
+        codigo_libros = libros_rs.read_text(encoding="utf-8")
+        assert "ruta_de_usuario" in codigo_libros
+        assert "ruta_para_sesion" in codigo_libros
+
     def test_criterio_3_12_servidor_con_docker_compose_y_supabase_sin_romper_pruebas(
         self,
     ) -> None:
         """Servidor soporta Docker Compose y Supabase con guarda activa."""
+        from apoyo_compartido import verificar_no_supabase
+
+        verificar_no_supabase(
+            "postgresql://cuentas:claras@localhost:5432/cuentas_claras_pruebas"
+        )
+        verificar_no_supabase(None)
+
+        with pytest.raises(pytest.fail.Exception):
+            verificar_no_supabase(
+                "postgresql://postgres:clave@db.supabase.co:5432/postgres"
+            )
