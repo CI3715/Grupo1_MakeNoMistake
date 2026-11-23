@@ -62,7 +62,7 @@ pub async fn listar_amistades(app: tauri::AppHandle) -> Result<ListaAmistadesDto
 }
 
 /// Elimina una amistad. No borra los grupos ni los gastos que ya comparten.
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn eliminar_amistad(app: tauri::AppHandle, amistad_id: String) -> Result<(), ErroresDto> {
     real::eliminar_amistad_real(&app, amistad_id).await
 }
@@ -110,7 +110,7 @@ pub async fn registrar_gasto_grupo(
 }
 
 /// Miembros, gastos y balances de un grupo (solo para miembros).
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub async fn ver_grupo(
     app: tauri::AppHandle,
     grupo_id: String,

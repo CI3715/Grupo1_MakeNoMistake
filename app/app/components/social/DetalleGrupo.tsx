@@ -14,6 +14,7 @@ import { EnlaceVolver } from './EnlaceVolver';
 import { EstadoCargando } from './EstadoCargando';
 import { GastosGrupo } from './GastosGrupo';
 import { MiembrosGrupo } from './MiembrosGrupo';
+import { PanelSincronizacionGrupo } from './PanelSincronizacionGrupo';
 
 interface Props {
   ctx: ContextoSocial;
@@ -73,6 +74,7 @@ export function DetalleGrupo({ ctx, grupoId, aviso, onVolver, onNuevoGasto }: Pr
                 )}
                 <div className="grid gap-4 @2xl:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
                   <div className="min-w-0 space-y-4">
+                    <PanelSincronizacionGrupo ctx={ctx} grupoId={grupo.id} moneda={grupo.moneda} />
                     <BalancesGrupo
                       modoOscuro={ctx.modoOscuro}
                       balances={balances}

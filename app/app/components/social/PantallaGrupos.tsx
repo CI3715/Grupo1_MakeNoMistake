@@ -14,6 +14,7 @@ import { FormularioCrearGrupo } from './FormularioCrearGrupo';
 import { FormularioGasto } from './FormularioGasto';
 import { InvitacionesGrupo } from './InvitacionesGrupo';
 import { ListaGrupos } from './ListaGrupos';
+import { PanelSincronizacionLista } from './PanelSincronizacionLista';
 
 /**
  * «Grupos»: lista (con invitaciones y formulario de creación), detalle de un grupo y
@@ -54,6 +55,8 @@ export function PantallaGrupos({ ctx }: { ctx: ContextoSocial }) {
         onRegistrado={() => {
           setAviso('Gasto registrado. La división y los balances ya están actualizados.');
           setVista({ tipo: 'detalle', grupoId: vista.grupoId });
+          // Tras registrar un gasto de grupo se sincroniza (baja mi parte y envía la cola).
+          void ctx.sincronizacion.sincronizar();
         }}
       />
     );
@@ -83,6 +86,7 @@ function ListaDeGrupos({ ctx, onAbrir }: { ctx: ContextoSocial; onAbrir: (grupoI
 
       {carga.estado === 'listo' && (
         <>
+          <PanelSincronizacionLista ctx={ctx} onAbrirGrupo={onAbrir} />
           <dl className="mb-4 grid grid-cols-2 gap-3">
             <ResumenCifra
               ctx={ctx}
