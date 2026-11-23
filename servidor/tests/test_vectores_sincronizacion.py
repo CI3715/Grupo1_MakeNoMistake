@@ -88,7 +88,7 @@ def respuestas_del_servidor() -> list[dict[str, Any]]:
 
 
 def test_el_archivo_trae_el_ejemplo_y_los_casos_pedidos() -> None:
-    assert {"hotel", "cena", "taxi"} <= {g["id"] for g in GASTOS}
+    assert {"hotel", "cena", "taxi", "centimos-sin-evento"} <= {g["id"] for g in GASTOS}
     assert {
         "ejemplo-2-6",
         "lote-repetido",
@@ -132,19 +132,28 @@ def test_las_posiciones_son_crecientes_por_usuario() -> None:
                 fila["evento"]["posicion"]
             )
     for usuario, posiciones in por_usuario.items():
-        # Un excluido no consume posición: las que recibe son 1, 2, 3...
+        # Un excluido o parte 0,00 no consume posición: las que recibe son 1, 2, 3...
         assert posiciones == list(range(1, len(posiciones) + 1)), usuario
 
 
 def test_solo_reciben_evento_los_participantes() -> None:
     miembros = {"ana", "beto", "carla"}
     for gasto in GASTOS:
-        participantes = {p["usuario"] for p in gasto["participantes"]}
+        division = dividir(
+            gasto["monto"],
+            gasto["regla"],
+            [Participante(p["usuario"], p["valor"]) for p in gasto["participantes"]],
+        )
+        con_parte_positiva = {
+            p.usuario for p in division.partes if dinero(p.monto) > Decimal("0.00")
+        }
         con_evento = {f["usuario"] for f in gasto["esperado"]["eventos"]}
-        assert con_evento == participantes, gasto["id"]
-        assert set(gasto["esperado"]["sin_evento"]) == miembros - participantes
+        assert con_evento == con_parte_positiva, gasto["id"]
+        assert set(gasto["esperado"]["sin_evento"]) == miembros - con_parte_positiva
     taxi = next(g for g in GASTOS if g["id"] == "taxi")
     assert taxi["esperado"]["sin_evento"] == ["carla"]
+    centimos = next(g for g in GASTOS if g["id"] == "centimos-sin-evento")
+    assert centimos["esperado"]["sin_evento"] == ["carla"]
 
 
 def test_nada_del_libro_viaja_al_servidor() -> None:
@@ -177,8 +186,16 @@ def test_el_servidor_divide_como_el_archivo(gasto: dict[str, Any]) -> None:
         [Participante(p["usuario"], p["valor"]) for p in gasto["participantes"]],
     )
     esperadas = gasto["esperado"]["eventos"]
-    assert [p.usuario for p in division.partes] == [f["usuario"] for f in esperadas]
-    for parte, fila in zip(division.partes, esperadas, strict=True):
+    partes_con_evento = [
+        p for p in division.partes if dinero(p.monto) > Decimal("0.00")
+    ]
+    partes_en_cero = [
+        p.usuario for p in division.partes if dinero(p.monto) == Decimal("0.00")
+    ]
+    for usuario_cero in partes_en_cero:
+        assert usuario_cero in gasto["esperado"]["sin_evento"]
+    assert [p.usuario for p in partes_con_evento] == [f["usuario"] for f in esperadas]
+    for parte, fila in zip(partes_con_evento, esperadas, strict=True):
         assert parte.monto == fila["evento"]["monto"], parte.usuario
         assert parte.incluye_redondeo == fila["evento"]["incluye_redondeo"]
     assert sum(dinero(p.monto) for p in division.partes) == dinero(gasto["monto"])

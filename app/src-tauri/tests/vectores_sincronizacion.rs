@@ -115,7 +115,7 @@ fn el_archivo_trae_el_ejemplo_y_los_casos_pedidos() {
         .iter()
         .map(|g| texto(g, "id"))
         .collect();
-    for esperado in ["hotel", "cena", "taxi"] {
+    for esperado in ["hotel", "cena", "taxi", "centimos-sin-evento"] {
         assert!(gastos.contains(&esperado), "falta el gasto `{esperado}`");
     }
     let escenarios: Vec<&str> = lista(&documento, "escenarios")
@@ -178,21 +178,36 @@ fn las_posiciones_son_crecientes_por_usuario_y_solo_reciben_los_participantes() 
 
     for gasto in lista(&documento, "gastos") {
         let id = texto(gasto, "id");
-        let mut participantes: Vec<&str> = lista(gasto, "participantes")
+        let participantes: Vec<Participante> = lista(gasto, "participantes")
             .iter()
-            .map(|p| texto(p, "usuario"))
+            .map(|p| Participante {
+                usuario: texto(p, "usuario").to_string(),
+                valor: texto(p, "valor").to_string(),
+            })
             .collect();
-        participantes.sort_unstable();
+        let division = dividir(texto(gasto, "monto"), texto(gasto, "regla"), &participantes)
+            .unwrap_or_else(|e| panic!("{id}: debía dividirse y dio {e:?}"));
+
+        let mut con_parte_positiva: Vec<String> = division
+            .partes
+            .iter()
+            .filter(|p| centimos(&p.monto) > 0)
+            .map(|p| p.usuario.clone())
+            .collect();
+        con_parte_positiva.sort();
 
         let filas = lista(&gasto["esperado"], "eventos");
-        let con_evento: Vec<&str> = filas.iter().map(|f| texto(f, "usuario")).collect();
-        assert_eq!(con_evento, participantes, "{id}: quién recibe evento");
+        let con_evento: Vec<String> = filas
+            .iter()
+            .map(|f| texto(f, "usuario").to_string())
+            .collect();
+        assert_eq!(con_evento, con_parte_positiva, "{id}: quién recibe evento");
 
         let mut sin_evento: Vec<String> = ids_de(&gasto["esperado"], "sin_evento");
         sin_evento.sort();
         let esperados: Vec<String> = miembros
             .iter()
-            .filter(|m| !participantes.contains(*m))
+            .filter(|m| !con_parte_positiva.iter().any(|u| u == *m))
             .map(|m| (*m).to_string())
             .collect();
         assert_eq!(sin_evento, esperados, "{id}: quién no recibe nada");
@@ -206,7 +221,7 @@ fn las_posiciones_son_crecientes_por_usuario_y_solo_reciben_los_participantes() 
     }
 
     for (usuario, posiciones) in por_usuario {
-        // Un excluido no consume posición: las que recibe son 1, 2, 3...
+        // Un excluido o parte 0,00 no consume posición: las que recibe son 1, 2, 3...
         let esperadas: Vec<i64> = (1..=i64::try_from(posiciones.len()).unwrap()).collect();
         assert_eq!(posiciones, esperadas, "posiciones de {usuario}");
     }
@@ -256,14 +271,39 @@ fn la_division_de_la_app_coincide_con_los_eventos_del_archivo() {
         let division = dividir(texto(gasto, "monto"), texto(gasto, "regla"), &participantes)
             .unwrap_or_else(|e| panic!("{id}: debía dividirse y dio {e:?}"));
 
+        let sin_evento = ids_de(&gasto["esperado"], "sin_evento");
+        for parte in &division.partes {
+            if centimos(&parte.monto) == 0 {
+                assert!(
+                    sin_evento.contains(&parte.usuario),
+                    "{id}: {} tiene parte 0,00 y debe ir en sin_evento",
+                    parte.usuario
+                );
+            }
+        }
+
+        let partes_con_evento: Vec<_> = division
+            .partes
+            .iter()
+            .filter(|p| centimos(&p.monto) > 0)
+            .collect();
         let filas = lista(&gasto["esperado"], "eventos");
         assert_eq!(
-            division.partes.len(),
+            partes_con_evento.len(),
             filas.len(),
-            "{id}: cantidad de partes"
+            "{id}: cantidad de partes con evento"
         );
         let mut suma = 0;
-        for (parte, fila) in division.partes.iter().zip(filas) {
+        for parte in &division.partes {
+            suma += centimos(&parte.monto);
+        }
+        assert_eq!(
+            suma,
+            centimos(texto(gasto, "monto")),
+            "{id}: la suma de las partes"
+        );
+
+        for (parte, fila) in partes_con_evento.iter().zip(filas) {
             let evento = &fila["evento"];
             assert_eq!(parte.usuario, texto(fila, "usuario"), "{id}: usuario");
             assert_eq!(
@@ -278,13 +318,7 @@ fn la_division_de_la_app_coincide_con_los_eventos_del_archivo() {
                 "{id}: marca de redondeo de {}",
                 parte.usuario
             );
-            suma += centimos(&parte.monto);
         }
-        assert_eq!(
-            suma,
-            centimos(texto(gasto, "monto")),
-            "{id}: la suma de las partes"
-        );
 
         for fila in filas {
             let evento = &fila["evento"];

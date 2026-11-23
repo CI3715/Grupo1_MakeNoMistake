@@ -4,8 +4,8 @@
   "formato": {
     "montos": "Texto con punto decimal y dos decimales («33.33»); nunca número JSON.",
     "evento": "Forma de cada evento de GET /cambios: {id, posicion, tipo, grupo:{id,nombre}, gasto:{id,concepto}, fecha, moneda, monto, incluye_redondeo}. Los tipos que no son «gasto_de_grupo» pueden traer cualquier otro campo y se ignoran.",
-    "posicion": "Entera y creciente por usuario, empezando en 1. Un miembro excluido de un gasto no consume posición.",
-    "gastos": "Secuencia ordenada de gastos registrados en el grupo. «esperado.eventos» trae el evento de cada participante (en orden alfabético de usuario) y «sin_evento» a quienes no reciben nada. Los lee el servidor y la app.",
+    "posicion": "Entera y creciente por usuario, empezando en 1. Un miembro excluido de un gasto o cuya parte sea «0.00» no recibe evento ni consume posición.",
+    "gastos": "Secuencia ordenada de gastos registrados en el grupo. «esperado.eventos» trae el evento de cada participante con parte mayor que «0.00» (en orden alfabético de usuario) y «sin_evento» a los miembros que no reciben evento (excluidos o con parte «0.00»). Los lee el servidor y la app.",
     "escenarios": "Solo para la app. Cada paso trae la acción y el estado esperado después de ejecutarla. Acciones: elegir_cuenta, sincronizar (con la «respuesta» del servidor), reiniciar_cursor, encolar_gasto y enviar_cola.",
     "cursor": "Después de sincronizar vale «respuesta.cursor»: la posición del último evento del lote, o «desde» si el lote viene vacío. Los eventos ignorados también hacen avanzar el cursor.",
     "estado": "«saldos» por nombre de cuenta; «movimientos» son los ids de evento aplicados, en orden; «pendientes» los ids de las partes sin cuenta elegida; «cola» cuántos gastos esperan envío; «aplicados» e «ignorados» cuentan los eventos de ese lote.",
@@ -265,6 +265,82 @@
               "moneda": "USD",
               "monto": "20.00",
               "incluye_redondeo": false
+            }
+          }
+        ],
+        "sin_evento": [
+          "carla"
+        ]
+      }
+    },
+    {
+      "id": "centimos-sin-evento",
+      "descripcion": "Gasto de 0,02 entre tres: ana y beto reciben 0,01 con redondeo; carla tiene parte 0,00 y no genera evento ni consume posición (ADR-015).",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "gasto_id": "9c3f8a12-7e4b-5d1a-9f60-4b8e2c1a7d39",
+      "concepto": "Peaje mínimo",
+      "fecha": "2026-03-17",
+      "monto": "0.02",
+      "pagador": "ana",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "eventos": [
+          {
+            "usuario": "ana",
+            "evento": {
+              "id": "b7d4e219-8c3a-5f61-a492-6e1d9c3b8a50",
+              "posicion": 4,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "9c3f8a12-7e4b-5d1a-9f60-4b8e2c1a7d39",
+                "concepto": "Peaje mínimo"
+              },
+              "fecha": "2026-03-17",
+              "moneda": "USD",
+              "monto": "0.01",
+              "incluye_redondeo": true
+            }
+          },
+          {
+            "usuario": "beto",
+            "evento": {
+              "id": "c8e5f320-9d4b-5a72-b503-7f2e0d4c9b61",
+              "posicion": 4,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "9c3f8a12-7e4b-5d1a-9f60-4b8e2c1a7d39",
+                "concepto": "Peaje mínimo"
+              },
+              "fecha": "2026-03-17",
+              "moneda": "USD",
+              "monto": "0.01",
+              "incluye_redondeo": true
             }
           }
         ],
