@@ -60,7 +60,11 @@ def es_host_supabase(url: str | None) -> bool:
     if not url:
         return False
     url_baja = url.lower()
-    return "supabase.co" in url_baja or "pooler.supabase.com" in url_baja or "supabase" in url_baja
+    return (
+        "supabase.co" in url_baja
+        or "pooler.supabase.com" in url_baja
+        or "supabase" in url_baja
+    )
 
 
 def verificar_no_supabase(url: str | None) -> None:
@@ -257,9 +261,7 @@ def base_datos_pruebas() -> BaseDatos:
 
 
 @pytest.fixture
-def grupo_merida(
-    cliente: TestClient, usuarios_flujo: dict[str, dict[str, Any]]
-) -> str:
+def grupo_merida(cliente: TestClient, usuarios_flujo: dict[str, dict[str, Any]]) -> str:
     """Crea el grupo «Viaje a Mérida» en USD con miembros aceptados.
 
     - ana: creadora y administradora
@@ -293,4 +295,3 @@ def leer_cambios(
 ) -> Any:
     """Consulta GET /cambios?desde=<cursor> con el token del usuario."""
     return c.get(f"/cambios?desde={desde}", headers=auth)
-

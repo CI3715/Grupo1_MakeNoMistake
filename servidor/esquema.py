@@ -261,14 +261,34 @@ SENTENCIAS_ESQUEMA: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS cambios_por_gasto
         ON cambios (gasto_id)
     """,
-    # ------------------------------------------------------------- posiciones
+    # ------------------------------------------------------ posiciones_usuario
     # Un contador por usuario, nunca global: así un cursor no puede saltarse
     # un evento confirmado después. Se actualiza dentro de la transacción del
     # gasto con ON CONFLICT DO UPDATE, que bloquea la fila del contador.
     """
-    CREATE TABLE IF NOT EXISTS posiciones (
+    CREATE TABLE IF NOT EXISTS posiciones_usuario (
         usuario_id      UUID PRIMARY KEY REFERENCES usuarios (id),
         ultima_posicion BIGINT NOT NULL DEFAULT 0 CHECK (ultima_posicion >= 0)
+    )
+    """,
+    # --------------------------------------------------- claves_idempotencia
+    # La clave viaja en el encabezado Idempotency-Key; la huella es el SHA-256
+    # del cuerpo canónico (incluida la lista ordenada de participantes). El
+    # repositorio que la consulta y guarda se agregará después; aquí queda
+    # creada la tabla para que el esquema ya esté completo desde el arranque.
+    """
+    CREATE TABLE IF NOT EXISTS claves_idempotencia (
+        usuario_id    UUID NOT NULL REFERENCES usuarios (id),
+        clave         VARCHAR(128) NOT NULL,
+        huella_cuerpo VARCHAR(64) NOT NULL,
+        gasto_id      UUID NOT NULL REFERENCES gastos (id),
+        creado_en     TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+        PRIMARY KEY (usuario_id, clave),
+        CONSTRAINT claves_clave_valida
+            CHECK (length(btrim(clave)) BETWEEN 8 AND 128),
+        CONSTRAINT claves_huella_hex
+            CHECK (huella_cuerpo ~ '^[0-9a-f]{64}$')
     )
     """,
     # --------------------------------------------------------- solo se agrega

@@ -203,7 +203,7 @@ def test_si_falla_el_registro_no_quedan_eventos_ni_posiciones(
 
     with escenario.base_datos.conexion() as conexion:
         totales = {}
-        for tabla in ("gastos", "partes_gasto", "cambios", "posiciones"):
+        for tabla in ("gastos", "partes_gasto", "cambios", "posiciones_usuario"):
             fila = conexion.execute(f"SELECT count(*) AS total FROM {tabla}").fetchone()
             assert fila is not None
             totales[tabla] = fila["total"]

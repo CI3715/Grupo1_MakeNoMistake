@@ -34,10 +34,10 @@ TAMANO_LOTE = 100
 LIMITE_CONSULTA = TAMANO_LOTE + 1
 
 SQL_POSICION = """
-    INSERT INTO posiciones (usuario_id, ultima_posicion)
+    INSERT INTO posiciones_usuario (usuario_id, ultima_posicion)
     VALUES (%s, 1)
     ON CONFLICT (usuario_id) DO UPDATE
-    SET ultima_posicion = posiciones.ultima_posicion + 1
+    SET ultima_posicion = posiciones_usuario.ultima_posicion + 1
     RETURNING ultima_posicion
 """
 
@@ -87,7 +87,7 @@ class LoteCambios:
 
 
 class RepositorioCambios:
-    """Consultas y escrituras de `cambios` y `posiciones`."""
+    """Consultas y escrituras de `cambios` y `posiciones_usuario`."""
 
     def __init__(self, base_datos: BaseDatos) -> None:
         self._base_datos = base_datos
