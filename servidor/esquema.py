@@ -2,7 +2,9 @@
 
 Todo el DDL vive aquí para que `base_datos.py` se ocupe solo de las
 conexiones. Las sentencias son idempotentes: se ejecutan al arrancar y no
-hacen nada si las tablas y los índices ya existen.
+hacen nada si las tablas y los índices ya existen. Al final se activa RLS en
+todas las tablas de `public` y se retiran los permisos a los roles de la API
+de Supabase cuando existen.
 
 INV-16: aquí no hay tablas del libro personal (cuentas, movimientos, saldos,
 tasas ni categorías). Solo se guarda lo que ven varias personas: amistades,
@@ -214,6 +216,43 @@ SENTENCIAS_ESQUEMA: tuple[str, ...] = (
                 ALTER COLUMN monto TYPE NUMERIC(14, 2)
                 USING (monto::numeric / 100);
         END IF;
+    END
+    $$
+    """,
+    # ------------------------------------------------------------------- RLS
+    # El servidor entra con el rol dueño de las tablas, que no está sujeto a
+    # las políticas: el RLS protege a los roles de la API de Supabase. El
+    # bloque se ejecuta en cada arranque, así que cubre también las tablas
+    # nuevas que añadan las entregas siguientes. Revocar a roles inexistentes
+    # sería un error, por eso se comprueba antes en `pg_roles`.
+    """
+    DO $$
+    DECLARE
+        tabla record;
+        roles text;
+    BEGIN
+        SELECT string_agg(format('%I', rolname), ', ')
+          INTO roles
+          FROM pg_roles
+         WHERE rolname IN ('anon', 'authenticated');
+
+        FOR tabla IN
+            SELECT c.relname
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public'
+               AND c.relkind IN ('r', 'p')
+        LOOP
+            EXECUTE format(
+                'ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tabla.relname
+            );
+
+            IF roles IS NOT NULL THEN
+                EXECUTE format(
+                    'REVOKE ALL ON TABLE public.%I FROM %s', tabla.relname, roles
+                );
+            END IF;
+        END LOOP;
     END
     $$
     """,
