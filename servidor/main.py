@@ -906,6 +906,7 @@ def eliminar_amistad(
     status_code=201,
     tags=["Grupos"],
     summary="Crear grupo",
+    operation_id="crearGrupo",
 )
 def crear_grupo(
     cuerpo: NuevoGrupo,
@@ -967,6 +968,7 @@ def crear_grupo(
     "/grupos",
     tags=["Grupos"],
     summary="Listar mis grupos",
+    operation_id="listarMisGrupos",
 )
 def listar_mis_grupos(
     credenciales: Annotated[
@@ -1026,6 +1028,7 @@ def listar_mis_grupos(
     "/grupos/{id_grupo}",
     tags=["Grupos"],
     summary="Detalle de grupo",
+    operation_id="obtenerGrupo",
 )
 def obtener_grupo(
     id_grupo: str,
@@ -1105,6 +1108,7 @@ def obtener_grupo(
     status_code=201,
     tags=["Grupos"],
     summary="Invitar miembro a grupo",
+    operation_id="invitarAlGrupo",
 )
 def invitar_miembro(
     id_grupo: str,
@@ -1173,6 +1177,7 @@ def invitar_miembro(
     "/grupos/{id_grupo}/miembros/yo/respuesta",
     tags=["Grupos"],
     summary="Responder invitación a grupo",
+    operation_id="responderInvitacionGrupo",
 )
 def responder_invitacion_grupo(
     id_grupo: str,

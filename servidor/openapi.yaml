@@ -160,14 +160,16 @@ paths:
       description: |
         Busca solo coincidencias exactas del nombre de usuario. Nunca devuelve
         el correo ni permite enumerar personas: no hay búsqueda parcial, por
-        prefijo ni listados (RF-SOC-04). Sin el parámetro `usuario` responde 400.
+        prefijo ni listados (RF-SOC-04). El parámetro se declara opcional
+        porque el servidor responde 400 con el error por campo (no 422) cuando
+        falta o viene vacío.
       operationId: buscarUsuario
       security:
         - tokenBearer: []
       parameters:
         - name: usuario
           in: query
-          required: true
+          required: false
           description: Nombre de usuario exacto, por ejemplo `ana.perez`.
           schema:
             type: string
@@ -561,7 +563,10 @@ paths:
 
         Al guardar el gasto, el servidor agrega al registro de cambios de cada
         participante un evento con su parte (ver `GET /cambios`). Quien queda
-        fuera del reparto no recibe nada. Gasto, eventos y clave se guardan en
+        fuera del reparto no recibe nada, y tampoco quien recibe una parte de
+        0,00 (por ejemplo, 0,02 entre tres: la tercera parte es 0,00): el
+        libro personal no admite movimientos de cero, así que ese evento no se
+        crea ni consume una posición. Gasto, eventos y clave se guardan en
         una sola transacción.
 
         ## Clave de idempotencia (RNF-17, ESC-09)
@@ -732,9 +737,9 @@ paths:
           registro solo crece, no se modifica ni se borra (INV-13).
         - Solo se entregan eventos de gastos de grupos de los que quien
           consulta es participante del gasto. Un miembro excluido de la
-          división no recibe nada, y nunca se entregan eventos de otras
-          personas ni de grupos ajenos (INV-17). Por eso esta ruta no responde
-          404.
+          división no recibe nada (tampoco quien recibe una parte de 0,00), y
+          nunca se entregan eventos de otras personas ni de grupos ajenos
+          (INV-17). Por eso esta ruta no responde 404.
         - El servidor solo entrega partes. No sabe qué cuentas tiene la
           persona, en cuál se aplicó cada parte ni cuál es su saldo (INV-16).
         - Los clientes deben ignorar, sin fallar, los eventos de un `tipo` que

@@ -237,7 +237,7 @@ def exigido_entrega_7(
 
 
 def main() -> int:
-    import yaml  # PyYAML llega con `uv run --with pyyaml`
+    import yaml  # type: ignore[import-untyped]
 
     from main import app  # aquí para poder probar `comparar` sin FastAPI
 
