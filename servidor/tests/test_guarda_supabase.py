@@ -5,7 +5,6 @@ contra la base de datos compartida en Supabase.
 """
 
 import pytest
-
 from apoyo_compartido import (
     MENSAJE_ERROR_SUPABASE,
     es_host_supabase,

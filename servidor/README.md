@@ -120,6 +120,33 @@ repositorio ni dentro de `app/`: el servidor no lo leería.
    uv run uvicorn main:app --reload --port 8000
 ```
 
+### RLS en todas las tablas
+
+Al arrancar, el esquema activa `ROW LEVEL SECURITY` en todas las tablas de
+`public`, incluidas las que añadan las entregas siguientes. Si los roles
+`anon` y `authenticated` existen (en Supabase), les revoca todos los permisos;
+en el compose no existen y no se hace nada. El servidor entra con el rol
+dueño de las tablas, así que RLS no cambia su comportamiento.
+
+La prueba lo comprueba contra PostgreSQL real: recorre todas las tablas de
+`public` y falla si alguna no tiene RLS. En local:
+
+```bash
+uv run pytest -q tests/test_rls_postgres.py
+```
+
+Para pasarla contra Supabase sin exponer el resto de la suite a los
+`TRUNCATE` de las pruebas de repositorio, apunta solo esa variable:
+
+```bash
+set -a; source .env; set +a
+CUENTAS_CLARAS_DB_URL_PRUEBAS="$CUENTAS_CLARAS_DB_URL" \
+  uv run pytest -q tests/test_rls_postgres.py
+```
+
+La prueba no borra datos: aplica el esquema, que es idempotente, y lee los
+catálogos de PostgreSQL.
+
 ### Variables de entorno
 
 | Variable | Obligatoria | Valor por defecto | Para qué sirve |

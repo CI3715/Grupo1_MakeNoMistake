@@ -2,7 +2,9 @@
 
 Todo el DDL vive aquí para que `base_datos.py` se ocupe solo de las
 conexiones. Las sentencias son idempotentes: se ejecutan al arrancar y no
-hacen nada si las tablas y los índices ya existen.
+hacen nada si las tablas y los índices ya existen. Al final se activa RLS en
+todas las tablas de `public` y se retiran los permisos a los roles de la API
+de Supabase cuando existen.
 
 INV-16: aquí no hay tablas del libro personal (cuentas, movimientos, saldos,
 tasas ni categorías). Solo se guarda lo que ven varias personas: amistades,
@@ -214,6 +216,141 @@ SENTENCIAS_ESQUEMA: tuple[str, ...] = (
                 ALTER COLUMN monto TYPE NUMERIC(14, 2)
                 USING (monto::numeric / 100);
         END IF;
+    END
+    $$
+    """,
+    # ---------------------------------------------------------------- cambios
+    # Registro de cambios de la Entrega 7. Un evento por participante de un
+    # gasto, con posición consecutiva por usuario (cursor). `id` se genera en
+    # Python con UUIDv5 de (gasto_id, usuario_id): nunca cambia y permite al
+    # libro ignorar el evento si baja dos veces (INV-13, INV-15). El registro
+    # solo crece: el disparador de más abajo impide UPDATE y DELETE.
+    """
+    CREATE TABLE IF NOT EXISTS cambios (
+        id               UUID PRIMARY KEY,
+        usuario_id       UUID NOT NULL REFERENCES usuarios (id),
+        posicion         BIGINT NOT NULL CHECK (posicion > 0),
+        grupo_id         UUID NOT NULL REFERENCES grupos (id),
+        nombre_grupo     VARCHAR(80) NOT NULL,
+        gasto_id         UUID NOT NULL REFERENCES gastos (id),
+        concepto         VARCHAR(200) NOT NULL,
+        fecha            DATE NOT NULL,
+        moneda           VARCHAR(3) NOT NULL,
+        monto            NUMERIC(14, 2) NOT NULL CHECK (monto >= 0),
+        incluye_redondeo BOOLEAN NOT NULL DEFAULT FALSE,
+        creado_en        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+        CONSTRAINT cambios_usuario_posicion_unico UNIQUE (usuario_id, posicion),
+        CONSTRAINT cambios_un_evento_por_parte UNIQUE (gasto_id, usuario_id),
+        CONSTRAINT cambios_nombre_grupo_no_vacio
+            CHECK (btrim(nombre_grupo) <> ''),
+        CONSTRAINT cambios_concepto_no_vacio
+            CHECK (btrim(concepto) <> ''),
+        CONSTRAINT cambios_moneda_iso CHECK (moneda ~ '^[A-Z]{3}$'),
+
+        -- Solo quien tiene parte en el gasto recibe el evento (INV-17):
+        -- un miembro excluido de la división no existe en partes_gasto.
+        CONSTRAINT cambios_es_parte
+            FOREIGN KEY (gasto_id, usuario_id)
+            REFERENCES partes_gasto (gasto_id, usuario_id)
+    )
+    """,
+    # El índice único (usuario_id, posicion) ya cubre la lectura por cursor.
+    # Este otro sirve para las comprobaciones de la llave foránea compuesta.
+    """
+    CREATE INDEX IF NOT EXISTS cambios_por_gasto
+        ON cambios (gasto_id)
+    """,
+    # ------------------------------------------------------ posiciones_usuario
+    # Un contador por usuario, nunca global: así un cursor no puede saltarse
+    # un evento confirmado después. Se actualiza dentro de la transacción del
+    # gasto con ON CONFLICT DO UPDATE, que bloquea la fila del contador.
+    """
+    CREATE TABLE IF NOT EXISTS posiciones_usuario (
+        usuario_id      UUID PRIMARY KEY REFERENCES usuarios (id),
+        ultima_posicion BIGINT NOT NULL DEFAULT 0 CHECK (ultima_posicion >= 0)
+    )
+    """,
+    # --------------------------------------------------- claves_idempotencia
+    # La clave viaja en el encabezado Idempotency-Key; la huella es el SHA-256
+    # del cuerpo canónico (incluida la lista ordenada de participantes). El
+    # repositorio que la consulta y guarda se agregará después; aquí queda
+    # creada la tabla para que el esquema ya esté completo desde el arranque.
+    """
+    CREATE TABLE IF NOT EXISTS claves_idempotencia (
+        usuario_id    UUID NOT NULL REFERENCES usuarios (id),
+        clave         VARCHAR(128) NOT NULL,
+        huella_cuerpo VARCHAR(64) NOT NULL,
+        gasto_id      UUID NOT NULL REFERENCES gastos (id),
+        creado_en     TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+        PRIMARY KEY (usuario_id, clave),
+        CONSTRAINT claves_clave_valida
+            CHECK (length(btrim(clave)) BETWEEN 8 AND 128),
+        CONSTRAINT claves_huella_hex
+            CHECK (huella_cuerpo ~ '^[0-9a-f]{64}$')
+    )
+    """,
+    # --------------------------------------------------------- solo se agrega
+    """
+    CREATE OR REPLACE FUNCTION cambios_solo_crecen()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+        RAISE EXCEPTION 'el registro de cambios solo acepta inserciones';
+    END;
+    $$
+    """,
+    # CREATE TRIGGER no admite IF NOT EXISTS, así que se comprueba en pg_trigger.
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger
+            WHERE tgrelid = 'public.cambios'::regclass
+              AND tgname = 'cambios_inmutables'
+              AND NOT tgisinternal
+        ) THEN
+            CREATE TRIGGER cambios_inmutables
+                BEFORE UPDATE OR DELETE ON public.cambios
+                FOR EACH ROW EXECUTE FUNCTION cambios_solo_crecen();
+        END IF;
+    END
+    $$
+    """,
+    # ------------------------------------------------------------------- RLS
+    # El servidor entra con el rol dueño de las tablas, que no está sujeto a
+    # las políticas: el RLS protege a los roles de la API de Supabase. El
+    # bloque se ejecuta en cada arranque, así que cubre también las tablas
+    # nuevas que añadan las entregas siguientes. Revocar a roles inexistentes
+    # sería un error, por eso se comprueba antes en `pg_roles`.
+    """
+    DO $$
+    DECLARE
+        tabla record;
+        roles text;
+    BEGIN
+        SELECT string_agg(format('%I', rolname), ', ')
+          INTO roles
+          FROM pg_roles
+         WHERE rolname IN ('anon', 'authenticated');
+
+        FOR tabla IN
+            SELECT c.relname
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public'
+               AND c.relkind IN ('r', 'p')
+        LOOP
+            EXECUTE format(
+                'ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tabla.relname
+            );
+
+            IF roles IS NOT NULL THEN
+                EXECUTE format(
+                    'REVOKE ALL ON TABLE public.%I FROM %s', tabla.relname, roles
+                );
+            END IF;
+        END LOOP;
     END
     $$
     """,

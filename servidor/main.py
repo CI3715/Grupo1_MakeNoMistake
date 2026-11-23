@@ -42,6 +42,7 @@ from repositorio_amistades import (
     RepositorioAmistades,
     YaSonAmigos,
 )
+from repositorio_cambios import RepositorioCambios
 from repositorio_gastos import (
     GastoInvalido,
     GastoVista,
@@ -211,10 +212,12 @@ async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
         usuarios: AlmacenUsuarios = RepositorioUsuarios(base_datos)
         grupos: AlmacenGrupos = RepositorioGrupos(base_datos)
         amistades: AlmacenAmistades = RepositorioAmistades(base_datos)
-        gastos: AlmacenGastos = RepositorioGastos(base_datos)
+        cambios = RepositorioCambios(base_datos)
+        gastos: AlmacenGastos = RepositorioGastos(base_datos, cambios)
         app.state.repositorio_usuarios = usuarios
         app.state.repositorio_grupos = grupos
         app.state.repositorio_amistades = amistades
+        app.state.repositorio_cambios = cambios
         app.state.repositorio_gastos = gastos
     token_sesion.comprobar_configuracion()
 
