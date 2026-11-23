@@ -6,14 +6,55 @@ pendientes que cubren cada regla de las secciones 2.1 a 2.5 y los criterios de l
 sección 3 del enunciado de la Entrega 7.
 """
 
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
 from apoyo_compartido import (
     crear_grupo_merida_http,
+    leer_cambios_http,
     registrar_gasto_idempotente_http,
 )
 from fastapi.testclient import TestClient
+
+Usuarios = dict[str, dict[str, Any]]
+HOTEL: dict[str, Any] = {
+    "concepto": "Hotel",
+    "monto": "100.00",
+    "fecha": "2026-03-14",
+    "pagador": "ana",
+    "regla": "partes_iguales",
+    "participantes": [
+        {"usuario": "ana", "valor": ""},
+        {"usuario": "beto", "valor": ""},
+        {"usuario": "carla", "valor": ""},
+    ],
+}
+
+
+def registrar(
+    cliente: TestClient,
+    grupo_id: str,
+    usuarios: Usuarios,
+    quien: str,
+    cuerpo: dict[str, Any],
+) -> dict[str, Any]:
+    resp = registrar_gasto_idempotente_http(
+        cliente, grupo_id, usuarios[quien]["auth"], cuerpo
+    )
+    assert resp.status_code == 201, resp.text
+    gasto: dict[str, Any] = resp.json()
+    return gasto
+
+
+def cambios(
+    cliente: TestClient, usuarios: Usuarios, quien: str, desde: int = 0
+) -> dict[str, Any]:
+    resp = leer_cambios_http(cliente, usuarios[quien]["auth"], desde)
+    assert resp.status_code == 200, resp.text
+    datos: dict[str, Any] = resp.json()
+    return datos
 
 
 class TestAyudantesEntrega7:
@@ -32,8 +73,6 @@ class TestAyudantesEntrega7:
             resp = cliente.get(f"/grupos/{grupo_id}", headers=usuarios_flujo[u]["auth"])
             assert resp.status_code == 200
             datos = resp.json()
-            # El detalle de grupo agrupa sus datos bajo `grupo` (contrato de
-            # la Entrega 6); no los devuelve sueltos en la raíz.
             assert datos["grupo"]["nombre"] == "Viaje a Mérida"
             assert datos["grupo"]["moneda"] == "USD"
 
@@ -93,7 +132,7 @@ class TestAyudantesEntrega7:
             cuerpo,
             clave_idempotencia="clave-uuid-12345",
         )
-        # El servidor responde 201; la clave se procesará en la Tarea 4.
+        # Clave nueva: 201. Los reintentos (200 y 409) los prueba la regla 2.5.
         assert resp.status_code == 201
 
 
@@ -103,51 +142,100 @@ class TestAyudantesEntrega7:
 
 
 class TestTrazabilidadSeccion2_1RegistroCambios:
-    """Reglas de la sección 2.1: Registro de Cambios en el Servidor."""
+    """Reglas de la sección 2.1: Registro de Cambios en el Servidor (John).
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando implementación del servidor (John - Tarea 3)"
-    )
-    def test_regla_2_1_gasto_agrega_evento_a_cada_participante(self) -> None:
+    El detalle de cada regla está en ``test_cambios_http.py`` y
+    ``test_reglas_cambios.py``; aquí queda una prueba por regla del enunciado.
+    """
+
+    def test_regla_2_1_gasto_agrega_evento_a_cada_participante(
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
+    ) -> None:
         """Al registrar un gasto, el servidor agrega un evento a cada participante."""
+        gasto = registrar(cliente, grupo_merida, usuarios_flujo, "ana", HOTEL)
+        for u in ("ana", "beto", "carla"):
+            (evento,) = cambios(cliente, usuarios_flujo, u)["eventos"]
+            assert evento["gasto"]["id"] == gasto["id"]
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando implementación del servidor (John - Tarea 3)"
-    )
-    def test_regla_2_1_evento_trae_campos_acordados_y_marca_redondeo(self) -> None:
-        """El evento incluye grupo, gasto, concepto, fecha, moneda y monto."""
+    def test_regla_2_1_evento_trae_campos_acordados_y_marca_redondeo(
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
+    ) -> None:
+        """El evento trae grupo, gasto, concepto, fecha, moneda, monto y redondeo."""
+        registrar(cliente, grupo_merida, usuarios_flujo, "ana", HOTEL)
+        (evento,) = cambios(cliente, usuarios_flujo, "ana")["eventos"]
+        assert evento["grupo"] == {"id": grupo_merida, "nombre": "Viaje a Mérida"}
+        assert evento["gasto"]["concepto"] == "Hotel"
+        assert (evento["fecha"], evento["moneda"]) == ("2026-03-14", "USD")
+        assert (evento["monto"], evento["incluye_redondeo"]) == ("33.34", True)
+        assert evento["tipo"] == "gasto_de_grupo"
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando implementación del servidor (John - Tarea 3)"
-    )
-    def test_regla_2_1_identificador_unico_y_posicion_creciente_cursor(self) -> None:
+    def test_regla_2_1_identificador_unico_y_posicion_creciente_cursor(
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
+    ) -> None:
         """Cada evento tiene id inmutable y posición creciente por usuario."""
+        for concepto in ("Hotel", "Cena", "Taxi"):
+            registrar(
+                cliente,
+                grupo_merida,
+                usuarios_flujo,
+                "ana",
+                {**HOTEL, "concepto": concepto},
+            )
+        datos = cambios(cliente, usuarios_flujo, "beto")
+        assert [e["posicion"] for e in datos["eventos"]] == [1, 2, 3]
+        assert datos["cursor"] == 3
+        assert len({e["id"] for e in datos["eventos"]}) == 3
+        assert cambios(cliente, usuarios_flujo, "beto") == datos
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando implementación del servidor (John - Tarea 3)"
-    )
-    def test_regla_2_1_miembro_excluido_no_recibe_evento(self) -> None:
+    def test_regla_2_1_miembro_excluido_no_recibe_evento(
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
+    ) -> None:
         """Un miembro excluido de la división no recibe evento en su registro."""
+        taxi = {**HOTEL, "participantes": HOTEL["participantes"][:2]}
+        registrar(cliente, grupo_merida, usuarios_flujo, "ana", taxi)
+        assert cambios(cliente, usuarios_flujo, "carla")["eventos"] == []
+        assert len(cambios(cliente, usuarios_flujo, "beto")["eventos"]) == 1
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando implementación del servidor (John - Tarea 3)"
-    )
-    def test_regla_2_1_no_miembro_no_recibe_eventos_de_grupo_ajeno(self) -> None:
+    def test_regla_2_1_no_miembro_no_recibe_eventos_de_grupo_ajeno(
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
+    ) -> None:
         """Nadie recibe eventos de grupos a los que no pertenece (INV-17)."""
+        registrar(cliente, grupo_merida, usuarios_flujo, "ana", HOTEL)
+        assert cambios(cliente, usuarios_flujo, "dario") == {
+            "eventos": [],
+            "cursor": 0,
+            "hay_mas": False,
+        }
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando implementación del servidor (John - Tarea 3)"
-    )
     def test_regla_2_1_registro_solo_crece_sin_update_ni_delete(self) -> None:
-        """El registro de cambios solo crece: no admite UPDATE ni DELETE."""
+        """El registro de cambios solo crece: no admite UPDATE ni DELETE.
 
-    @pytest.mark.skip(
-        reason="Pendiente: esperando implementación del servidor (John - Tarea 3)"
-    )
+        Aquí se comprueba que el código del servidor no tiene ningún UPDATE ni
+        DELETE sobre la tabla ``cambios``. Los disparadores que lo impiden en
+        PostgreSQL llegan con el repositorio de cambios (prueba directa aparte).
+        """
+        raiz = Path(__file__).resolve().parents[1]
+        prohibido = re.compile(r"(UPDATE|DELETE\s+FROM)\s+cambios\b", re.IGNORECASE)
+        for archivo in raiz.glob("*.py"):
+            assert not prohibido.search(archivo.read_text(encoding="utf-8")), archivo
+
     def test_regla_2_1_get_cambios_devuelve_en_orden_lotes_100_cursor_y_hay_mas(
-        self,
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
     ) -> None:
         """GET /cambios entrega en orden hasta 100 eventos, cursor y hay_mas."""
+        solo_dos = {
+            **HOTEL,
+            "monto": "2.00",
+            "participantes": HOTEL["participantes"][:2],
+        }
+        for _ in range(101):
+            registrar(cliente, grupo_merida, usuarios_flujo, "ana", solo_dos)
+        primero = cambios(cliente, usuarios_flujo, "beto")
+        assert [e["posicion"] for e in primero["eventos"]] == list(range(1, 101))
+        assert (primero["cursor"], primero["hay_mas"]) == (100, True)
+        segundo = cambios(cliente, usuarios_flujo, "beto", 100)
+        assert [e["posicion"] for e in segundo["eventos"]] == [101]
+        assert (segundo["cursor"], segundo["hay_mas"]) == (101, False)
 
 
 class TestTrazabilidadSeccion2_2CuentaGrupo:
@@ -199,7 +287,7 @@ class TestTrazabilidadSeccion2_3AplicarSinDuplicar:
 
     @pytest.mark.skip(reason="Pendiente: esperando núcleo en Rust (Cristina - Tarea 7)")
     def test_regla_2_3_eventos_desconocidos_se_ignoran_sin_fallar(self) -> None:
-        """Los tipos de eventos desconocidos se ignoran sin romper la cola."""
+        """Los tipos de evento desconocidos se ignoran sin romper la sincronización."""
 
 
 class TestTrazabilidadSeccion2_4CuandoseSincroniza:
@@ -243,15 +331,32 @@ class TestTrazabilidadSeccion2_5ColaGastosSinConexion:
     ) -> None:
         """La clave de idempotencia se genera una sola vez y se reintenta intacta."""
 
-    @pytest.mark.skip(reason="Pendiente: esperando POST idempotente (John - Tarea 4)")
-    def test_regla_2_5_servidor_devuelve_gasto_ya_procesado_sin_duplicar(self) -> None:
+    def test_regla_2_5_servidor_devuelve_gasto_ya_procesado_sin_duplicar(
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
+    ) -> None:
         """El servidor devuelve 200 con el gasto ya procesado si la clave coincide."""
+        auth = usuarios_flujo["ana"]["auth"]
+        clave = "clave-uuid-12345"
+        primero = registrar_gasto_idempotente_http(
+            cliente, grupo_merida, auth, HOTEL, clave
+        )
+        assert primero.status_code == 201
+        repetido = registrar_gasto_idempotente_http(
+            cliente, grupo_merida, auth, HOTEL, clave
+        )
+        assert repetido.status_code == 200
+        assert repetido.json() == primero.json()
+        otro = registrar_gasto_idempotente_http(
+            cliente, grupo_merida, auth, {**HOTEL, "monto": "90.00"}, clave
+        )
+        assert otro.status_code == 409
+        assert len(cambios(cliente, usuarios_flujo, "beto")["eventos"]) == 1
 
     @pytest.mark.skip(reason="Pendiente: esperando cola en Rust (Cristina - Tarea 10)")
     def test_regla_2_5_rechazo_4xx_saca_operacion_de_cola_sin_bloquear_demas(
         self,
     ) -> None:
-        """Un 4xx saca la operación rechazada sin trabar las siguientes."""
+        """Un 4xx saca la operación rechazada de la cola sin trabar las siguientes."""
 
     @pytest.mark.skip(
         reason="Pendiente: esperando pruebas de arquitectura (Katherine - Tarea 2)"
@@ -272,10 +377,10 @@ class TestTrazabilidadSeccion3CriteriosAceptacion:
     def test_criterio_3_1_cada_participante_recibe_movimiento_en_cuenta_elegida(
         self,
     ) -> None:
-        """Cada participante halla un movimiento en la cuenta elegida."""
+        """Cada participante encuentra un solo movimiento en la cuenta elegida."""
 
     @pytest.mark.skip(reason="Pendiente: hito de integración en main")
-    def test_criterio_3_2_sincronizar_varias_veces_no_duplica_saldos(
+    def test_criterio_3_2_sincronizar_varias_veces_o_desde_cero_no_duplica_ni_altera(
         self,
     ) -> None:
         """Sincronizar repetidamente o con cursor 0 no duplica ni modifica saldos."""
@@ -302,11 +407,19 @@ class TestTrazabilidadSeccion3CriteriosAceptacion:
     ) -> None:
         """Gasto offline se envía al volver conexión sin crear duplicados."""
 
-    @pytest.mark.skip(reason="Pendiente: hito de integración en main")
     def test_criterio_3_7_get_cambios_solo_eventos_propios_y_401_sin_token(
-        self,
+        self, cliente: TestClient, grupo_merida: str, usuarios_flujo: Usuarios
     ) -> None:
         """GET /cambios entrega solo eventos propios y rechaza 401 sin token."""
+        registrar(cliente, grupo_merida, usuarios_flujo, "ana", HOTEL)
+        assert cliente.get("/cambios").status_code == 401
+        ids = {
+            u: {e["id"] for e in cambios(cliente, usuarios_flujo, u)["eventos"]}
+            for u in ("ana", "beto", "carla", "dario")
+        }
+        assert ids["dario"] == set()
+        assert ids["ana"].isdisjoint(ids["beto"] | ids["carla"])
+        assert ids["beto"].isdisjoint(ids["carla"])
 
     @pytest.mark.skip(reason="Pendiente: hito de integración en main")
     def test_criterio_3_8_ninguna_peticion_contiene_cuentas_movimientos_ni_saldos(

@@ -15,6 +15,7 @@ import pytest
 from conftest import TABLAS_PERMITIDAS
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
+from flujo_entrega7 import recorrer_flujo_entrega_7
 from flujo_http import BALANCES_2_5, gasto, grupo_de_tres, registrar_ejemplo_2_5
 
 import main
@@ -231,3 +232,39 @@ def test_gasto_invalido_o_ajeno_no_guarda_nada(cliente_pg: TestClient) -> None:
     with BaseDatos(URL_PRUEBAS).conexion() as conexion:
         fila = conexion.execute("SELECT count(*) AS n FROM gastos").fetchone()
     assert fila is not None and fila["n"] == 0
+
+
+@pytest.mark.skip(
+    reason="Pendiente: repositorio de cambios y claves en PostgreSQL (Entrega 7)"
+)
+def test_flujo_de_cambios_e_idempotencia_como_usuario_nuevo(
+    cliente_pg: TestClient,
+) -> None:
+    """Entrega 7 de punta a punta contra PostgreSQL: cambios, cursor y reintentos."""
+    recibidos = recorrer_flujo_entrega_7(cliente_pg)
+    assert recibidos["dario"] == []
+
+    # En la base: un evento por parte, una clave por gasto con clave y el
+    # registro sin tablas del libro personal (INV-16).
+    assert URL_PRUEBAS is not None
+    with BaseDatos(URL_PRUEBAS).conexion() as conexion:
+        conteos = conexion.execute(
+            "SELECT (SELECT count(*) FROM gastos) AS gastos, "
+            "(SELECT count(*) FROM cambios) AS cambios, "
+            "(SELECT count(*) FROM claves_idempotencia) AS claves"
+        ).fetchone()
+    assert conteos is not None
+    assert (conteos["gastos"], conteos["cambios"], conteos["claves"]) == (3, 8, 3)
+
+
+@pytest.mark.skip(
+    reason="Pendiente: repositorio de cambios y claves en PostgreSQL (Entrega 7)"
+)
+def test_cambios_sin_token_o_con_cursor_invalido(cliente_pg: TestClient) -> None:
+    assert cliente_pg.get("/cambios").status_code == 401
+    _, auth = grupo_de_tres(cliente_pg)
+    invalido = cliente_pg.get("/cambios?desde=-1", headers=auth["ana"])
+    assert invalido.status_code == 400
+    assert invalido.json()["errores"][0]["campo"] == "desde"
+    vacio = cliente_pg.get("/cambios", headers=auth["dario"])
+    assert vacio.json() == {"eventos": [], "cursor": 0, "hay_mas": False}

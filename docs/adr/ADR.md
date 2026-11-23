@@ -16,3 +16,4 @@ Este directorio contiene las Architecture Decision Records (ADRs) del proyecto.
 - [ADR-011: Datos compartidos del servidor (amistades, grupos y gastos)](./ADR-011-datos-compartidos-de-grupos.md) — el punto 3 (tipo de los montos) queda sustituido por ADR-012
 - [ADR-012: Montos `NUMERIC` y repositorios compartidos implementados](./ADR-012-montos-numeric-y-repositorios-compartidos.md)
 - [ADR-013: División exacta, balances y autorización de grupo en el servidor](./ADR-013-division-balances-y-autorizacion-de-grupo.md)
+- [ADR-015: Registro de cambios por usuario y clave de idempotencia en el servidor](./ADR-015-registro-de-cambios-e-idempotencia.md)

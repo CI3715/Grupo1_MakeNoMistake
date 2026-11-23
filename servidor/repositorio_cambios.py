@@ -22,6 +22,7 @@ from uuid import UUID, uuid5
 from psycopg import Connection
 
 from base_datos import BaseDatos
+from cambios import EventoCambio
 from repositorio_gastos import Gasto, ParteGasto
 
 # Espacio de nombres fijo para los UUID de los eventos. Con él, el mismo gasto
@@ -147,6 +148,34 @@ class RepositorioCambios:
             cursor=cursor,
             hay_mas=len(filas) > TAMANO_LOTE,
         )
+
+    def listar_desde(
+        self, usuario_id: UUID, desde: int, limite: int
+    ) -> list[EventoCambio[UUID]]:
+        """Hasta ``limite`` eventos de ``usuario_id`` posteriores a ``desde``.
+
+        Deben salir en orden de posición y ser solo de esa persona (INV-17).
+        """
+        with self._base_datos.conexion() as conexion:
+            filas = conexion.execute(
+                SQL_LEER_LOTE, (usuario_id, desde, limite)
+            ).fetchall()
+        return [
+            EventoCambio(
+                id=f["id"],
+                usuario=f["usuario_id"],
+                posicion=f["posicion"],
+                grupo_id=f["grupo_id"],
+                grupo_nombre=f["nombre_grupo"],
+                gasto_id=f["gasto_id"],
+                concepto=f["concepto"],
+                fecha=f["fecha"],
+                moneda=f["moneda"],
+                monto=f["monto"],
+                incluye_redondeo=f["incluye_redondeo"],
+            )
+            for f in filas
+        ]
 
 
 def _evento_desde_fila(fila: dict[str, Any]) -> Evento:

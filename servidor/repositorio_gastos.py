@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 from psycopg import Connection, errors
 
 from base_datos import BaseDatos
+from idempotencia import ClaveGuardada
 
 # Escala y límites del dinero. ``NUMERIC(14, 2)`` admite doce dígitos enteros.
 CENTIMOS = Decimal("0.01")
@@ -166,6 +167,20 @@ class GastoInvalido(Exception):
         super().__init__(mensaje)
 
 
+PENDIENTE_CLAVES = (
+    "Pendiente: claves de idempotencia y eventos en PostgreSQL "
+    "(repositorio de cambios y de claves, Entrega 7)."
+)
+
+
+class ClaveYaUsada(Exception):
+    """Otra petición guardó la misma clave de idempotencia mientras tanto.
+
+    No se guardó nada de este registro. La ruta vuelve a leer la clave y
+    responde 200 o 409 según la huella (ADR-015).
+    """
+
+
 class RepositorioGastos:
     """Consultas de las tablas `gastos` y `partes_gasto`."""
 
@@ -189,8 +204,15 @@ class RepositorioGastos:
         partes: Sequence[ParteEntrada],
         registrado_por: UUID,
         ahora: datetime,
+        clave_idempotencia: str | None = None,
+        huella: str | None = None,
     ) -> GastoVista:
         """Guarda el gasto y sus partes en una sola transacción.
+
+        ``clave_idempotencia`` y ``huella`` son las firmas que usa la ruta desde
+        la Entrega 7: la clave, los eventos de cada participante y el gasto se
+        guardarán en la misma transacción cuando exista el repositorio de cambios
+        y de claves sobre PostgreSQL. Mientras tanto, una clave se rechaza.
 
         Antes de tocar la base se comprueba que la suma de las partes sea
         exactamente ``monto`` y que la regla se cumpla; después, que pagador,
@@ -198,6 +220,8 @@ class RepositorioGastos:
         algo falla se lanza ``GastoInvalido`` con el campo y la regla, y no se
         guarda nada (INV-07).
         """
+        if clave_idempotencia is not None or huella is not None:
+            raise NotImplementedError(PENDIENTE_CLAVES)
         regla_normalizada = _normalizar_regla(regla)
         monto_exacto = _monto_valido(monto, "monto", permitir_cero=False)
         concepto_limpio = concepto.strip()
@@ -301,6 +325,14 @@ class RepositorioGastos:
             pagador_nombre_usuario=nombre_pagador,
             partes=partes_guardadas,
         )
+
+    def buscar_clave(self, usuario_id: UUID, clave: str) -> ClaveGuardada | None:
+        """La clave de idempotencia ya consumida por ``usuario_id``, si existe."""
+        raise NotImplementedError(PENDIENTE_CLAVES)
+
+    def buscar(self, gasto_id: UUID) -> GastoVista | None:
+        """Un gasto ya guardado con sus partes (para responder un reintento)."""
+        raise NotImplementedError(PENDIENTE_CLAVES)
 
     def listar_del_grupo(self, id_grupo: UUID) -> list[GastoVista]:
         """Gastos del grupo, del más reciente al más antiguo."""
