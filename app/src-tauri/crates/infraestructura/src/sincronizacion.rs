@@ -50,6 +50,25 @@ pub struct LoteLocal {
     pub sincronizado_en: Option<String>,
 }
 
+/// Un gasto de grupo que espera ser enviado al servidor. `estado` es "pendiente" o
+/// "rechazado"; `cuerpo` es el JSON que se enviará tal cual.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GastoEncolado {
+    pub clave: String,
+    pub grupo_id: String,
+    pub grupo_nombre: String,
+    pub concepto: String,
+    pub monto: String,
+    pub moneda: String,
+    pub fecha: String,
+    pub cuerpo: String,
+    pub estado: String,
+    pub motivo: Option<String>,
+}
+
+const COLA_SELECT: &str = "SELECT clave, grupo_id, grupo_nombre, concepto, monto, moneda,
+                                  fecha, cuerpo, estado, motivo FROM cola_envio";
+
 pub struct SincronizacionSqlite {
     conn: Arc<Mutex<Connection>>,
 }
@@ -80,6 +99,19 @@ impl SincronizacionSqlite {
                     moneda           TEXT    NOT NULL,
                     monto            TEXT    NOT NULL,
                     incluye_redondeo INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS cola_envio (
+                    orden        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    clave        TEXT    NOT NULL UNIQUE,
+                    grupo_id     TEXT    NOT NULL,
+                    grupo_nombre TEXT    NOT NULL,
+                    concepto     TEXT    NOT NULL,
+                    monto        TEXT    NOT NULL,
+                    moneda       TEXT    NOT NULL,
+                    fecha        TEXT    NOT NULL,
+                    cuerpo       TEXT    NOT NULL,
+                    estado       TEXT    NOT NULL,
+                    motivo       TEXT
                 );
                 ",
             )
@@ -134,6 +166,87 @@ impl SincronizacionSqlite {
             params![grupo_id, cuenta_id],
         )
         .map_err(error)?;
+        Ok(())
+    }
+
+    /// Agrega un gasto al final de la cola. Si la clave ya estaba, no hace nada.
+    pub fn encolar(&self, g: &GastoEncolado) -> Result<(), ErrorRepositorio> {
+        let conn = self.conn.lock().map_err(error)?;
+        conn.execute(
+            "INSERT OR IGNORE INTO cola_envio
+             (clave, grupo_id, grupo_nombre, concepto, monto, moneda, fecha, cuerpo, estado, motivo)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                g.clave,
+                g.grupo_id,
+                g.grupo_nombre,
+                g.concepto,
+                g.monto,
+                g.moneda,
+                g.fecha,
+                g.cuerpo,
+                g.estado,
+                g.motivo
+            ],
+        )
+        .map_err(error)?;
+        Ok(())
+    }
+
+    fn leer_cola(&self, solo_pendientes: bool) -> Result<Vec<GastoEncolado>, ErrorRepositorio> {
+        let conn = self.conn.lock().map_err(error)?;
+        let filtro = if solo_pendientes {
+            " WHERE estado = 'pendiente'"
+        } else {
+            ""
+        };
+        let sql = format!("{COLA_SELECT}{filtro} ORDER BY orden");
+        let mut sentencia = conn.prepare(&sql).map_err(error)?;
+        let filas = sentencia
+            .query_map([], |f| {
+                Ok(GastoEncolado {
+                    clave: f.get(0)?,
+                    grupo_id: f.get(1)?,
+                    grupo_nombre: f.get(2)?,
+                    concepto: f.get(3)?,
+                    monto: f.get(4)?,
+                    moneda: f.get(5)?,
+                    fecha: f.get(6)?,
+                    cuerpo: f.get(7)?,
+                    estado: f.get(8)?,
+                    motivo: f.get(9)?,
+                })
+            })
+            .map_err(error)?;
+        filas.collect::<Result<Vec<_>, _>>().map_err(error)
+    }
+
+    /// Toda la cola (pendientes y rechazados), en orden de llegada.
+    pub fn cola(&self) -> Result<Vec<GastoEncolado>, ErrorRepositorio> {
+        self.leer_cola(false)
+    }
+
+    /// Solo los que faltan por enviar, en orden de llegada.
+    pub fn cola_pendiente(&self) -> Result<Vec<GastoEncolado>, ErrorRepositorio> {
+        self.leer_cola(true)
+    }
+
+    /// El servidor lo rechazó: deja de reintentarse y guarda el motivo.
+    pub fn marcar_rechazada(&self, clave: &str, motivo: &str) -> Result<(), ErrorRepositorio> {
+        let conn = self.conn.lock().map_err(error)?;
+        conn.execute(
+            "UPDATE cola_envio SET estado = 'rechazado', motivo = ?2 WHERE clave = ?1",
+            params![clave, motivo],
+        )
+        .map_err(error)?;
+        Ok(())
+    }
+
+    /// Lo quita de la cola (ya se envió, o el usuario lo descartó).
+    pub fn quitar(&self, clave: &str) -> Result<(), ErrorRepositorio> {
+        let conn = self.conn.lock().map_err(error)?;
+        conn.execute("DELETE FROM cola_envio WHERE clave = ?1", params![clave])
+            .map_err(error)?;
         Ok(())
     }
 

@@ -644,3 +644,15 @@ export interface ResultadoGastoGrupoDto {
   clave: string;
   gasto: GastoGrupoDto | null;
 }
+
+export async function registrarGastoGrupoConCola(
+  datos: NuevoGastoGrupoPayload,
+  grupoNombre: string,
+  moneda: string,
+): Promise<ResultadoGastoGrupoDto> {
+  return await invoke<ResultadoGastoGrupoDto>('registrar_gasto_grupo_con_cola', {
+    datos,
+    grupo_nombre: grupoNombre,
+    moneda,
+  });
+}

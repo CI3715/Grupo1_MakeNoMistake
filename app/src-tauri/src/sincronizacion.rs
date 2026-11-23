@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use aplicacion::{CasosDeUso, ParteDeGrupoEntrante};
-use infraestructura::sincronizacion::SincronizacionSqlite;
+use infraestructura::sincronizacion::{GastoEncolado, SincronizacionSqlite};
 use tauri::State;
 
 use crate::EstadoCasosDeUso;
@@ -25,13 +25,15 @@ use crate::cuentas::bloquear;
 use crate::dto::ErroresDto;
 use crate::dto_sincronizacion::{
     ConsultaCuentasGrupoDto, CuentaParaGrupoDto, CuentasParaGrupoDto, ElegirCuentaGrupoDto,
-    EstadoSincronizacionDto, ParteGrupoPendienteDto,
+    EstadoSincronizacionDto, GastoEnColaDto, ParteGrupoPendienteDto, ResultadoGastoGrupoDto,
 };
+use crate::dto_social::NuevoGastoGrupoDto;
 use crate::sesion::{Almacen, ClienteHttp, ahora_iso, inesperado, sin_campo};
 use crate::sincronizacion_cliente::pedir_cambios;
 use crate::sincronizacion_libro::{aplicar_pendientes_del_grupo, armar_lote};
 use crate::social_cliente::ClienteSocial;
-use crate::social_real::almacen_de;
+use crate::social_envio::{ResultadoEnvio, enviar_gasto};
+use crate::social_real::{almacen_de, cuerpo_de_gasto};
 
 static SINCRONIZANDO: AtomicBool = AtomicBool::new(false);
 
@@ -73,16 +75,31 @@ fn a_dto(p: ParteDeGrupoEntrante) -> ParteGrupoPendienteDto {
     }
 }
 
+fn a_dto_cola(g: GastoEncolado) -> GastoEnColaDto {
+    GastoEnColaDto {
+        clave: g.clave,
+        grupo_id: g.grupo_id,
+        grupo_nombre: g.grupo_nombre,
+        concepto: g.concepto,
+        monto: g.monto,
+        moneda: g.moneda,
+        fecha: g.fecha,
+        estado: g.estado,
+        motivo: g.motivo,
+    }
+}
+
 fn estado_local(
     sync: &SincronizacionSqlite,
     sincronizando: bool,
 ) -> Result<EstadoSincronizacionDto, ErroresDto> {
     let partes = sync.partes_pendientes().map_err(|_| almacenamiento())?;
+    let cola = sync.cola().map_err(|_| almacenamiento())?;
     Ok(EstadoSincronizacionDto {
         ultima_sincronizacion: sync.ultima_sincronizacion().map_err(|_| almacenamiento())?,
         sincronizando,
         partes_pendientes: partes.into_iter().map(a_dto).collect(),
-        cola: Vec::new(), // la cola de envío llega con la Tarea 10
+        cola: cola.into_iter().map(a_dto_cola).collect(),
     })
 }
 
@@ -159,6 +176,27 @@ fn elegir_en_libro(
     cuentas_del_grupo(casos, sync, grupo_id, moneda)
 }
 
+/// Envía los gastos de la cola en orden. Si uno no se puede enviar ahora (sin red, sin
+/// sesión), se detiene ahí para no saltarse el orden; los rechazados quedan marcados.
+async fn vaciar_cola<C: ClienteSocial, A: Almacen>(
+    cliente: &C,
+    almacen: &A,
+    ahora: &str,
+    sync: &SincronizacionSqlite,
+) -> Result<(), ErroresDto> {
+    let pendientes = sync.cola_pendiente().map_err(|_| almacenamiento())?;
+    for g in pendientes {
+        match enviar_gasto(cliente, almacen, ahora, &g.grupo_id, &g.cuerpo, &g.clave).await {
+            ResultadoEnvio::Enviado(_) => sync.quitar(&g.clave).map_err(|_| almacenamiento())?,
+            ResultadoEnvio::Rechazado(motivo) => sync
+                .marcar_rechazada(&g.clave, &motivo)
+                .map_err(|_| almacenamiento())?,
+            ResultadoEnvio::Reintentar => break,
+        }
+    }
+    Ok(())
+}
+
 /// Baja lo nuevo hasta que no queden más lotes. Cada lote se guarda junto con su cursor.
 pub async fn sincronizar_libro<C: ClienteSocial, A: Almacen>(
     cliente: &C,
@@ -167,6 +205,7 @@ pub async fn sincronizar_libro<C: ClienteSocial, A: Almacen>(
     casos: &Mutex<CasosDeUso>,
     sync: &SincronizacionSqlite,
 ) -> Result<EstadoSincronizacionDto, ErroresDto> {
+    vaciar_cola(cliente, almacen, ahora, sync).await?;
     loop {
         let desde = sync.cursor().map_err(|_| almacenamiento())?;
         let pagina = pedir_cambios(cliente, almacen, ahora, desde).await?;
@@ -185,6 +224,62 @@ pub async fn sincronizar_libro<C: ClienteSocial, A: Almacen>(
         }
     }
     estado_local(sync, false)
+}
+
+/// Registra un gasto de grupo pasando por la cola local. Si la cola ya tenía gastos
+/// pendientes, este espera su turno para no saltarse el orden. Sin conexión queda
+/// "pendiente"; si el servidor lo rechaza se quita de la cola y se devuelve el error.
+pub async fn registrar_con_cola<C: ClienteSocial, A: Almacen>(
+    cliente: &C,
+    almacen: &A,
+    ahora: &str,
+    sync: &SincronizacionSqlite,
+    datos: &NuevoGastoGrupoDto,
+    grupo_nombre: &str,
+    moneda: &str,
+) -> Result<ResultadoGastoGrupoDto, ErroresDto> {
+    let clave = uuid::Uuid::new_v4().to_string();
+    let cuerpo = cuerpo_de_gasto(datos).to_string();
+    let hay_cola = !sync
+        .cola_pendiente()
+        .map_err(|_| almacenamiento())?
+        .is_empty();
+    sync.encolar(&GastoEncolado {
+        clave: clave.clone(),
+        grupo_id: datos.grupo_id.clone(),
+        grupo_nombre: grupo_nombre.to_string(),
+        concepto: datos.concepto.clone(),
+        monto: datos.monto.clone(),
+        moneda: moneda.to_string(),
+        fecha: datos.fecha.clone(),
+        cuerpo: cuerpo.clone(),
+        estado: "pendiente".to_string(),
+        motivo: None,
+    })
+    .map_err(|_| almacenamiento())?;
+    let pendiente = ResultadoGastoGrupoDto {
+        estado: "pendiente".to_string(),
+        clave: clave.clone(),
+        gasto: None,
+    };
+    if hay_cola {
+        return Ok(pendiente);
+    }
+    match enviar_gasto(cliente, almacen, ahora, &datos.grupo_id, &cuerpo, &clave).await {
+        ResultadoEnvio::Enviado(gasto) => {
+            sync.quitar(&clave).map_err(|_| almacenamiento())?;
+            Ok(ResultadoGastoGrupoDto {
+                estado: "registrado".to_string(),
+                clave,
+                gasto: Some(gasto),
+            })
+        }
+        ResultadoEnvio::Rechazado(motivo) => {
+            sync.quitar(&clave).map_err(|_| almacenamiento())?;
+            Err(sin_campo(&motivo))
+        }
+        ResultadoEnvio::Reintentar => Ok(pendiente),
+    }
 }
 
 // ---------- Comandos de Tauri ----------
@@ -215,6 +310,28 @@ pub fn estado_sincronizacion(
     libro: State<'_, LibroActual>,
 ) -> Result<EstadoSincronizacionDto, ErroresDto> {
     estado_local(&libro_sync(&libro)?, SINCRONIZANDO.load(Ordering::SeqCst))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn registrar_gasto_grupo_con_cola(
+    app: tauri::AppHandle,
+    libro: State<'_, LibroActual>,
+    datos: NuevoGastoGrupoDto,
+    grupo_nombre: String,
+    moneda: String,
+) -> Result<ResultadoGastoGrupoDto, ErroresDto> {
+    let sync = libro_sync(&libro)?;
+    let almacen = almacen_de(&app)?;
+    registrar_con_cola(
+        &ClienteHttp::desde_entorno(),
+        &almacen,
+        &ahora_iso(),
+        &sync,
+        &datos,
+        &grupo_nombre,
+        &moneda,
+    )
+    .await
 }
 
 #[tauri::command]

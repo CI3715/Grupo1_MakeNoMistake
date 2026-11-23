@@ -80,10 +80,6 @@ pub struct ElegirCuentaGrupoDto {
 /// `estado` es "registrado" (el servidor lo aceptó y `gasto` viene lleno) o
 /// "pendiente" (quedó en la cola sin conexión; `gasto` es `None`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[expect(
-    dead_code,
-    reason = "lo usa registrar_gasto_grupo cuando pase por la cola (Tarea 10)"
-)]
 pub struct ResultadoGastoGrupoDto {
     pub estado: String,
     pub clave: String,

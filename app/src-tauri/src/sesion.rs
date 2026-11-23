@@ -125,6 +125,7 @@ impl ClienteHttp {
         ruta: &str,
         token: &str,
         cuerpo: Option<&str>,
+        clave: Option<&str>,
     ) -> Result<Respuesta, SinConexion> {
         let cliente = Self::cliente()?;
         let url = self.url(ruta);
@@ -139,6 +140,9 @@ impl ClienteHttp {
             peticion = peticion
                 .header("Content-Type", "application/json")
                 .body(texto.to_string());
+        }
+        if let Some(clave) = clave {
+            peticion = peticion.header("Idempotency-Key", clave);
         }
         self.enviar(peticion).await
     }

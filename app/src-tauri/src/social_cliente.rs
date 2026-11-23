@@ -50,6 +50,7 @@ pub struct Peticion {
     pub metodo: Metodo,
     pub ruta: String,
     pub cuerpo: Option<String>,
+    pub clave: Option<String>,
 }
 
 impl Peticion {
@@ -58,6 +59,7 @@ impl Peticion {
             metodo: Metodo::Get,
             ruta: ruta.to_string(),
             cuerpo: None,
+            clave: None,
         }
     }
 
@@ -66,6 +68,7 @@ impl Peticion {
             metodo: Metodo::Delete,
             ruta: ruta.to_string(),
             cuerpo: None,
+            clave: None,
         }
     }
 
@@ -74,7 +77,14 @@ impl Peticion {
             metodo: Metodo::Post,
             ruta: ruta.to_string(),
             cuerpo: serde_json::to_string(cuerpo).ok(),
+            clave: None,
         }
+    }
+
+    /// Le pone la clave de idempotencia (header `Idempotency-Key`).
+    pub fn con_clave(mut self, clave: &str) -> Self {
+        self.clave = Some(clave.to_string());
+        self
     }
 }
 
@@ -114,6 +124,7 @@ impl ClienteSocial for ClienteHttp {
             &peticion.ruta,
             token,
             peticion.cuerpo.as_deref(),
+            peticion.clave.as_deref(),
         )
         .await
     }
