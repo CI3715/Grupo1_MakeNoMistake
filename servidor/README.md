@@ -84,9 +84,11 @@ Para detenerlo, presiona `Ctrl + C`.
 
 ## Base de datos y configuración
 
-El servidor usa PostgreSQL 17 y crea el esquema completo al arrancar (las tablas
-de las entregas 5 a 7, protegidas con RLS). Toda la configuración se lee de
-variables de entorno; el archivo `servidor/.env` no se sube a Git.
+El servidor usa PostgreSQL 17 y crea el esquema completo al arrancar:
+`usuarios`, `amistades`, `grupos`, `miembros`, `gastos`, `partes_gasto`,
+`cambios`, `posiciones_usuario` y `claves_idempotencia`. Todas las tablas de
+`public` llevan RLS. Toda la configuración se lee de variables de entorno; el
+archivo `servidor/.env` no se sube a Git.
 
 ### Dónde se colocan las variables
 
@@ -258,6 +260,32 @@ CUENTAS_CLARAS_DB_URL_PRUEBAS="$CUENTAS_CLARAS_DB_URL" \
 La prueba no borra datos: aplica el esquema, que es idempotente, y lee los
 catálogos de PostgreSQL.
 
+### Secretos y archivos que no se versionan
+
+`servidor/.env` está en `.gitignore` y nunca se versiona; el repositorio solo
+incluye `.env.example` con marcadores. El volumen de Docker Compose es un
+volumen con nombre (`cuentas-claras-postgres-datos`), no una carpeta del
+repositorio, y el clúster local vive en `.postgres/`, también ignorado.
+
+Antes de abrir un pull request, revisa que ninguna credencial haya quedado en
+el código ni en el historial:
+
+```bash
+# Cadenas de Supabase y otras pistas, solo en archivos versionados
+git grep -n -E 'pooler\.supabase\.com|supabase\.co|postgres\.[a-z0-9]+' -- .
+
+# Repite por cada valor real de .env, sin escribirlo en la terminal compartida
+git log -S'<valor-real>' --oneline -- .
+
+# .env y el volumen no deben aparecer
+git ls-files | grep -E '(^|/)\.env$|postgres-datos'
+```
+
+Si una clave llegó a subirse, se restablece en el panel de Supabase y se
+considera comprometida. El servidor se niega a arrancar sin
+`CUENTAS_CLARAS_DB_URL` o sin un `CUENTAS_CLARAS_SECRETO_JWT` de al menos 32
+caracteres, con un mensaje claro.
+
 ### Variables de entorno
 
 | Variable | Obligatoria | Valor por defecto | Para qué sirve |
@@ -393,7 +421,8 @@ gestionado) y el secreto debe ser propio de ese entorno.
 | `POST /amistades/{id}/respuesta` | Aceptar o rechazar (solo el destinatario) | 200, 400, 401, 403, 404, 409 |
 | `DELETE /amistades/{id}` | Eliminar la amistad (cualquiera de los dos) | 204, 401, 404 |
 | `GET /grupos/{id}` | Miembros, gastos y balances del grupo (solo miembros aceptados) | 200, 401, 404 |
-| `POST /grupos/{id}/gastos` | Registra un gasto: el servidor lo divide y lo guarda con sus partes | 201, 400, 401, 404 |
+| `POST /grupos/{id}/gastos` | Registra un gasto: el servidor lo divide y lo guarda con sus partes. Acepta `Idempotency-Key` | 201, 200, 400, 401, 404, 409 |
+| `GET /cambios?desde=<cursor>` | Eventos propios de gastos de grupo posteriores al cursor | 200, 400, 401 |
 
 El contrato completo está en [`openapi.yaml`](openapi.yaml). Resumen:
 
@@ -496,6 +525,40 @@ o vencido responden `401`.
 | `POST /amistades/{id}/respuesta` | Solo el destinatario acepta (`true`) o rechaza (`false`) la invitación. | `200`; `403` si no es el destinatario; `404` si no existe; `409` si ya fue respondida. |
 | `DELETE /amistades/{id}` | Cualquiera de los dos elimina la amistad. No borra grupos ni gastos ya compartidos (RF-SOC-06). | `204`; `404` si no existe o quien pide no participa. |
 
+### Endpoints del registro de cambios (Entrega 7)
+
+Todos requieren `Authorization: Bearer <token>`; sin token, con token inválido
+o vencido responden `401`.
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `GET /cambios?desde=<cursor>` | Devuelve los eventos del usuario autenticado posteriores al cursor, en orden de posición y como máximo 100. Incluye `cursor` (posición del último evento, o el mismo `desde` si no hay nada) y `hay_mas`. Sin `desde` se empieza en 0. Nunca devuelve eventos de otras personas. | `200`; `400` si el cursor no es un entero no negativo; `401` sin token. |
+| `POST /grupos/{id}/gastos` con `Idempotency-Key` | Registra el gasto una sola vez aunque el cliente reintente. La clave es opcional, de 8 a 128 caracteres ASCII visibles y su alcance es por usuario. Se guarda con la huella SHA-256 del cuerpo canónico. | `201` clave nueva; `200` misma clave y mismo cuerpo, con el gasto ya registrado; `409` misma clave y otro cuerpo; `400`, `401` y `404` como en la Entrega 6. |
+
+Un evento `gasto_de_grupo` lleva solo lo necesario para el movimiento personal:
+`id`, `posicion`, `grupo` (id y nombre), `gasto` (id y concepto), `fecha`,
+`moneda`, `monto` (texto con dos decimales), `incluye_redondeo` y `tipo`. No
+lleva cuentas, saldos ni movimientos: eso sigue viviendo solo en el libro local
+(INV-16).
+
+Ejemplo con `curl`:
+
+```bash
+TOKEN="<token-de-sesion>"
+GRUPO="<id-del-grupo>"
+
+curl "localhost:8000/cambios?desde=0" -H "Authorization: Bearer $TOKEN"
+
+curl -X POST "localhost:8000/grupos/$GRUPO/gastos" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: cena-0b7d4e21" \
+  -H "Content-Type: application/json" \
+  -d '{"concepto":"Cena","monto":"60.00","fecha":"2026-03-15","pagador":"beto","regla":"porcentajes","participantes":[{"usuario":"ana","valor":"50"},{"usuario":"beto","valor":"25"},{"usuario":"carla","valor":"25"}]}'
+```
+
+Repetir el mismo `POST` con la misma clave y el mismo cuerpo responde `200`
+con el gasto original; con otro cuerpo responde `409`.
+
 ## HTTP en local y HTTPS en despliegue (RNF-06)
 
 En desarrollo se usa **HTTP** porque el servidor escucha únicamente en la
@@ -596,6 +659,16 @@ Así las pruebas de las rutas corren sin base de datos.
   (división, mensajes de «faltan»/«sobran», errores por campo, 404 uniforme,
   balances del ejemplo 2.5 y el flujo completo como usuario nuevo).
 - `test_autorizacion.py`: la decisión de pertenencia, sin HTTP.
+- `test_reglas_cambios.py` y `test_reglas_idempotencia.py`: reglas puras de la
+  Entrega 7 (evento por participante, posición siguiente, cursor, huella
+  SHA-256 y decisión 201/200/409), sin base ni HTTP.
+- `test_cambios_http.py`, `test_idempotencia_http.py` y
+  `test_flujo_entrega7.py`: `GET /cambios`, el encabezado `Idempotency-Key` y
+  el flujo completo de la sección 2.8 sobre el almacén en memoria.
+- `test_cambios_postgres.py`: el registro de cambios contra PostgreSQL real:
+  un evento por parte en la misma transacción, posiciones por usuario sin
+  saltos, lotes de 100, aislamiento entre usuarios y que `UPDATE`/`DELETE`
+  sobre `cambios` están prohibidos.
 
 Para `/ping` (`test_main.py`) comprueban que:
 
@@ -623,9 +696,12 @@ del ejemplo 2.5 (montos `NUMERIC`, regla canónica y nada guardado si el gasto
 falla): fecha en UTC aunque la base use
 otra zona horaria, 409 con todos los campos repetidos, duplicado detectado por
 la restricción `UNIQUE` y que la base solo tenga las tablas permitidas
-(INV-16). Todas las pruebas de PostgreSQL se omiten si no defines
-`CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en un clon
-limpio sin base de datos.
+(INV-16). También recorre el flujo completo de la Entrega 7 contra PostgreSQL
+(cambios, cursor, reintentos con la misma clave y 409), comprueba que la misma
+clave de dos usuarios no choca y que usuarios, grupos, gastos y cambios siguen
+ahí tras reiniciar el servidor. Todas las pruebas de PostgreSQL se omiten si no
+defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en
+un clon limpio sin base de datos.
 
 Con Docker Compose, arranca la base y ejecuta la suite; las variables se leen
 de `.env`:
@@ -661,7 +737,10 @@ servidor/
 ├── repositorio_usuarios.py            # Consultas de la tabla usuarios
 ├── repositorio_amistades.py           # Amistades: invitación, respuesta y baja (Entrega 6)
 ├── repositorio_grupos.py              # Grupos y miembros: invitar, aceptar, rechazar (Entrega 6)
-├── repositorio_gastos.py              # Gastos y partes con montos NUMERIC exactos (Entrega 6)
+├── repositorio_gastos.py              # Gastos, partes y claves de idempotencia (Entregas 6 y 7)
+├── repositorio_cambios.py             # Registro de cambios y posiciones por usuario (Entrega 7)
+├── cambios.py                         # Reglas puras del registro de cambios (Entrega 7)
+├── idempotencia.py                    # Clave, huella SHA-256 y decisión 201/200/409 (Entrega 7)
 ├── division.py                        # División exacta y balances (funciones puras, Entrega 6)
 ├── autorizacion.py                    # Miembro aceptado o el mismo 404 (Entrega 6)
 ├── reglas.py                          # Reglas de registro (funciones puras)
@@ -679,9 +758,16 @@ servidor/
 │   ├── test_repositorio_amistades.py  # Amistades contra PostgreSQL (ídem)
 │   ├── test_repositorio_grupos.py     # Grupos y miembros contra PostgreSQL (ídem)
 │   ├── test_repositorio_gastos.py     # Gastos, partes y NUMERIC contra PostgreSQL (ídem)
-│   ├── apoyo_compartido.py            # Utilidades de las pruebas de la Entrega 6
-│   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL (ídem)
+│   ├── apoyo_compartido.py            # Utilidades de las pruebas de las Entregas 6 y 7
+│   ├── flujo_entrega7.py              # Flujo 2.8 por HTTP (memoria y PostgreSQL)
+│   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL, incluido el reinicio (ídem)
+│   ├── test_cambios_postgres.py       # Cambios, posiciones y lotes contra PostgreSQL (ídem)
 │   ├── test_reglas.py                 # Reglas de registro
+│   ├── test_reglas_cambios.py         # Reglas puras del registro de cambios
+│   ├── test_reglas_idempotencia.py    # Reglas puras de la clave de idempotencia
+│   ├── test_cambios_http.py           # GET /cambios sobre el almacén en memoria
+│   ├── test_idempotencia_http.py      # Idempotency-Key sobre el almacén en memoria
+│   ├── test_flujo_entrega7.py         # Flujo 2.8 completo sobre el almacén en memoria
 │   ├── test_seguridad.py              # Hash, token, arranque e INV-16
 │   ├── test_registro.py               # Registro de usuarios
 │   ├── test_sesion.py                 # Inicio de sesión y JWT

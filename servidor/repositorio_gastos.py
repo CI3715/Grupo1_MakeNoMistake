@@ -77,6 +77,37 @@ SQL_PARTICIPANTES_ACEPTADOS = """
 """
 SQL_NOMBRE_USUARIO = "SELECT nombre_usuario FROM usuarios WHERE id = %s"
 
+SQL_BUSCAR_CLAVE = """
+    SELECT gasto_id, huella_cuerpo
+    FROM claves_idempotencia
+    WHERE usuario_id = %s AND clave = %s
+"""
+
+# ``DO NOTHING`` deja que el segundo reintento espere al primero y no inserte
+# nada. Sin fila devuelta, la transacción entera se deshace (ClaveYaUsada).
+SQL_INSERTAR_CLAVE = """
+    INSERT INTO claves_idempotencia (usuario_id, clave, huella_cuerpo, gasto_id)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (usuario_id, clave) DO NOTHING
+    RETURNING usuario_id
+"""
+
+SQL_BUSCAR_GASTO = """
+    SELECT g.id, g.grupo_id, g.concepto, g.monto, g.fecha, g.pagador_id,
+           g.regla, g.registrado_por, g.fecha_registro,
+           u.nombre_usuario AS pagador_nombre_usuario
+    FROM gastos g
+    JOIN usuarios u ON u.id = g.pagador_id
+    WHERE g.id = %s
+"""
+
+SQL_BUSCAR_PARTES = """
+    SELECT gasto_id, usuario_id, monto, lleva_residuo, porcentaje
+    FROM partes_gasto
+    WHERE gasto_id = %s
+    ORDER BY usuario_id
+"""
+
 
 @dataclass(frozen=True)
 class Gasto:
@@ -167,12 +198,6 @@ class GastoInvalido(Exception):
         super().__init__(mensaje)
 
 
-PENDIENTE_CLAVES = (
-    "Pendiente: claves de idempotencia y eventos en PostgreSQL "
-    "(repositorio de cambios y de claves, Entrega 7)."
-)
-
-
 class ClaveYaUsada(Exception):
     """Otra petición guardó la misma clave de idempotencia mientras tanto.
 
@@ -207,12 +232,13 @@ class RepositorioGastos:
         clave_idempotencia: str | None = None,
         huella: str | None = None,
     ) -> GastoVista:
-        """Guarda el gasto y sus partes en una sola transacción.
+        """Guarda el gasto, sus partes, los eventos y la clave en una transacción.
 
-        ``clave_idempotencia`` y ``huella`` son las firmas que usa la ruta desde
-        la Entrega 7: la clave, los eventos de cada participante y el gasto se
-        guardarán en la misma transacción cuando exista el repositorio de cambios
-        y de claves sobre PostgreSQL. Mientras tanto, una clave se rechaza.
+        ``clave_idempotencia`` y ``huella`` se pasan juntas o no se pasan. Si
+        vienen, la clave se inserta con ``ON CONFLICT DO NOTHING``: si otra
+        petición ganó la carrera, no se inserta nada y se lanza
+        ``ClaveYaUsada`` para que la ruta relea la clave y responda 200 o 409
+        (ADR-015). Un 400 o un 404 no consumen la clave porque no llegan aquí.
 
         Antes de tocar la base se comprueba que la suma de las partes sea
         exactamente ``monto`` y que la regla se cumpla; después, que pagador,
@@ -220,8 +246,8 @@ class RepositorioGastos:
         algo falla se lanza ``GastoInvalido`` con el campo y la regla, y no se
         guarda nada (INV-07).
         """
-        if clave_idempotencia is not None or huella is not None:
-            raise NotImplementedError(PENDIENTE_CLAVES)
+        if (clave_idempotencia is None) != (huella is None):
+            raise ValueError("La clave y la huella se pasan juntas o no se pasan.")
         regla_normalizada = _normalizar_regla(regla)
         monto_exacto = _monto_valido(monto, "monto", permitir_cero=False)
         concepto_limpio = concepto.strip()
@@ -298,6 +324,16 @@ class RepositorioGastos:
                         moneda=moneda,
                         partes=partes_guardadas,
                     )
+                if clave_idempotencia is not None:
+                    assert huella is not None
+                    insertada = conexion.execute(
+                        SQL_INSERTAR_CLAVE,
+                        (registrado_por, clave_idempotencia, huella, gasto.id),
+                    ).fetchone()
+                    if insertada is None:
+                        # Otra petición con la misma clave ganó la carrera:
+                        # al salir con excepción se deshace todo lo de esta.
+                        raise ClaveYaUsada()
             except errors.ForeignKeyViolation as error:
                 raise GastoInvalido(
                     "participantes",
@@ -328,11 +364,28 @@ class RepositorioGastos:
 
     def buscar_clave(self, usuario_id: UUID, clave: str) -> ClaveGuardada | None:
         """La clave de idempotencia ya consumida por ``usuario_id``, si existe."""
-        raise NotImplementedError(PENDIENTE_CLAVES)
+
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(SQL_BUSCAR_CLAVE, (usuario_id, clave)).fetchone()
+        if fila is None:
+            return None
+        return ClaveGuardada(gasto_id=fila["gasto_id"], huella=fila["huella_cuerpo"])
 
     def buscar(self, gasto_id: UUID) -> GastoVista | None:
         """Un gasto ya guardado con sus partes (para responder un reintento)."""
-        raise NotImplementedError(PENDIENTE_CLAVES)
+
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(SQL_BUSCAR_GASTO, (gasto_id,)).fetchone()
+            if fila is None:
+                return None
+            filas_partes = conexion.execute(
+                SQL_BUSCAR_PARTES, (gasto_id,)
+            ).fetchall()
+        return GastoVista(
+            gasto=_gasto_desde_fila(fila),
+            pagador_nombre_usuario=fila["pagador_nombre_usuario"],
+            partes=tuple(_parte_desde_fila(parte) for parte in filas_partes),
+        )
 
     def listar_del_grupo(self, id_grupo: UUID) -> list[GastoVista]:
         """Gastos del grupo, del más reciente al más antiguo."""
