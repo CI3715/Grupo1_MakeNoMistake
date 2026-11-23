@@ -9,8 +9,12 @@ info:
     Identifica a las personas (registro, inicio de sesión y perfil), gestiona
     sus amistades (búsqueda exacta, invitaciones, listado y baja) y, desde la
     Entrega 6, guarda lo que comparten varias personas: grupos y gastos
-    divididos. **No recibe ni guarda cuentas, movimientos, saldos, tasas ni
-    categorías** (INV-16, RES-02): esos datos nunca salen del dispositivo.
+    divididos. Desde la Entrega 7 también entrega a cada persona, por
+    `GET /cambios`, la parte que le toca de cada gasto de grupo, y acepta una
+    clave de idempotencia al registrar gastos para que un reintento no cree un
+    segundo gasto. **No recibe ni guarda cuentas, movimientos, saldos, tasas ni
+    categorías** (INV-16, RES-02): esos datos nunca salen del dispositivo, y el
+    servidor tampoco sabe en qué cuenta aplicó la app cada parte.
  
     Este archivo se escribe a mano y se verifica contra `/openapi.json`, que
     genera FastAPI. Si una ruta cambia en el código, hay que cambiarla aquí.
@@ -24,13 +28,15 @@ info:
  
     - **400** y **409** devuelven `{"errores": [{"campo": ..., "mensaje": ...}]}`.
       Nunca repiten el valor enviado (la contraseña no aparece en ningún error).
+      El **409** de `POST /grupos/{id}/gastos` usa el campo `idempotency_key`.
     - **401** devuelve `{"mensaje": ...}`.
     - Los nombres de campo son `nombre_usuario`, `nombre_visible`, `correo` y
       `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON). Las
       amistades usan `usuario` y `aceptar`. Los gastos
       usan `concepto`, `monto`, `fecha`, `pagador`, `regla`, `participantes`,
       `porcentajes` y `montos`. Los grupos usan `nombre`, `moneda` y
-      `respuesta` (más `usuario` al invitar).
+      `respuesta` (más `usuario` al invitar). `GET /cambios` usa `desde` y la
+      clave de idempotencia usa `idempotency_key`.
     - Nunca se responde 422: los errores de tipo también son 400 por campo.
     - Un grupo inexistente, un identificador mal formado, una persona ajena y
       un invitado que aún no aceptó reciben **el mismo 404** con el mismo
@@ -74,6 +80,10 @@ tags:
     description: Grupos compartidos (solo sus miembros aceptados los ven).
   - name: Gastos
     description: Gastos de un grupo y su división exacta.
+  - name: Cambios
+    description: >-
+      Registro de cambios de cada persona: las partes de los gastos de grupo
+      que le corresponden, para que la app las aplique a su libro personal.
  
 paths:
   /ping:
@@ -545,13 +555,41 @@ paths:
            de usuario; esas partes llevan `incluye_redondeo: true`.
 
         Las comprobaciones van en este orden: sesión (401), pertenencia (404
-        uniforme) y datos (400 por campo). Pagador y participantes deben ser
-        miembros aceptados; un miembro puede quedar fuera del reparto.
+        uniforme), encabezado `Idempotency-Key` y datos (400 por campo) y, por
+        último, la clave ya usada (200 o 409). Pagador y participantes deben
+        ser miembros aceptados; un miembro puede quedar fuera del reparto.
+
+        Al guardar el gasto, el servidor agrega al registro de cambios de cada
+        participante un evento con su parte (ver `GET /cambios`). Quien queda
+        fuera del reparto no recibe nada. Gasto, eventos y clave se guardan en
+        una sola transacción.
+
+        ## Clave de idempotencia (RNF-17, ESC-09)
+
+        El encabezado `Idempotency-Key` es **opcional** para el servidor: sin
+        él, el registro se comporta como en la Entrega 6 y siempre responde
+        201. La app lo envía siempre: un UUID generado una sola vez al crear la
+        operación y repetido en cada reintento. La clave es de 8 a 128
+        caracteres ASCII visibles (sin espacios) y su alcance es **por
+        usuario**: la misma clave de dos personas no choca.
+
+        El servidor guarda la clave junto con una huella (SHA-256) del cuerpo
+        canónico: grupo, concepto, monto, fecha, pagador, regla y participantes
+        ordenados.
+
+        - Clave nueva: se registra el gasto y responde **201**.
+        - Clave ya procesada con la misma huella (por ejemplo, porque se perdió
+          la respuesta): responde **200** con el gasto ya registrado, sin crear
+          otro gasto ni eventos nuevos.
+        - Clave ya procesada con otra huella: responde **409**.
+        - La clave solo se consume si el gasto se registró bien: un 400 o un 404
+          no la gastan.
       operationId: registrarGastoGrupo
       security:
         - tokenBearer: []
       parameters:
         - $ref: "#/components/parameters/IdGrupo"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -601,11 +639,33 @@ paths:
                   - { usuario: ana, monto: "33.34", incluye_redondeo: true }
                   - { usuario: beto, monto: "33.33", incluye_redondeo: false }
                   - { usuario: carla, monto: "33.33", incluye_redondeo: false }
+        "200":
+          description: >-
+            La clave de idempotencia ya se había procesado con el mismo cuerpo:
+            devuelve el gasto ya registrado, tal como se respondió la primera
+            vez. No se crea otro gasto ni eventos nuevos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gasto"
+              example:
+                id: 7d1f0c2a-3b4e-4f5a-8c9d-0e1f2a3b4c5d
+                concepto: Cena
+                monto: "100.00"
+                fecha: "2026-03-10"
+                pagador: ana
+                regla: partes_iguales
+                partes:
+                  - { usuario: ana, monto: "33.34", incluye_redondeo: true }
+                  - { usuario: beto, monto: "33.33", incluye_redondeo: false }
+                  - { usuario: carla, monto: "33.33", incluye_redondeo: false }
         "400":
           description: >-
             Datos inválidos, o porcentajes o montos que no cuadran. Cuando no
             cuadran, el mensaje dice la suma y la diferencia exacta con
-            «faltan» o «sobran».
+            «faltan» o «sobran». También responde 400 una clave de idempotencia
+            que no tiene de 8 a 128 caracteres visibles (campo
+            `idempotency_key`); una clave rechazada así no se consume.
           content:
             application/json:
               schema:
@@ -630,10 +690,118 @@ paths:
                         mensaje: Elige una regla de división válida.
                       - campo: participantes
                         mensaje: Elige al menos un participante.
+                clave:
+                  value:
+                    errores:
+                      - campo: idempotency_key
+                        mensaje: La clave de idempotencia debe tener de 8 a 128 caracteres visibles.
         "401":
           $ref: "#/components/responses/SesionInvalida"
         "404":
           $ref: "#/components/responses/GrupoNoEncontrado"
+        "409":
+          description: >-
+            La clave de idempotencia ya se usó con datos distintos. La app no
+            debe reintentar la operación: es otra operación y necesita otra
+            clave.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: idempotency_key
+                    mensaje: Esa clave ya se usó con otros datos; usa una clave nueva para un gasto distinto.
+
+  /cambios:
+    get:
+      tags: [Cambios]
+      summary: Obtener los cambios del usuario
+      description: |
+        Devuelve, en orden de posición, los eventos del registro de cambios de
+        **quien consulta** posteriores al cursor `desde`, en lotes de como
+        máximo 100. Cuando `hay_mas` es `true`, la app vuelve a pedir con el
+        `cursor` recibido hasta que sea `false`.
+
+        - Cada usuario tiene su propia numeración: la posición del primer
+          evento es 1 y crece de uno en uno dentro de su registro. El cursor es
+          la posición del último evento del lote, o el mismo `desde` si no hay
+          nada nuevo.
+        - Sin `desde` se toma 0 (desde el principio). Pedir otra vez desde 0
+          devuelve los mismos eventos con los mismos identificadores: el
+          registro solo crece, no se modifica ni se borra (INV-13).
+        - Solo se entregan eventos de gastos de grupos de los que quien
+          consulta es participante del gasto. Un miembro excluido de la
+          división no recibe nada, y nunca se entregan eventos de otras
+          personas ni de grupos ajenos (INV-17). Por eso esta ruta no responde
+          404.
+        - El servidor solo entrega partes. No sabe qué cuentas tiene la
+          persona, en cuál se aplicó cada parte ni cuál es su saldo (INV-16).
+        - Los clientes deben ignorar, sin fallar, los eventos de un `tipo` que
+          no conocen: el servidor puede agregar tipos nuevos más adelante.
+      operationId: obtenerCambios
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: desde
+          in: query
+          required: false
+          description: >-
+            Cursor: posición del último evento que la app ya recibió. Entero
+            no negativo; si falta, vale 0. Un valor que no es entero o es
+            negativo responde 400 con el campo `desde`.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            maximum: 9223372036854775807
+            default: 0
+          example: 0
+      responses:
+        "200":
+          description: Eventos posteriores al cursor (puede ser una lista vacía).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CambiosRespuesta"
+              examples:
+                lote:
+                  summary: Un evento nuevo, sin más pendientes
+                  value:
+                    eventos:
+                      - id: 0b9d6c1e-52f7-4c3a-9d10-7a4e8f2b6c33
+                        posicion: 1
+                        tipo: gasto_de_grupo
+                        grupo:
+                          id: 5c2a9e47-1d3b-4f60-8a7e-3b9c0d1e2f48
+                          nombre: Viaje a Mérida
+                        gasto:
+                          id: 7d1f0c2a-3b4e-4f5a-8c9d-0e1f2a3b4c5d
+                          concepto: Hotel
+                        fecha: "2026-03-10"
+                        moneda: USD
+                        monto: "33.33"
+                        incluye_redondeo: false
+                    cursor: 1
+                    hay_mas: false
+                sinNovedades:
+                  summary: Nada nuevo (el cursor no cambia)
+                  value:
+                    eventos: []
+                    cursor: 1
+                    hay_mas: false
+        "400":
+          description: El cursor `desde` no es un entero no negativo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: desde
+                    mensaje: El cursor debe ser un número entero no negativo.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
 
   /amistades:
     get:
@@ -833,6 +1001,21 @@ components:
       schema:
         type: string
         format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        Clave de idempotencia de la operación: de 8 a 128 caracteres ASCII
+        visibles (sin espacios), generada una sola vez por la app y repetida en
+        cada reintento. Alcance por usuario. Opcional para el servidor; la app
+        siempre la envía.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{8,128}$"
+      example: 3f2b8c1e-6a4d-4b7e-9c10-2d5e7a9b0c11
 
   responses:
     SesionInvalida:
@@ -1127,6 +1310,8 @@ components:
             - participantes
             - porcentajes
             - montos
+            - desde
+            - idempotency_key
           description: >-
             Campo que falla. `cuerpo` solo aparece si el cuerpo de la petición no
             es un objeto JSON.
@@ -1247,6 +1432,93 @@ components:
           description: En orden alfabético de nombre de usuario; suman exactamente `monto`.
           items:
             $ref: "#/components/schemas/Parte"
+
+    CambiosRespuesta:
+      type: object
+      required: [eventos, cursor, hay_mas]
+      properties:
+        eventos:
+          type: array
+          maxItems: 100
+          description: En orden de posición creciente; como máximo 100 por respuesta.
+          items:
+            $ref: "#/components/schemas/EventoCambio"
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            Posición del último evento del lote, o el mismo `desde` si no hay
+            nada nuevo. Es el `desde` de la siguiente petición.
+        hay_mas:
+          type: boolean
+          description: Verdadero si quedan eventos posteriores a este lote.
+
+    EventoCambio:
+      type: object
+      description: >-
+        Una parte de un gasto de grupo para quien consulta. Es una fila del
+        registro de cambios del usuario: no se modifica ni se borra, y su `id`
+        no cambia nunca. Un cliente debe ignorar los campos y los `tipo` que no
+        conoce.
+      required:
+        [id, posicion, tipo, grupo, gasto, fecha, moneda, monto, incluye_redondeo]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: >-
+            Identificador único e inmutable del evento. La app lo guarda al
+            aplicar la parte y así no la aplica dos veces (INV-13, INV-15).
+        posicion:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Posición creciente dentro del registro de este usuario; sirve de cursor.
+        tipo:
+          type: string
+          description: >-
+            Tipo de evento. Hoy solo existe `gasto_de_grupo`; no es un enum
+            cerrado porque el servidor puede agregar tipos nuevos.
+          example: gasto_de_grupo
+        grupo:
+          type: object
+          required: [id, nombre]
+          description: >-
+            El nombre es el que tenía el grupo al registrarse el gasto, para que
+            el movimiento de la app no cambie si luego se renombra el grupo.
+          properties:
+            id:
+              type: string
+              format: uuid
+            nombre:
+              type: string
+              example: Viaje a Mérida
+        gasto:
+          type: object
+          required: [id, concepto]
+          properties:
+            id:
+              type: string
+              format: uuid
+            concepto:
+              type: string
+              example: Hotel
+        fecha:
+          type: string
+          format: date
+          description: Fecha del gasto (`AAAA-MM-DD`).
+          example: "2026-03-10"
+        moneda:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: Moneda del grupo, en mayúsculas.
+          example: USD
+        monto:
+          $ref: "#/components/schemas/Dinero"
+        incluye_redondeo:
+          type: boolean
+          description: Verdadero si esta parte incluye un céntimo de redondeo (ver ADR-013).
 
     GrupoResumen:
       type: object
