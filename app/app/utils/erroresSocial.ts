@@ -1,5 +1,5 @@
 import type { ErroresCampos, FalloSocial, TipoFallo } from '../types/social';
-import { MENSAJE_GENERICO, erroresDeFormulario } from './erroresSesion';
+import { MENSAJE_GENERICO, erroresDeFormulario, registrarErrorCrudo } from './erroresSesion';
 import { esErroresDto } from './tauriCommands';
 
 /**
@@ -18,6 +18,7 @@ function tipoPorMensaje(mensaje: string): TipoFallo {
 /** Fallo de una carga: el primer error sin campo (o el primero) y su tipo. */
 export function clasificarFallo(err: unknown): FalloSocial {
   if (!esErroresDto(err) || err.errores.length === 0) {
+    registrarErrorCrudo(err);
     return { tipo: 'otro', mensaje: MENSAJE_GENERICO };
   }
   const general = err.errores.find((e) => !e.campo) ?? err.errores[0];

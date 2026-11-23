@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { Fragment, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { PantallaCuentas } from './components/PantallaCuentas';
 import { PantallaTasas } from './components/PantallaTasas';
@@ -10,11 +10,16 @@ import { PantallaSocial } from './components/social/PantallaSocial';
 import { BienvenidaPrimerAcceso } from './components/sesion/BienvenidaPrimerAcceso';
 import { AvisoSesionVencida } from './components/sesion/AvisoSesionVencida';
 import { useSesion } from './utils/useSesion';
+import { useSincronizacion } from './utils/useSincronizacion';
 
 export default function Home() {
   const [pantallaActual, setPantallaActual] = useState<string>('mis-cuentas');
   const [modoOscuro, setModoOscuro] = useState(true);
   const control = useSesion();
+  const sincronizacion = useSincronizacion({
+    sesionEstado: control.sesion.estado,
+    claveLibro: control.claveLibro,
+  });
 
   const toggleModoOscuro = () => {
     setModoOscuro((prev) => !prev);
@@ -53,24 +58,31 @@ export default function Home() {
               onCerrar={control.ocultarAviso}
             />
           )}
-          {(pantallaActual === 'mis-cuentas' || pantallaActual === 'detalle-cuenta') && (
-            <PantallaCuentas
-              modoOscuro={modoOscuro}
-              vistaSubpantalla={vistaSubpantalla}
-              setVistaSubpantalla={handleCambiarSubpantalla}
-            />
-          )}
-          {pantallaActual === 'tasas' && <PantallaTasas modoOscuro={modoOscuro} />}
-          {pantallaActual === 'patrimonio' && (
-            <PantallaPatrimonio modoOscuro={modoOscuro} />
-          )}
-          {(pantallaActual === 'amigos' || pantallaActual === 'grupos') && (
-            <PantallaSocial
-              modoOscuro={modoOscuro}
-              vista={pantallaActual}
-              setPantallaActual={setPantallaActual}
-            />
-          )}
+          {/* Al iniciar o cerrar sesión cambia la clave: las pantallas se montan de nuevo y piden
+              sus datos al libro nuevo, sin dejar a la vista nada del usuario anterior. Las pantallas
+              de sesión quedan fuera para no desmontar el formulario que está iniciando sesión. */}
+          <Fragment key={control.claveLibro}>
+            {(pantallaActual === 'mis-cuentas' || pantallaActual === 'detalle-cuenta') && (
+              <PantallaCuentas
+                modoOscuro={modoOscuro}
+                vistaSubpantalla={vistaSubpantalla}
+                setVistaSubpantalla={handleCambiarSubpantalla}
+                versionDatos={sincronizacion.versionDatos}
+              />
+            )}
+            {pantallaActual === 'tasas' && <PantallaTasas modoOscuro={modoOscuro} />}
+            {pantallaActual === 'patrimonio' && (
+              <PantallaPatrimonio modoOscuro={modoOscuro} versionDatos={sincronizacion.versionDatos} />
+            )}
+            {(pantallaActual === 'amigos' || pantallaActual === 'grupos') && (
+              <PantallaSocial
+                modoOscuro={modoOscuro}
+                vista={pantallaActual}
+                setPantallaActual={setPantallaActual}
+                sincronizacion={sincronizacion}
+              />
+            )}
+          </Fragment>
           {(pantallaActual === 'inicio-sesion' ||
             pantallaActual === 'registro' ||
             pantallaActual === 'perfil') && (

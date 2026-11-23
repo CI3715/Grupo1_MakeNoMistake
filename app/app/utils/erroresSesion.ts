@@ -5,6 +5,16 @@ import type { ErroresSesion } from '../types/sesion';
 export const MENSAJE_GENERICO = 'No se pudo completar la acción. Intenta de nuevo en un momento.';
 
 /**
+ * Solo en desarrollo: deja en la consola (F12) el error crudo cuando no es un ErroresDto, para
+ * poder diagnosticarlo. A la persona nunca se le muestra (RNF-18); en producción no hace nada.
+ */
+export function registrarErrorCrudo(err: unknown): void {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('[cuentas-claras] error sin formato del comando:', err);
+  }
+}
+
+/**
  * Convierte el error de un comando en errores por campo para un formulario.
  * - Un error con `campo` conocido va debajo de ese campo.
  * - Cualquier otro (sin campo, sin conexión, sesión vencida…) va como «general».
@@ -18,6 +28,7 @@ export function erroresDeFormulario<C extends string>(
   const resultado: Record<string, string> = {};
 
   if (!esErroresDto(err) || err.errores.length === 0) {
+    registrarErrorCrudo(err);
     resultado.general = MENSAJE_GENERICO;
     return resultado as unknown as ErroresSesion<C>;
   }
@@ -38,5 +49,6 @@ export function erroresDeFormulario<C extends string>(
 /** Primer mensaje de un error de comando, o el genérico. */
 export function primerMensaje(err: unknown): string {
   if (esErroresDto(err) && err.errores.length > 0) return err.errores[0].mensaje;
+  registrarErrorCrudo(err);
   return MENSAJE_GENERICO;
 }

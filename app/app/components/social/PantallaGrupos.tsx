@@ -14,6 +14,7 @@ import { FormularioCrearGrupo } from './FormularioCrearGrupo';
 import { FormularioGasto } from './FormularioGasto';
 import { InvitacionesGrupo } from './InvitacionesGrupo';
 import { ListaGrupos } from './ListaGrupos';
+import { PanelSincronizacionLista } from './PanelSincronizacionLista';
 
 /**
  * «Grupos»: lista (con invitaciones y formulario de creación), detalle de un grupo y
@@ -51,9 +52,15 @@ export function PantallaGrupos({ ctx }: { ctx: ContextoSocial }) {
         ctx={ctx}
         grupoId={vista.grupoId}
         onCancelar={() => setVista({ tipo: 'detalle', grupoId: vista.grupoId })}
-        onRegistrado={() => {
-          setAviso('Gasto registrado. La división y los balances ya están actualizados.');
+        onRegistrado={(pendiente) => {
+          setAviso(
+            pendiente
+              ? 'Gasto guardado en este dispositivo: está pendiente de envío y llegará al grupo cuando vuelva la conexión.'
+              : 'Gasto registrado. La división y los balances ya están actualizados.'
+          );
           setVista({ tipo: 'detalle', grupoId: vista.grupoId });
+          // Tras registrar un gasto de grupo se sincroniza (baja mi parte y envía la cola).
+          void ctx.sincronizacion.sincronizar();
         }}
       />
     );
@@ -63,7 +70,7 @@ export function PantallaGrupos({ ctx }: { ctx: ContextoSocial }) {
 }
 
 function ListaDeGrupos({ ctx, onAbrir }: { ctx: ContextoSocial; onAbrir: (grupoId: string) => void }) {
-  const { carga, recargar } = useCargaRemota(listarGruposCommand);
+  const { carga, recargar } = useCargaRemota(listarGruposCommand, ctx.sincronizacion.versionDatos);
   const tema = temaSocial(ctx.modoOscuro);
   const actualizar = () => recargar(false);
 
@@ -83,6 +90,7 @@ function ListaDeGrupos({ ctx, onAbrir }: { ctx: ContextoSocial; onAbrir: (grupoI
 
       {carga.estado === 'listo' && (
         <>
+          <PanelSincronizacionLista ctx={ctx} onAbrirGrupo={onAbrir} />
           <dl className="mb-4 grid grid-cols-2 gap-3">
             <ResumenCifra
               ctx={ctx}

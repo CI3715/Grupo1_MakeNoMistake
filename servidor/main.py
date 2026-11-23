@@ -5,14 +5,16 @@ from decimal import Decimal
 from typing import Annotated, Any, Protocol
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Header, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
+import cambios
 import contrasenas
+import idempotencia
 import reglas
 import token_sesion
 from autorizacion import (
@@ -22,6 +24,7 @@ from autorizacion import (
     pertenencia_aceptada,
 )
 from base_datos import BaseDatos
+from cambios import EventoCambio
 from configuracion import cargar_configuracion
 from division import (
     ErrorValidacionDivision,
@@ -33,6 +36,7 @@ from division import (
     con_punto,
     dividir,
 )
+from idempotencia import ClaveGuardada, Decision, ParteParaHuella
 from repositorio_amistades import (
     Amistad,
     AmistadVista,
@@ -42,7 +46,9 @@ from repositorio_amistades import (
     RepositorioAmistades,
     YaSonAmigos,
 )
+from repositorio_cambios import RepositorioCambios
 from repositorio_gastos import (
+    ClaveYaUsada,
     GastoInvalido,
     GastoVista,
     ParteCalculada,
@@ -188,9 +194,23 @@ class AlmacenGastos(Protocol):
         partes: Sequence[ParteCalculada],
         registrado_por: UUID,
         ahora: datetime,
+        clave_idempotencia: str | None = None,
+        huella: str | None = None,
     ) -> GastoVista: ...
 
+    def buscar_clave(self, usuario_id: UUID, clave: str) -> ClaveGuardada | None: ...
+
+    def buscar(self, gasto_id: UUID) -> GastoVista | None: ...
+
     def listar_del_grupo(self, id_grupo: UUID) -> list[GastoVista]: ...
+
+
+class AlmacenCambios(Protocol):
+    """Lo que ``GET /cambios`` necesita del registro de cambios."""
+
+    def listar_desde(
+        self, usuario_id: UUID, desde: int, limite: int
+    ) -> list[EventoCambio[UUID]]: ...
 
 
 @asynccontextmanager
@@ -211,10 +231,12 @@ async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
         usuarios: AlmacenUsuarios = RepositorioUsuarios(base_datos)
         grupos: AlmacenGrupos = RepositorioGrupos(base_datos)
         amistades: AlmacenAmistades = RepositorioAmistades(base_datos)
-        gastos: AlmacenGastos = RepositorioGastos(base_datos)
+        cambios = RepositorioCambios(base_datos)
+        gastos: AlmacenGastos = RepositorioGastos(base_datos, cambios)
         app.state.repositorio_usuarios = usuarios
         app.state.repositorio_grupos = grupos
         app.state.repositorio_amistades = amistades
+        app.state.repositorio_cambios = cambios
         app.state.repositorio_gastos = gastos
     token_sesion.comprobar_configuracion()
 
@@ -443,6 +465,14 @@ def obtener_repositorio_gastos(request: Request) -> AlmacenGastos:
 
 
 RepositorioGastosDep = Annotated[AlmacenGastos, Depends(obtener_repositorio_gastos)]
+
+
+def obtener_repositorio_cambios(request: Request) -> AlmacenCambios:
+    repo: AlmacenCambios = request.app.state.repositorio_cambios
+    return repo
+
+
+RepositorioCambiosDep = Annotated[AlmacenCambios, Depends(obtener_repositorio_cambios)]
 
 
 def campos_ocupados(
@@ -876,6 +906,7 @@ def eliminar_amistad(
     status_code=201,
     tags=["Grupos"],
     summary="Crear grupo",
+    operation_id="crearGrupo",
 )
 def crear_grupo(
     cuerpo: NuevoGrupo,
@@ -937,6 +968,7 @@ def crear_grupo(
     "/grupos",
     tags=["Grupos"],
     summary="Listar mis grupos",
+    operation_id="listarMisGrupos",
 )
 def listar_mis_grupos(
     credenciales: Annotated[
@@ -996,6 +1028,7 @@ def listar_mis_grupos(
     "/grupos/{id_grupo}",
     tags=["Grupos"],
     summary="Detalle de grupo",
+    operation_id="obtenerGrupo",
 )
 def obtener_grupo(
     id_grupo: str,
@@ -1075,6 +1108,7 @@ def obtener_grupo(
     status_code=201,
     tags=["Grupos"],
     summary="Invitar miembro a grupo",
+    operation_id="invitarAlGrupo",
 )
 def invitar_miembro(
     id_grupo: str,
@@ -1143,6 +1177,7 @@ def invitar_miembro(
     "/grupos/{id_grupo}/miembros/yo/respuesta",
     tags=["Grupos"],
     summary="Responder invitación a grupo",
+    operation_id="responderInvitacionGrupo",
 )
 def responder_invitacion_grupo(
     id_grupo: str,
@@ -1201,6 +1236,14 @@ def responder_invitacion_grupo(
     status_code=201,
     tags=["Gastos"],
     summary="Registrar gasto de grupo",
+    operation_id="registrarGastoGrupo",
+    responses={
+        200: {"description": "La clave ya se había procesado con el mismo cuerpo."},
+        400: {"model": ErroresPorCampo},
+        401: {"model": ErrorMensaje},
+        404: {"model": ErrorMensaje},
+        409: {"model": ErroresPorCampo},
+    },
 )
 def registrar_gasto_grupo(
     id_grupo: str,
@@ -1211,13 +1254,26 @@ def registrar_gasto_grupo(
     repo_gastos: RepositorioGastosDep,
     repo_usuarios: Repositorio,
     cuerpo: NuevoGasto | None = None,
+    clave_recibida: Annotated[
+        str | None,
+        Header(
+            alias="Idempotency-Key",
+            description="Clave de idempotencia: de 8 a 128 caracteres ASCII "
+            "visibles, por usuario. Opcional; la app siempre la envía.",
+        ),
+    ] = None,
 ) -> JSONResponse:
     """Divide el gasto con la regla elegida y lo guarda con todas sus partes.
 
     El orden de las comprobaciones es fijo: sesión (401), pertenencia (404
-    uniforme) y datos (400 por campo). La división la calcula el servidor con
-    ``division.dividir``, el mismo procedimiento que la vista previa de la app,
-    así que lo guardado coincide céntimo a céntimo con lo previsualizado.
+    uniforme), datos y clave de idempotencia (400 por campo) y, por último, la
+    clave ya usada (200 con el gasto original o 409). La división la calcula el
+    servidor con ``division.dividir``, el mismo procedimiento que la vista
+    previa de la app, así que lo guardado coincide céntimo a céntimo con lo
+    previsualizado.
+
+    Gasto, partes, eventos de cada participante y clave se guardan en una sola
+    transacción (ADR-015). Un 400 o un 404 no consumen la clave.
     """
     if credenciales is None or credenciales.scheme.lower() != "bearer":
         return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
@@ -1239,6 +1295,9 @@ def registrar_gasto_grupo(
     }
 
     errores: list[reglas.ErrorCampo] = []
+    clave, error_clave = idempotencia.validar_clave(clave_recibida)
+    if error_clave is not None:
+        errores.append(error_clave)
     concepto = (datos.concepto or "").strip()
     if not concepto:
         errores.append(reglas.ErrorCampo("concepto", MENSAJE_CONCEPTO_OBLIGATORIO))
@@ -1289,28 +1348,134 @@ def registrar_gasto_grupo(
         for parte in division.partes
     ]
 
+    monto = sum((p.monto for p in partes), Decimal("0.00"))
+    nombres = NombresDeUsuario(miembros, repo_usuarios)
+    huella: str | None = None
+    if clave is not None:
+        huella = idempotencia.huella_gasto(
+            grupo_id=grupo.id,
+            concepto=concepto,
+            monto=monto,
+            fecha=fecha,
+            pagador_id=pagador.usuario_id,
+            regla=regla.value,
+            partes=[
+                ParteParaHuella(p.usuario_id, p.monto, p.porcentaje) for p in partes
+            ],
+        )
+        ya_procesado = responder_clave_usada(
+            repo_gastos, id_usuario, clave, huella, nombres
+        )
+        if ya_procesado is not None:
+            return ya_procesado
+
     try:
         vista = repo_gastos.registrar(
             grupo_id=grupo.id,
             concepto=concepto,
-            monto=sum((p.monto for p in partes), Decimal("0.00")),
+            monto=monto,
             fecha=fecha,
             pagador_id=pagador.usuario_id,
             regla=regla.value,
             partes=partes,
             registrado_por=id_usuario,
             ahora=datetime.now(timezone.utc).replace(microsecond=0),
+            clave_idempotencia=clave,
+            huella=huella,
         )
     except GastoInvalido as error:
         # La división ya validó todo; esto solo ocurre si el grupo cambió entre
         # la consulta y el guardado (p. ej. una carrera con otra petición).
         return respuesta_errores(400, [reglas.ErrorCampo(error.campo, error.mensaje)])
+    except ClaveYaUsada:
+        # Otra petición con la misma clave ganó la carrera y ya se guardó: no
+        # quedó nada de esta, así que se responde con lo que guardó la otra.
+        assert clave is not None and huella is not None
+        ya_procesado = responder_clave_usada(
+            repo_gastos, id_usuario, clave, huella, nombres
+        )
+        assert ya_procesado is not None
+        return ya_procesado
 
-    nombres = NombresDeUsuario(miembros, repo_usuarios)
     return JSONResponse(status_code=201, content=gasto_a_respuesta(vista, nombres))
 
 
+@app.get(
+    "/cambios",
+    tags=["Cambios"],
+    summary="Obtener los cambios del usuario",
+    operation_id="obtenerCambios",
+    responses={400: {"model": ErroresPorCampo}, 401: {"model": ErrorMensaje}},
+)
+def obtener_cambios(
+    credenciales: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(esquema_bearer)
+    ],
+    repo_cambios: RepositorioCambiosDep,
+    desde: Annotated[
+        str | None,
+        Query(
+            description="Cursor: posición del último evento ya recibido. Entero "
+            "no negativo; si falta, vale 0.",
+        ),
+    ] = None,
+) -> JSONResponse:
+    """Eventos del registro de quien consulta posteriores a ``desde`` (RF-COM-10).
+
+    Lotes de hasta 100 en orden de posición, con el cursor siguiente y
+    ``hay_mas``. Solo se leen las filas de quien consulta, así que nunca salen
+    eventos ajenos ni de grupos de otros (INV-17) y la ruta no responde 404.
+    El parámetro se lee como texto y lo valida ``cambios.leer_desde``, para
+    que un valor no entero, negativo o mayor que int64 sea 400 y no 422.
+    """
+    if credenciales is None or credenciales.scheme.lower() != "bearer":
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+    id_usuario = id_desde_token(credenciales.credentials)
+    if id_usuario is None:
+        return no_autorizado(MENSAJE_SESION_INVALIDA, con_desafio=True)
+
+    cursor, error = cambios.leer_desde(desde)
+    if error is not None:
+        return respuesta_errores(400, [error])
+    assert cursor is not None
+
+    posteriores = repo_cambios.listar_desde(id_usuario, cursor, cambios.TAMANO_LOTE + 1)
+    lote = cambios.armar_lote(posteriores, cursor)
+    return JSONResponse(status_code=200, content=cambios.lote_a_json(lote))
+
+
 # ------------------------------------------------------- Apoyo de grupos
+
+
+def responder_clave_usada(
+    repo_gastos: AlmacenGastos,
+    id_usuario: UUID,
+    clave: str,
+    huella: str,
+    nombres: "NombresDeUsuario",
+) -> JSONResponse | None:
+    """200 con el gasto ya registrado, 409 si la clave fue de otro cuerpo, o None.
+
+    None significa que la clave todavía no se usó y hay que registrar.
+    """
+    guardada = repo_gastos.buscar_clave(id_usuario, clave)
+    decision = idempotencia.decidir(guardada, huella)
+    if decision == Decision.REGISTRAR:
+        return None
+    if decision == Decision.CONFLICTO:
+        return respuesta_errores(
+            409,
+            [
+                reglas.ErrorCampo(
+                    "idempotency_key", idempotencia.MENSAJE_CLAVE_EN_CONFLICTO
+                )
+            ],
+        )
+    assert guardada is not None
+    vista = repo_gastos.buscar(guardada.gasto_id)
+    # La clave apunta a un gasto de la misma transacción: siempre existe.
+    assert vista is not None
+    return JSONResponse(status_code=200, content=gasto_a_respuesta(vista, nombres))
 
 
 class NombresDeUsuario:
@@ -1405,6 +1570,11 @@ def esquema_openapi() -> dict[str, Any]:
         for ruta in esquema["paths"].values():
             for operacion in ruta.values():
                 operacion["responses"].pop("422", None)
+        # Asegura que GET /usuarios documente el query param 'usuario' como obligatorio
+        if "/usuarios" in esquema["paths"] and "get" in esquema["paths"]["/usuarios"]:
+            for param in esquema["paths"]["/usuarios"]["get"].get("parameters", []):
+                if param.get("name") == "usuario":
+                    param["required"] = True
         esquemas = esquema.get("components", {}).get("schemas", {})
         esquemas.pop("HTTPValidationError", None)
         esquemas.pop("ValidationError", None)

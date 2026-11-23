@@ -15,6 +15,7 @@ import pytest
 from conftest import TABLAS_PERMITIDAS
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
+from flujo_entrega7 import recorrer_flujo_entrega_7
 from flujo_http import BALANCES_2_5, gasto, grupo_de_tres, registrar_ejemplo_2_5
 
 import main
@@ -231,3 +232,144 @@ def test_gasto_invalido_o_ajeno_no_guarda_nada(cliente_pg: TestClient) -> None:
     with BaseDatos(URL_PRUEBAS).conexion() as conexion:
         fila = conexion.execute("SELECT count(*) AS n FROM gastos").fetchone()
     assert fila is not None and fila["n"] == 0
+
+
+def test_flujo_de_cambios_e_idempotencia_como_usuario_nuevo(
+    cliente_pg: TestClient,
+) -> None:
+    """Entrega 7 de punta a punta contra PostgreSQL: cambios, cursor y reintentos."""
+    recibidos = recorrer_flujo_entrega_7(cliente_pg)
+    assert recibidos["dario"] == []
+
+    # En la base: un evento por parte, una clave por gasto con clave y el
+    # registro sin tablas del libro personal (INV-16).
+    assert URL_PRUEBAS is not None
+    with BaseDatos(URL_PRUEBAS).conexion() as conexion:
+        conteos = conexion.execute(
+            "SELECT (SELECT count(*) FROM gastos) AS gastos, "
+            "(SELECT count(*) FROM cambios) AS cambios, "
+            "(SELECT count(*) FROM claves_idempotencia) AS claves"
+        ).fetchone()
+    assert conteos is not None
+    assert (conteos["gastos"], conteos["cambios"], conteos["claves"]) == (3, 8, 3)
+
+
+def test_cambios_sin_token_o_con_cursor_invalido(cliente_pg: TestClient) -> None:
+    assert cliente_pg.get("/cambios").status_code == 401
+    _, auth = grupo_de_tres(cliente_pg)
+    invalido = cliente_pg.get("/cambios?desde=-1", headers=auth["ana"])
+    assert invalido.status_code == 400
+    assert invalido.json()["errores"][0]["campo"] == "desde"
+    vacio = cliente_pg.get("/cambios", headers=auth["dario"])
+    assert vacio.json() == {"eventos": [], "cursor": 0, "hay_mas": False}
+
+
+def test_la_clave_de_un_usuario_no_choca_con_la_de_otro(
+    cliente_pg: TestClient,
+) -> None:
+    """La clave es por usuario: la misma cadena de dos personas no colisiona."""
+    grupo_id, auth = grupo_de_tres(cliente_pg)
+    url = f"/grupos/{grupo_id}/gastos"
+    clave = "clave-compartida-2026"
+
+    de_ana = cliente_pg.post(
+        url,
+        json=gasto(
+            "100.00",
+            "ana",
+            "partes_iguales",
+            [("ana", ""), ("beto", ""), ("carla", "")],
+            concepto="Hotel",
+        ),
+        headers={**auth["ana"], "Idempotency-Key": clave},
+    )
+    de_beto = cliente_pg.post(
+        url,
+        json=gasto(
+            "60.00",
+            "beto",
+            "porcentajes",
+            [("ana", "50"), ("beto", "25"), ("carla", "25")],
+            concepto="Cena",
+        ),
+        headers={**auth["beto"], "Idempotency-Key": clave},
+    )
+
+    assert de_ana.status_code == 201, de_ana.text
+    assert de_beto.status_code == 201, de_beto.text
+    assert de_ana.json()["id"] != de_beto.json()["id"]
+
+    assert URL_PRUEBAS is not None
+    with BaseDatos(URL_PRUEBAS).conexion() as conexion:
+        filas = conexion.execute(
+            "SELECT usuario_id FROM claves_idempotencia ORDER BY usuario_id"
+        ).fetchall()
+    assert len(filas) == 2
+    assert len({fila["usuario_id"] for fila in filas}) == 2
+
+
+def _olvidar_repositorios(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Descarta los repositorios en memoria para que el arranque abra PostgreSQL."""
+    for nombre in (
+        "repositorio_usuarios",
+        "repositorio_grupos",
+        "repositorio_amistades",
+        "repositorio_gastos",
+        "repositorio_cambios",
+    ):
+        monkeypatch.delattr(app.state, nombre, raising=False)
+
+
+def test_los_datos_sobreviven_al_reinicio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Usuarios, grupos, gastos y cambios siguen ahí tras reiniciar el servidor."""
+    assert URL_PRUEBAS is not None
+    base_datos = BaseDatos(URL_PRUEBAS)
+    base_datos.crear_esquema()
+    with base_datos.conexion() as conexion:
+        conexion.execute("TRUNCATE TABLE usuarios CASCADE")
+
+    monkeypatch.setenv("CUENTAS_CLARAS_DB_URL", URL_PRUEBAS)
+    monkeypatch.setenv("CUENTAS_CLARAS_SECRETO_JWT", SECRETO)
+    _olvidar_repositorios(monkeypatch)
+
+    with TestClient(app) as cliente:
+        grupo_id, auth = grupo_de_tres(cliente)
+        creado = cliente.post(
+            f"/grupos/{grupo_id}/gastos",
+            json=gasto(
+                "100.00",
+                "ana",
+                "partes_iguales",
+                [("ana", ""), ("beto", ""), ("carla", "")],
+                concepto="Hotel",
+            ),
+            headers={**auth["ana"], "Idempotency-Key": "hotel-reinicio-2026"},
+        )
+        assert creado.status_code == 201, creado.text
+        gasto_id = creado.json()["id"]
+
+    # Segundo arranque: repositorios nuevos contra la misma base.
+    _olvidar_repositorios(monkeypatch)
+    with TestClient(app) as cliente:
+        detalle = cliente.get(f"/grupos/{grupo_id}", headers=auth["ana"])
+        assert detalle.status_code == 200, detalle.text
+        assert [g["id"] for g in detalle.json()["gastos"]] == [gasto_id]
+
+        de_beto = cliente.get("/cambios", headers=auth["beto"])
+        assert de_beto.status_code == 200, de_beto.text
+        assert [e["gasto"]["id"] for e in de_beto.json()["eventos"]] == [gasto_id]
+
+    with BaseDatos(URL_PRUEBAS).conexion() as conexion:
+        conteos = conexion.execute(
+            "SELECT (SELECT count(*) FROM usuarios) AS usuarios, "
+            "(SELECT count(*) FROM grupos) AS grupos, "
+            "(SELECT count(*) FROM gastos) AS gastos, "
+            "(SELECT count(*) FROM cambios) AS cambios"
+        ).fetchone()
+    assert conteos is not None
+    assert (
+        conteos["usuarios"],
+        conteos["grupos"],
+        conteos["gastos"],
+        conteos["cambios"],
+    ) == (4, 1, 1, 3)

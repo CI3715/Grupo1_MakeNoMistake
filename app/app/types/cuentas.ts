@@ -21,6 +21,8 @@ export interface Movimiento {
   es_corregido?: boolean;
   es_ajuste?: boolean;
   movimiento_referenciado_id?: string;
+  /** Viene de un gasto de grupo: no se corrige desde el libro, se corrige en el grupo. */
+  es_gasto_de_grupo?: boolean;
 }
 
 export interface ComposicionSaldoData {

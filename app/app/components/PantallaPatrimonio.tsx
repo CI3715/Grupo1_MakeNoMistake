@@ -16,6 +16,8 @@ import { IconoCheckCirculo, IconoMas } from './Iconos';
 
 interface PantallaPatrimonioProps {
   modoOscuro?: boolean;
+  /** Sube tras cada sincronización: el patrimonio se vuelve a leer sin mostrar «cargando». */
+  versionDatos?: number;
 }
 
 interface ResultadoPatrimonio {
@@ -27,7 +29,7 @@ interface ResultadoPatrimonio {
 
 const MONEDA_VACIA = { codigo: '', nombre: '', simbolo: '', decimales: '2' };
 
-export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscuro = true }) => {
+export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscuro = true, versionDatos = 0 }) => {
   const [fechaConsulta, setFechaConsulta] = useState<string>(fechaHoyLocal);
   const [recarga, setRecarga] = useState<number>(0);
   const [monedas, setMonedas] = useState<MonedaDto[]>([]);
@@ -73,7 +75,7 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ modoOscu
     return () => {
       vigente = false;
     };
-  }, [fechaConsulta, recarga]);
+  }, [fechaConsulta, recarga, versionDatos]);
 
   const cargando = resultado === null || resultado.clave !== `${fechaConsulta}|${recarga}`;
   const datosPatrimonio = resultado?.datos ?? null;

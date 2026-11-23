@@ -48,6 +48,7 @@ function adaptarMovimiento(dto: MovimientoDto, moneda: string): Movimiento {
     es_corregido: dto.estado === 'corregido',
     es_ajuste: dto.estado === 'ajuste',
     movimiento_referenciado_id: dto.corrige_a ?? undefined,
+    es_gasto_de_grupo: dto.gasto_de_grupo,
   };
 }
 
@@ -73,12 +74,15 @@ interface PantallaCuentasProps {
   modoOscuro: boolean;
   vistaSubpantalla: 'mis-cuentas' | 'detalle-cuenta';
   setVistaSubpantalla: (vista: 'mis-cuentas' | 'detalle-cuenta' | 'tasas' | 'patrimonio') => void;
+  /** Sube tras cada sincronización: se vuelven a leer cuentas, saldos y movimientos. */
+  versionDatos?: number;
 }
 
 export function PantallaCuentas({
   modoOscuro,
   vistaSubpantalla,
   setVistaSubpantalla,
+  versionDatos = 0,
 }: PantallaCuentasProps) {
   const [cuentaActivaId, setCuentaActivaId] = useState<string>('');
   const [cuentas, setCuentas] = useState<CuentaDto[]>([]);
@@ -140,7 +144,7 @@ export function PantallaCuentas({
     return () => {
       vigente = false;
     };
-  }, [aplicarDatos]);
+  }, [aplicarDatos, versionDatos]);
 
   useEffect(() => {
     if (!cuentaActivaId) return;
@@ -153,7 +157,7 @@ export function PantallaCuentas({
     return () => {
       vigente = false;
     };
-  }, [cuentaActivaId]);
+  }, [cuentaActivaId, versionDatos]);
 
   const seleccionarCuenta = (id: string) => {
     setCuentaActivaId(id);

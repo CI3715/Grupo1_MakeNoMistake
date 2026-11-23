@@ -7,7 +7,10 @@ import type { DatosInicioSesion, DatosRegistro } from '../types/sesion';
  *
  * Convenciones del backend (ver src-tauri/src/dto.rs):
  *  - Los comandos reciben UN argumento llamado `datos` (salvo `detalle_cuenta` y
- *    `eliminar_tasa`, que reciben `cuenta_id` y `tasa_id`).
+ *    `eliminar_tasa`, que reciben `cuenta_id` y `tasa_id` porque en Rust llevan
+ *    `rename_all = "snake_case"`).
+ *  - Los comandos de social.rs sin `datos` (`ver_grupo`, `eliminar_amistad`) NO llevan
+ *    ese atributo: Tauri espera el argumento en camelCase (`grupoId`, `amistadId`).
  *  - Montos, tasas y decimales viajan como TEXTO con punto decimal ("50.00").
  *  - Fechas viajan como "AAAA-MM-DD".
  *  - Los errores de validación llegan como `{ errores: [{ campo, mensaje }] }`.
@@ -297,6 +300,11 @@ export interface SesionDto {
   estado: EstadoSesion;
   nombre_visible: string | null;
   vence_en: string | null;
+  /**
+   * Id del usuario (Entrega 7). Opcional: si el núcleo aún no lo envía, la interfaz usa un
+   * contador de cambios de libro como clave y funciona igual.
+   */
+  usuario_id?: string | null;
 }
 
 export interface UsuarioDto {
@@ -523,7 +531,7 @@ export async function listarAmistadesCommand(): Promise<ListaAmistadesDto> {
 }
 
 export async function eliminarAmistadCommand(amistadId: string): Promise<void> {
-  return await invoke<void>('eliminar_amistad', { amistad_id: amistadId, amistadId });
+  return await invoke<void>('eliminar_amistad', { amistadId });
 }
 
 export async function crearGrupoCommand(datos: NuevoGrupoPayload): Promise<GrupoResumenDto> {
@@ -551,7 +559,7 @@ export async function registrarGastoGrupoCommand(
 }
 
 export async function verGrupoCommand(grupoId: string): Promise<GrupoDetalleDto> {
-  return await invoke<GrupoDetalleDto>('ver_grupo', { grupo_id: grupoId, grupoId });
+  return await invoke<GrupoDetalleDto>('ver_grupo', { grupoId });
 }
 
 /** Cálculo local con decimales exactos; no usa la red. */
