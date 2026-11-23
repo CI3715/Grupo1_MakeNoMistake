@@ -61,7 +61,11 @@ fn centimos(monto: &str) -> i64 {
     let (parte_entera, decimales) = monto
         .split_once('.')
         .unwrap_or_else(|| panic!("el monto `{monto}` no trae punto decimal"));
-    assert_eq!(decimales.len(), 2, "el monto `{monto}` no trae dos decimales");
+    assert_eq!(
+        decimales.len(),
+        2,
+        "el monto `{monto}` no trae dos decimales"
+    );
     let negativo = parte_entera.starts_with('-');
     let e: i64 = parte_entera
         .trim_start_matches('-')
@@ -253,12 +257,21 @@ fn la_division_de_la_app_coincide_con_los_eventos_del_archivo() {
             .unwrap_or_else(|e| panic!("{id}: debía dividirse y dio {e:?}"));
 
         let filas = lista(&gasto["esperado"], "eventos");
-        assert_eq!(division.partes.len(), filas.len(), "{id}: cantidad de partes");
+        assert_eq!(
+            division.partes.len(),
+            filas.len(),
+            "{id}: cantidad de partes"
+        );
         let mut suma = 0;
         for (parte, fila) in division.partes.iter().zip(filas) {
             let evento = &fila["evento"];
             assert_eq!(parte.usuario, texto(fila, "usuario"), "{id}: usuario");
-            assert_eq!(parte.monto, texto(evento, "monto"), "{id}: monto de {}", parte.usuario);
+            assert_eq!(
+                parte.monto,
+                texto(evento, "monto"),
+                "{id}: monto de {}",
+                parte.usuario
+            );
             assert_eq!(
                 Some(parte.incluye_redondeo),
                 evento["incluye_redondeo"].as_bool(),
@@ -267,12 +280,19 @@ fn la_division_de_la_app_coincide_con_los_eventos_del_archivo() {
             );
             suma += centimos(&parte.monto);
         }
-        assert_eq!(suma, centimos(texto(gasto, "monto")), "{id}: la suma de las partes");
+        assert_eq!(
+            suma,
+            centimos(texto(gasto, "monto")),
+            "{id}: la suma de las partes"
+        );
 
         for fila in filas {
             let evento = &fila["evento"];
             assert_eq!(texto(&evento["gasto"], "id"), texto(gasto, "gasto_id"));
-            assert_eq!(texto(&evento["gasto"], "concepto"), texto(gasto, "concepto"));
+            assert_eq!(
+                texto(&evento["gasto"], "concepto"),
+                texto(gasto, "concepto")
+            );
             assert_eq!(texto(evento, "fecha"), texto(gasto, "fecha"));
             assert_eq!(texto(evento, "moneda"), texto(gasto, "moneda"));
             assert_eq!(evento["grupo"], gasto["grupo"]);
@@ -359,12 +379,20 @@ impl Libro {
 
 fn comprobar_estado(libro: &Libro, esperado: &Value, donde: &str) {
     assert_eq!(libro.cursor, entero(esperado, "cursor"), "{donde}: cursor");
-    assert_eq!(libro.cola, entero(esperado, "cola"), "{donde}: cola de envío");
+    assert_eq!(
+        libro.cola,
+        entero(esperado, "cola"),
+        "{donde}: cola de envío"
+    );
 
     let saldos = esperado["saldos"]
         .as_object()
         .unwrap_or_else(|| panic!("{donde}: faltan los saldos"));
-    assert_eq!(libro.saldos.len(), saldos.len(), "{donde}: cantidad de cuentas");
+    assert_eq!(
+        libro.saldos.len(),
+        saldos.len(),
+        "{donde}: cantidad de cuentas"
+    );
     for (cuenta, monto) in saldos {
         let monto = monto
             .as_str()
@@ -381,13 +409,21 @@ fn comprobar_estado(libro: &Libro, esperado: &Value, donde: &str) {
         .iter()
         .map(|e| texto(e, "id").to_string())
         .collect();
-    assert_eq!(aplicados, ids_de(esperado, "movimientos"), "{donde}: movimientos");
+    assert_eq!(
+        aplicados,
+        ids_de(esperado, "movimientos"),
+        "{donde}: movimientos"
+    );
     let pendientes: Vec<String> = libro
         .pendientes
         .iter()
         .map(|e| texto(e, "id").to_string())
         .collect();
-    assert_eq!(pendientes, ids_de(esperado, "pendientes"), "{donde}: pendientes");
+    assert_eq!(
+        pendientes,
+        ids_de(esperado, "pendientes"),
+        "{donde}: pendientes"
+    );
 }
 
 #[test]
@@ -410,12 +446,28 @@ fn los_escenarios_del_libro_dan_el_estado_esperado() {
                         .max()
                         .unwrap_or(libro.cursor);
                     assert_eq!(entero(paso, "desde"), libro.cursor, "{donde}: desde");
-                    assert_eq!(entero(respuesta, "cursor"), ultima, "{donde}: cursor del lote");
-                    assert_eq!(respuesta["hay_mas"].as_bool(), Some(false), "{donde}: hay_mas");
+                    assert_eq!(
+                        entero(respuesta, "cursor"),
+                        ultima,
+                        "{donde}: cursor del lote"
+                    );
+                    assert_eq!(
+                        respuesta["hay_mas"].as_bool(),
+                        Some(false),
+                        "{donde}: hay_mas"
+                    );
 
                     let (aplicados, ignorados) = libro.sincronizar(respuesta);
-                    assert_eq!(aplicados, entero(esperado, "aplicados"), "{donde}: aplicados");
-                    assert_eq!(ignorados, entero(esperado, "ignorados"), "{donde}: ignorados");
+                    assert_eq!(
+                        aplicados,
+                        entero(esperado, "aplicados"),
+                        "{donde}: aplicados"
+                    );
+                    assert_eq!(
+                        ignorados,
+                        entero(esperado, "ignorados"),
+                        "{donde}: ignorados"
+                    );
                 }
                 "reiniciar_cursor" => libro.cursor = 0,
                 "encolar_gasto" => libro.cola += 1,
@@ -426,7 +478,11 @@ fn los_escenarios_del_libro_dan_el_estado_esperado() {
         }
 
         let detalle = lista(escenario, "movimientos_finales");
-        assert_eq!(detalle.len(), libro.movimientos.len(), "{id}: movimientos finales");
+        assert_eq!(
+            detalle.len(),
+            libro.movimientos.len(),
+            "{id}: movimientos finales"
+        );
         for (movimiento, evento) in detalle.iter().zip(&libro.movimientos) {
             let concepto = format!(
                 "{} · {}",
