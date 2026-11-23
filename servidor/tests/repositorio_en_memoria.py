@@ -1,6 +1,7 @@
 """Almacén en memoria para las pruebas de las rutas del servidor.
 
-Imita a ``RepositorioUsuarios``, ``RepositorioGrupos`` y ``RepositorioAmistades``:
+Imita a ``RepositorioUsuarios``, ``RepositorioGrupos``, ``RepositorioAmistades``,
+``RepositorioGastos`` y ``RepositorioCambios``:
 recorta los nombres, guarda el correo en minúsculas, valida unicidad y control
 de acceso en grupos y amistades. Así las pruebas de las rutas corren de forma
 aislada y determinista sin necesidad de PostgreSQL.
@@ -13,6 +14,8 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from cambios import EventoCambio, ParteParaEvento, eventos_de_gasto
+from idempotencia import ClaveGuardada
 from repositorio_amistades import (
     Amistad,
     AmistadNoEncontrada,
@@ -23,6 +26,7 @@ from repositorio_amistades import (
     YaSonAmigos,
 )
 from repositorio_gastos import (
+    ClaveYaUsada,
     Gasto,
     GastoInvalido,
     GastoVista,
@@ -58,6 +62,9 @@ class RepositorioEnMemoria:
         self.grupos: dict[UUID, Grupo] = {}
         self.miembros: dict[tuple[UUID, UUID], Miembro] = {}
         self.amistades: dict[UUID, Amistad] = {}
+        # Registro de cambios (solo se agregan filas) y claves de idempotencia.
+        self.cambios: list[EventoCambio[UUID]] = []
+        self.claves: dict[tuple[UUID, str], ClaveGuardada] = {}
 
     # ------------------------------------------------------------- Usuarios
 
@@ -502,7 +509,11 @@ class RepositorioGastosEnMemoria:
         partes: Sequence[ParteCalculada],
         registrado_por: UUID,
         ahora: datetime,
+        clave_idempotencia: str | None = None,
+        huella: str | None = None,
     ) -> GastoVista:
+        if (clave_idempotencia is None) != (huella is None):
+            raise ValueError("La clave de idempotencia y su huella van juntas.")
         regla_normalizada = _normalizar_regla(regla)
         monto_exacto = _monto_valido(monto, "monto", permitir_cero=False)
         calculadas = tuple(_normalizar_parte(parte) for parte in partes)
@@ -552,8 +563,45 @@ class RepositorioGastosEnMemoria:
                 for parte in calculadas
             ),
         )
+        if clave_idempotencia is not None:
+            assert huella is not None
+            if (registrado_por, clave_idempotencia) in self._almacen.claves:
+                raise ClaveYaUsada
+        ultimas: dict[UUID, int] = {}
+        for evento in self._almacen.cambios:
+            ultimas[evento.usuario] = max(
+                ultimas.get(evento.usuario, 0), evento.posicion
+            )
+        grupo = self._almacen.grupos[grupo_id]
+        eventos = eventos_de_gasto(
+            gasto_id=gasto.id,
+            concepto=gasto.concepto,
+            fecha=gasto.fecha,
+            grupo_id=grupo_id,
+            grupo_nombre=grupo.nombre,
+            moneda=grupo.moneda,
+            partes=[
+                ParteParaEvento(p.usuario_id, p.monto, p.lleva_residuo)
+                for p in vista.partes
+            ],
+            ultimas_posiciones=ultimas,
+            nuevo_id=uuid4,
+        )
+        # Todo junto, como la transacción de PostgreSQL.
         self.gastos.append(vista)
+        self._almacen.cambios.extend(eventos)
+        if clave_idempotencia is not None:
+            assert huella is not None
+            self._almacen.claves[(registrado_por, clave_idempotencia)] = ClaveGuardada(
+                gasto_id=gasto.id, huella=huella
+            )
         return vista
+
+    def buscar_clave(self, usuario_id: UUID, clave: str) -> ClaveGuardada | None:
+        return self._almacen.claves.get((usuario_id, clave))
+
+    def buscar(self, gasto_id: UUID) -> GastoVista | None:
+        return next((v for v in self.gastos if v.gasto.id == gasto_id), None)
 
     def listar_del_grupo(self, id_grupo: UUID) -> list[GastoVista]:
         """Del más reciente al más antiguo, como el repositorio real."""
@@ -564,3 +612,23 @@ class RepositorioGastosEnMemoria:
             key=lambda v: (v.gasto.fecha, v.gasto.fecha_registro),
             reverse=True,
         )
+
+
+class RepositorioCambiosEnMemoria:
+    """Imita a ``RepositorioCambios``: solo lee el registro de quien consulta."""
+
+    def __init__(self, almacen: RepositorioEnMemoria) -> None:
+        self._almacen = almacen
+
+    def listar_desde(
+        self, usuario_id: UUID, desde: int, limite: int
+    ) -> list[EventoCambio[UUID]]:
+        propios = sorted(
+            (
+                e
+                for e in self._almacen.cambios
+                if e.usuario == usuario_id and e.posicion > desde
+            ),
+            key=lambda e: e.posicion,
+        )
+        return propios[:limite]

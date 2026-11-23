@@ -1,0 +1,1437 @@
+{
+  "version": 1,
+  "descripcion": "Vectores de sincronización de la Entrega 7: qué eventos recibe cada participante de un gasto de grupo y cómo los aplica el libro personal sin duplicar. Los leen las pruebas del servidor y las de la app (RF-COM-10, RNF-17, INV-13, INV-15, INV-17, INV-18, ESC-05, ESC-09).",
+  "formato": {
+    "montos": "Texto con punto decimal y dos decimales («33.33»); nunca número JSON.",
+    "evento": "Forma de cada evento de GET /cambios: {id, posicion, tipo, grupo:{id,nombre}, gasto:{id,concepto}, fecha, moneda, monto, incluye_redondeo}. Los tipos que no son «gasto_de_grupo» pueden traer cualquier otro campo y se ignoran.",
+    "posicion": "Entera y creciente por usuario, empezando en 1. Un miembro excluido de un gasto no consume posición.",
+    "gastos": "Secuencia ordenada de gastos registrados en el grupo. «esperado.eventos» trae el evento de cada participante (en orden alfabético de usuario) y «sin_evento» a quienes no reciben nada. Los lee el servidor y la app.",
+    "escenarios": "Solo para la app. Cada paso trae la acción y el estado esperado después de ejecutarla. Acciones: elegir_cuenta, sincronizar (con la «respuesta» del servidor), reiniciar_cursor, encolar_gasto y enviar_cola.",
+    "cursor": "Después de sincronizar vale «respuesta.cursor»: la posición del último evento del lote, o «desde» si el lote viene vacío. Los eventos ignorados también hacen avanzar el cursor.",
+    "estado": "«saldos» por nombre de cuenta; «movimientos» son los ids de evento aplicados, en orden; «pendientes» los ids de las partes sin cuenta elegida; «cola» cuántos gastos esperan envío; «aplicados» e «ignorados» cuentan los eventos de ese lote.",
+    "cuentas_ofrecidas": "Solo cuentas activas en la moneda del grupo (INV-18).",
+    "privacidad": "Ningún evento ni respuesta lleva cuentas, movimientos, saldos ni tasas: eso solo existe en «escenarios» y nunca viaja al servidor (INV-16)."
+  },
+  "gastos": [
+    {
+      "id": "hotel",
+      "descripcion": "Sección 2.6: hotel de 100,00 en partes iguales; el céntimo de redondeo va a ana (33,34).",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "gasto_id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+      "concepto": "Hotel",
+      "fecha": "2026-03-14",
+      "monto": "100.00",
+      "pagador": "ana",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "eventos": [
+          {
+            "usuario": "ana",
+            "evento": {
+              "id": "f16b54ef-4fe0-55cc-80f6-2da2cad68c97",
+              "posicion": 1,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                "concepto": "Hotel"
+              },
+              "fecha": "2026-03-14",
+              "moneda": "USD",
+              "monto": "33.34",
+              "incluye_redondeo": true
+            }
+          },
+          {
+            "usuario": "beto",
+            "evento": {
+              "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "posicion": 1,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                "concepto": "Hotel"
+              },
+              "fecha": "2026-03-14",
+              "moneda": "USD",
+              "monto": "33.33",
+              "incluye_redondeo": false
+            }
+          },
+          {
+            "usuario": "carla",
+            "evento": {
+              "id": "26dbc656-cc23-5d72-be42-72aa4db448e4",
+              "posicion": 1,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                "concepto": "Hotel"
+              },
+              "fecha": "2026-03-14",
+              "moneda": "USD",
+              "monto": "33.33",
+              "incluye_redondeo": false
+            }
+          }
+        ],
+        "sin_evento": []
+      }
+    },
+    {
+      "id": "cena",
+      "descripcion": "Sección 2.6: cena de 60,00 con 50 % · 25 % · 25 %; la paga beto.",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "gasto_id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+      "concepto": "Cena",
+      "fecha": "2026-03-15",
+      "monto": "60.00",
+      "pagador": "beto",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50"
+        },
+        {
+          "usuario": "beto",
+          "valor": "25"
+        },
+        {
+          "usuario": "carla",
+          "valor": "25"
+        }
+      ],
+      "esperado": {
+        "eventos": [
+          {
+            "usuario": "ana",
+            "evento": {
+              "id": "a8b29228-74f5-526c-ab01-25c37709639e",
+              "posicion": 2,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                "concepto": "Cena"
+              },
+              "fecha": "2026-03-15",
+              "moneda": "USD",
+              "monto": "30.00",
+              "incluye_redondeo": false
+            }
+          },
+          {
+            "usuario": "beto",
+            "evento": {
+              "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+              "posicion": 2,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                "concepto": "Cena"
+              },
+              "fecha": "2026-03-15",
+              "moneda": "USD",
+              "monto": "15.00",
+              "incluye_redondeo": false
+            }
+          },
+          {
+            "usuario": "carla",
+            "evento": {
+              "id": "a30d89ac-2d0f-538f-b42c-7c72428b1a10",
+              "posicion": 2,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                "concepto": "Cena"
+              },
+              "fecha": "2026-03-15",
+              "moneda": "USD",
+              "monto": "15.00",
+              "incluye_redondeo": false
+            }
+          }
+        ],
+        "sin_evento": []
+      }
+    },
+    {
+      "id": "taxi",
+      "descripcion": "Un miembro excluido de la división no recibe evento (INV-17): carla no participa.",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "gasto_id": "e07cb1fe-4332-506c-b55b-2dac6e851f3d",
+      "concepto": "Taxi al aeropuerto",
+      "fecha": "2026-03-16",
+      "monto": "40.00",
+      "pagador": "ana",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "eventos": [
+          {
+            "usuario": "ana",
+            "evento": {
+              "id": "151d2ba8-4dae-5c85-9ccf-c23489d17a4d",
+              "posicion": 3,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "e07cb1fe-4332-506c-b55b-2dac6e851f3d",
+                "concepto": "Taxi al aeropuerto"
+              },
+              "fecha": "2026-03-16",
+              "moneda": "USD",
+              "monto": "20.00",
+              "incluye_redondeo": false
+            }
+          },
+          {
+            "usuario": "beto",
+            "evento": {
+              "id": "405422b3-d5c2-5536-8e88-718aba15feb3",
+              "posicion": 3,
+              "tipo": "gasto_de_grupo",
+              "grupo": {
+                "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                "nombre": "Viaje a Mérida"
+              },
+              "gasto": {
+                "id": "e07cb1fe-4332-506c-b55b-2dac6e851f3d",
+                "concepto": "Taxi al aeropuerto"
+              },
+              "fecha": "2026-03-16",
+              "moneda": "USD",
+              "monto": "20.00",
+              "incluye_redondeo": false
+            }
+          }
+        ],
+        "sin_evento": [
+          "carla"
+        ]
+      }
+    }
+  ],
+  "escenarios": [
+    {
+      "id": "ejemplo-2-6",
+      "descripcion": "Ejemplo de la sección 2.6: saldo de Efectivo USD 200,00 → 166,67 → 151,67.",
+      "usuario": "beto",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "cuentas": [
+        {
+          "nombre": "Efectivo USD",
+          "moneda": "USD",
+          "activa": true,
+          "saldo_inicial": "200.00"
+        },
+        {
+          "nombre": "Efectivo MXN",
+          "moneda": "MXN",
+          "activa": true,
+          "saldo_inicial": "5000.00"
+        },
+        {
+          "nombre": "Ahorros USD",
+          "moneda": "USD",
+          "activa": false,
+          "saldo_inicial": "900.00"
+        }
+      ],
+      "cuentas_ofrecidas": [
+        "Efectivo USD"
+      ],
+      "pasos": [
+        {
+          "id": "1-elegir-cuenta",
+          "descripcion": "Inicio: beto elige su cuenta Efectivo USD para el grupo.",
+          "accion": "elegir_cuenta",
+          "cuenta": "Efectivo USD",
+          "esperado": {
+            "cursor": 0,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "200.00",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [],
+            "pendientes": []
+          }
+        },
+        {
+          "id": "2-sincronizacion-1",
+          "descripcion": "Baja su parte del hotel: gasto de 33,33.",
+          "accion": "sincronizar",
+          "desde": 0,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 1,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 1,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "166.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1"
+            ],
+            "pendientes": [],
+            "aplicados": 1,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "3-sincronizacion-2",
+          "descripcion": "No hay eventos nuevos.",
+          "accion": "sincronizar",
+          "desde": 1,
+          "respuesta": {
+            "eventos": [],
+            "cursor": 1,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 1,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "166.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1"
+            ],
+            "pendientes": [],
+            "aplicados": 0,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "4-sincronizacion-3",
+          "descripcion": "No hay eventos nuevos.",
+          "accion": "sincronizar",
+          "desde": 1,
+          "respuesta": {
+            "eventos": [],
+            "cursor": 1,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 1,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "166.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1"
+            ],
+            "pendientes": [],
+            "aplicados": 0,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "5-sin-conexion",
+          "descripcion": "Sin conexión, beto registra la cena de 60,00 (50 % · 25 % · 25 %): queda pendiente de envío.",
+          "accion": "encolar_gasto",
+          "gasto": "cena",
+          "esperado": {
+            "cursor": 1,
+            "cola": 1,
+            "saldos": {
+              "Efectivo USD": "166.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1"
+            ],
+            "pendientes": []
+          }
+        },
+        {
+          "id": "6-vuelve-la-conexion",
+          "descripcion": "Vuelve la conexión: la cena se envía una sola vez y sale de la cola.",
+          "accion": "enviar_cola",
+          "esperado": {
+            "cursor": 1,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "166.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1"
+            ],
+            "pendientes": []
+          }
+        },
+        {
+          "id": "7-baja-la-cena",
+          "descripcion": "Baja su parte de la cena: gasto de 15,00.",
+          "accion": "sincronizar",
+          "desde": 1,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": [],
+            "aplicados": 1,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "8-cursor-a-cero",
+          "descripcion": "El cursor se reinicia a cero (comando reiniciar_cursor).",
+          "accion": "reiniciar_cursor",
+          "esperado": {
+            "cursor": 0,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": []
+          }
+        },
+        {
+          "id": "9-baja-todo-de-nuevo",
+          "descripcion": "Bajan de nuevo los dos eventos: ya estaban aplicados y se ignoran.",
+          "accion": "sincronizar",
+          "desde": 0,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67",
+              "Efectivo MXN": "5000.00",
+              "Ahorros USD": "900.00"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": [],
+            "aplicados": 0,
+            "ignorados": 2
+          }
+        }
+      ],
+      "movimientos_finales": [
+        {
+          "evento_id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+          "concepto": "Viaje a Mérida · Hotel",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "33.33",
+          "fecha": "2026-03-14",
+          "de_grupo": true
+        },
+        {
+          "evento_id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+          "concepto": "Viaje a Mérida · Cena",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "15.00",
+          "fecha": "2026-03-15",
+          "de_grupo": true
+        }
+      ],
+      "corregir_movimiento_de_grupo": {
+        "evento_id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+        "error": "Se corrige en el grupo."
+      }
+    },
+    {
+      "id": "lote-repetido",
+      "descripcion": "Aplicar el mismo lote cualquier número de veces deja el mismo estado (INV-13, INV-15).",
+      "usuario": "beto",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "cuentas": [
+        {
+          "nombre": "Efectivo USD",
+          "moneda": "USD",
+          "activa": true,
+          "saldo_inicial": "200.00"
+        }
+      ],
+      "pasos": [
+        {
+          "id": "1-elegir-cuenta",
+          "descripcion": "beto elige Efectivo USD.",
+          "accion": "elegir_cuenta",
+          "cuenta": "Efectivo USD",
+          "esperado": {
+            "cursor": 0,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "200.00"
+            },
+            "movimientos": [],
+            "pendientes": []
+          }
+        },
+        {
+          "id": "2-primer-lote",
+          "descripcion": "Baja el lote de dos eventos.",
+          "accion": "sincronizar",
+          "desde": 0,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": [],
+            "aplicados": 2,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "3-mismo-lote",
+          "descripcion": "El mismo lote otra vez: no cambia nada.",
+          "accion": "sincronizar",
+          "desde": 2,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": [],
+            "aplicados": 0,
+            "ignorados": 2
+          }
+        },
+        {
+          "id": "4-eventos-repetidos-en-el-lote",
+          "descripcion": "Un lote con cada evento dos veces: no cambia nada.",
+          "accion": "sincronizar",
+          "desde": 2,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": [],
+            "aplicados": 0,
+            "ignorados": 4
+          }
+        },
+        {
+          "id": "5-otro-orden",
+          "descripcion": "El lote en otro orden: no cambia nada.",
+          "accion": "sincronizar",
+          "desde": 2,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": [],
+            "aplicados": 0,
+            "ignorados": 2
+          }
+        }
+      ],
+      "movimientos_finales": [
+        {
+          "evento_id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+          "concepto": "Viaje a Mérida · Hotel",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "33.33",
+          "fecha": "2026-03-14",
+          "de_grupo": true
+        },
+        {
+          "evento_id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+          "concepto": "Viaje a Mérida · Cena",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "15.00",
+          "fecha": "2026-03-15",
+          "de_grupo": true
+        }
+      ]
+    },
+    {
+      "id": "tipo-desconocido",
+      "descripcion": "Los tipos de evento que la app no conoce se ignoran sin fallar (INV-14); las posiciones de este lote son propias del escenario.",
+      "usuario": "beto",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "cuentas": [
+        {
+          "nombre": "Efectivo USD",
+          "moneda": "USD",
+          "activa": true,
+          "saldo_inicial": "200.00"
+        }
+      ],
+      "pasos": [
+        {
+          "id": "1-elegir-cuenta",
+          "descripcion": "beto elige Efectivo USD.",
+          "accion": "elegir_cuenta",
+          "cuenta": "Efectivo USD",
+          "esperado": {
+            "cursor": 0,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "200.00"
+            },
+            "movimientos": [],
+            "pendientes": []
+          }
+        },
+        {
+          "id": "2-con-tipos-desconocidos",
+          "descripcion": "El servidor añade tipos nuevos entre medias: se ignoran sin fallar y el cursor los salta.",
+          "accion": "sincronizar",
+          "desde": 0,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "39de8d25-0241-58f5-a804-eff961320c86",
+                "posicion": 2,
+                "tipo": "liquidacion_aplicada",
+                "con": {
+                  "usuario": "ana"
+                },
+                "monto": "10.00",
+                "extra": [
+                  1,
+                  2,
+                  3
+                ]
+              },
+              {
+                "id": "23097f8e-faa9-5b88-aad0-01605a2e7f69",
+                "posicion": 3,
+                "tipo": "tipo_que_aun_no_existe"
+              },
+              {
+                "id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+                "posicion": 4,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 4,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 4,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "151.67"
+            },
+            "movimientos": [
+              "6f798a51-6a23-524c-9671-10c6d799e5d1",
+              "83de6a04-3d47-5e1b-92d7-15fba0f40ec5"
+            ],
+            "pendientes": [],
+            "aplicados": 2,
+            "ignorados": 2
+          }
+        }
+      ],
+      "movimientos_finales": [
+        {
+          "evento_id": "6f798a51-6a23-524c-9671-10c6d799e5d1",
+          "concepto": "Viaje a Mérida · Hotel",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "33.33",
+          "fecha": "2026-03-14",
+          "de_grupo": true
+        },
+        {
+          "evento_id": "83de6a04-3d47-5e1b-92d7-15fba0f40ec5",
+          "concepto": "Viaje a Mérida · Cena",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "15.00",
+          "fecha": "2026-03-15",
+          "de_grupo": true
+        }
+      ]
+    },
+    {
+      "id": "parte-sin-cuenta",
+      "descripcion": "Sin cuenta elegida las partes quedan pendientes y se aplican al elegirla (RF-COM-10); el cursor avanza igual.",
+      "usuario": "carla",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "cuentas": [
+        {
+          "nombre": "Efectivo USD",
+          "moneda": "USD",
+          "activa": true,
+          "saldo_inicial": "100.00"
+        }
+      ],
+      "pasos": [
+        {
+          "id": "1-baja-sin-cuenta",
+          "descripcion": "carla aún no eligió cuenta: la parte del hotel queda pendiente de aplicar y no se pierde.",
+          "accion": "sincronizar",
+          "desde": 0,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "26dbc656-cc23-5d72-be42-72aa4db448e4",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 1,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 1,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "100.00"
+            },
+            "movimientos": [],
+            "pendientes": [
+              "26dbc656-cc23-5d72-be42-72aa4db448e4"
+            ],
+            "aplicados": 1,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "2-segunda-parte",
+          "descripcion": "Llega la cena: también queda pendiente.",
+          "accion": "sincronizar",
+          "desde": 1,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "a30d89ac-2d0f-538f-b42c-7c72428b1a10",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "100.00"
+            },
+            "movimientos": [],
+            "pendientes": [
+              "26dbc656-cc23-5d72-be42-72aa4db448e4",
+              "a30d89ac-2d0f-538f-b42c-7c72428b1a10"
+            ],
+            "aplicados": 1,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "3-cursor-a-cero",
+          "descripcion": "Se reinicia el cursor.",
+          "accion": "reiniciar_cursor",
+          "esperado": {
+            "cursor": 0,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "100.00"
+            },
+            "movimientos": [],
+            "pendientes": [
+              "26dbc656-cc23-5d72-be42-72aa4db448e4",
+              "a30d89ac-2d0f-538f-b42c-7c72428b1a10"
+            ]
+          }
+        },
+        {
+          "id": "4-baja-de-nuevo",
+          "descripcion": "Vuelven a bajar: ya están pendientes y no se duplican.",
+          "accion": "sincronizar",
+          "desde": 0,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "26dbc656-cc23-5d72-be42-72aa4db448e4",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.33",
+                "incluye_redondeo": false
+              },
+              {
+                "id": "a30d89ac-2d0f-538f-b42c-7c72428b1a10",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "15.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "100.00"
+            },
+            "movimientos": [],
+            "pendientes": [
+              "26dbc656-cc23-5d72-be42-72aa4db448e4",
+              "a30d89ac-2d0f-538f-b42c-7c72428b1a10"
+            ],
+            "aplicados": 0,
+            "ignorados": 2
+          }
+        },
+        {
+          "id": "5-elige-cuenta",
+          "descripcion": "carla elige Efectivo USD: las pendientes se aplican solas, en orden.",
+          "accion": "elegir_cuenta",
+          "cuenta": "Efectivo USD",
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Efectivo USD": "51.67"
+            },
+            "movimientos": [
+              "26dbc656-cc23-5d72-be42-72aa4db448e4",
+              "a30d89ac-2d0f-538f-b42c-7c72428b1a10"
+            ],
+            "pendientes": []
+          }
+        }
+      ],
+      "movimientos_finales": [
+        {
+          "evento_id": "26dbc656-cc23-5d72-be42-72aa4db448e4",
+          "concepto": "Viaje a Mérida · Hotel",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "33.33",
+          "fecha": "2026-03-14",
+          "de_grupo": true
+        },
+        {
+          "evento_id": "a30d89ac-2d0f-538f-b42c-7c72428b1a10",
+          "concepto": "Viaje a Mérida · Cena",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "15.00",
+          "fecha": "2026-03-15",
+          "de_grupo": true
+        }
+      ]
+    },
+    {
+      "id": "parte-con-redondeo",
+      "descripcion": "La parte con redondeo (33,34) se aplica tal cual; saldo 500,00 → 466,66 → 436,66.",
+      "usuario": "ana",
+      "grupo": {
+        "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+        "nombre": "Viaje a Mérida"
+      },
+      "moneda": "USD",
+      "cuentas": [
+        {
+          "nombre": "Banco USD",
+          "moneda": "USD",
+          "activa": true,
+          "saldo_inicial": "500.00"
+        }
+      ],
+      "pasos": [
+        {
+          "id": "1-elegir-cuenta",
+          "descripcion": "ana elige Banco USD.",
+          "accion": "elegir_cuenta",
+          "cuenta": "Banco USD",
+          "esperado": {
+            "cursor": 0,
+            "cola": 0,
+            "saldos": {
+              "Banco USD": "500.00"
+            },
+            "movimientos": [],
+            "pendientes": []
+          }
+        },
+        {
+          "id": "2-parte-con-redondeo",
+          "descripcion": "Baja su parte del hotel con el céntimo de redondeo: 33,34.",
+          "accion": "sincronizar",
+          "desde": 0,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "f16b54ef-4fe0-55cc-80f6-2da2cad68c97",
+                "posicion": 1,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "ff6edddc-3a5d-55a2-b39c-c50a58649d1f",
+                  "concepto": "Hotel"
+                },
+                "fecha": "2026-03-14",
+                "moneda": "USD",
+                "monto": "33.34",
+                "incluye_redondeo": true
+              }
+            ],
+            "cursor": 1,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 1,
+            "cola": 0,
+            "saldos": {
+              "Banco USD": "466.66"
+            },
+            "movimientos": [
+              "f16b54ef-4fe0-55cc-80f6-2da2cad68c97"
+            ],
+            "pendientes": [],
+            "aplicados": 1,
+            "ignorados": 0
+          }
+        },
+        {
+          "id": "3-parte-exacta",
+          "descripcion": "Baja su parte de la cena: 30,00.",
+          "accion": "sincronizar",
+          "desde": 1,
+          "respuesta": {
+            "eventos": [
+              {
+                "id": "a8b29228-74f5-526c-ab01-25c37709639e",
+                "posicion": 2,
+                "tipo": "gasto_de_grupo",
+                "grupo": {
+                  "id": "600f76c8-e198-5d6f-82b8-ffb04cc3fc13",
+                  "nombre": "Viaje a Mérida"
+                },
+                "gasto": {
+                  "id": "1ce0b9ef-4ccd-54a9-81ca-db0be5d58b0d",
+                  "concepto": "Cena"
+                },
+                "fecha": "2026-03-15",
+                "moneda": "USD",
+                "monto": "30.00",
+                "incluye_redondeo": false
+              }
+            ],
+            "cursor": 2,
+            "hay_mas": false
+          },
+          "esperado": {
+            "cursor": 2,
+            "cola": 0,
+            "saldos": {
+              "Banco USD": "436.66"
+            },
+            "movimientos": [
+              "f16b54ef-4fe0-55cc-80f6-2da2cad68c97",
+              "a8b29228-74f5-526c-ab01-25c37709639e"
+            ],
+            "pendientes": [],
+            "aplicados": 1,
+            "ignorados": 0
+          }
+        }
+      ],
+      "movimientos_finales": [
+        {
+          "evento_id": "f16b54ef-4fe0-55cc-80f6-2da2cad68c97",
+          "concepto": "Viaje a Mérida · Hotel",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "33.34",
+          "fecha": "2026-03-14",
+          "de_grupo": true
+        },
+        {
+          "evento_id": "a8b29228-74f5-526c-ab01-25c37709639e",
+          "concepto": "Viaje a Mérida · Cena",
+          "tipo": "egreso",
+          "categoria": "Otros gastos",
+          "monto": "30.00",
+          "fecha": "2026-03-15",
+          "de_grupo": true
+        }
+      ]
+    }
+  ]
+}
