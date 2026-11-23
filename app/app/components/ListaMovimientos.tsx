@@ -54,7 +54,16 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir, mod
                 <td className={`p-3.5 ${textMuted}`}>{m.nota || '—'}</td>
                 <td className={`p-3.5 text-right font-bold ${colorMonto}`}>{m.monto_formateado}</td>
                 <td className="p-3.5 text-center">
-                  {estaCorregido ? (
+                  {m.es_gasto_de_grupo ? (
+                    <span
+                      title="Parte de un gasto compartido en un grupo"
+                      className={`px-2 py-0.5 text-[10px] rounded-md font-bold ${
+                        modoOscuro ? 'bg-purple-900/60 text-purple-200' : 'bg-purple-100 text-purple-800'
+                      }`}
+                    >
+                      Gasto de grupo
+                    </span>
+                  ) : estaCorregido ? (
                     <span
                       title={ayuda}
                       className={`px-2 py-0.5 text-[10px] rounded-md font-bold ${
@@ -68,14 +77,19 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir, mod
                   )}
                 </td>
                 <td className="p-3.5 text-center">
-                  {/* El botón se mantiene siempre: un movimiento (o su ajuste) se puede volver a corregir. */}
-                  <button
-                    type="button"
-                    onClick={() => onCorregir(m)}
-                    className="px-3 py-1 text-xs bg-[#9333EA] hover:bg-purple-600 text-white font-medium rounded-lg transition cursor-pointer"
-                  >
-                    Corregir
-                  </button>
+                  {m.es_gasto_de_grupo ? (
+                    // Un gasto de grupo no se corrige desde el libro (RF-COM-10); el núcleo también lo rechaza.
+                    <span className={`text-[11px] ${textMuted}`}>Se corrige en el grupo</span>
+                  ) : (
+                    /* El botón se mantiene siempre: un movimiento (o su ajuste) se puede volver a corregir. */
+                    <button
+                      type="button"
+                      onClick={() => onCorregir(m)}
+                      className="px-3 py-1 text-xs bg-[#9333EA] hover:bg-purple-600 text-white font-medium rounded-lg transition cursor-pointer"
+                    >
+                      Corregir
+                    </button>
+                  )}
                 </td>
               </tr>
             );

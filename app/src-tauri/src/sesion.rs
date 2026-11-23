@@ -21,10 +21,7 @@ use crate::dto::{
 
 const URL_POR_DEFECTO: &str = "http://localhost:8000";
 const VARIABLE_URL: &str = "CUENTAS_CLARAS_URL";
-// Registrar crea el hash argon2 y escribe en PostgreSQL: contra Supabase una
-// petición normal ronda los 5,5 s. Con 5 s el cliente abortaba, pero el servidor
-// terminaba de guardar el usuario y la interfaz decía que no había conexión.
-const TIEMPO_MAXIMO: Duration = Duration::from_secs(20);
+const TIEMPO_MAXIMO: Duration = Duration::from_secs(5);
 const SERVICIO: &str = "cuentas-claras";
 const USUARIO_ALMACEN: &str = "sesion";
 const ARCHIVO_RESPALDO: &str = "sesion.json";

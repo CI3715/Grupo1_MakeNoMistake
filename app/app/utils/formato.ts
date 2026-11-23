@@ -52,3 +52,22 @@ export function formatearMontoTexto(
 
   return `${signo === '-' ? '-' : ''}${cuerpo} ${monedaOsimbolo}`.trim();
 }
+
+/**
+ * Instante ISO (p. ej. 2026-11-20T10:30:00Z) como dd/mm/aaaa hh:mm. Si trae zona (Z o +hh:mm)
+ * se muestra en la hora del dispositivo; si no, tal cual viene. Solo presentación.
+ */
+export function formatearFechaHora(instante: string | null | undefined): string {
+  if (!instante) return '';
+  const texto = instante.trim();
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(texto) && texto.includes('T')) {
+    const fecha = new Date(texto);
+    if (!Number.isNaN(fecha.getTime())) {
+      const dos = (n: number) => String(n).padStart(2, '0');
+      return `${dos(fecha.getDate())}/${dos(fecha.getMonth() + 1)}/${fecha.getFullYear()} ${dos(fecha.getHours())}:${dos(fecha.getMinutes())}`;
+    }
+  }
+  const [dia, hora] = texto.split('T');
+  const base = formatearFechaDDMMYYYY(dia);
+  return hora ? `${base} ${hora.slice(0, 5)}` : base;
+}

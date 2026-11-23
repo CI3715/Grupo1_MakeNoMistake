@@ -9,6 +9,12 @@ const REVISAR_CADA_MS = 10_000;
 
 const SIN_SESION: SesionUI = { estado: 'sin_sesion', nombreVisible: null, venceEn: null };
 
+/** Qué libro está abierto: cuántas veces cambió y, si se conoce, de quién es. */
+interface LibroAbierto {
+  generacion: number;
+  usuarioId: string | null;
+}
+
 export interface ControlSesion {
   sesion: SesionUI;
   /** Aviso «Tu sesión venció…» visible (no bloquea nada). */
@@ -20,6 +26,12 @@ export interface ControlSesion {
   refrescar: () => Promise<void>;
   /** Borra la sesión del dispositivo. Devuelve un mensaje si falló, o null si salió bien. */
   cerrarSesion: () => Promise<string | null>;
+  /**
+   * Clave del libro abierto. Cambia al iniciar o cerrar sesión (otro libro) y NO cambia al
+   * vencer la sesión (el libro del usuario sigue abierto). Úsala como `key` para volver a
+   * montar las pantallas sin dejar a la vista nada del usuario anterior.
+   */
+  claveLibro: string;
 }
 
 /**
@@ -34,6 +46,7 @@ export function useSesion(): ControlSesion {
     venceEn: null,
   });
   const [avisoVencidaVisible, setAvisoVencidaVisible] = useState(false);
+  const [libro, setLibro] = useState<LibroAbierto>({ generacion: 0, usuarioId: null });
   const estadoRef = useRef<SesionUI['estado']>('cargando');
 
   const aplicar = useCallback((dto: SesionDto) => {
@@ -49,8 +62,9 @@ export function useSesion(): ControlSesion {
       estadoRef.current = 'vencida';
       setSesion({ estado: 'vencida', nombreVisible: dto.nombre_visible, venceEn: dto.vence_en });
       setAvisoVencidaVisible(true);
-      // El token vencido no sirve: se borra del dispositivo (acuerdo del viernes).
-      cerrarSesionCommand().catch(() => {});
+      // Entrega 7: la sesión vencida se conserva en el dispositivo. Cerrarla aquí abriría el
+      // libro «sin sesión» y el usuario dejaría de ver sus cuentas; el acuerdo es que con el
+      // token vencido el libro del usuario sigue abierto y lo personal sigue funcionando.
       return;
     }
 
@@ -100,7 +114,18 @@ export function useSesion(): ControlSesion {
     };
   }, [aplicar, alFallarLectura]);
 
-  const alIniciarSesion = useCallback((dto: SesionDto) => aplicar(dto), [aplicar]);
+  // Iniciar sesión cambia el libro en Rust antes de que `iniciar_sesion` responda: al subir
+  // la clave, las pantallas se montan de nuevo y piden sus datos al libro nuevo.
+  const alIniciarSesion = useCallback(
+    (dto: SesionDto) => {
+      aplicar(dto);
+      setLibro((previo) => ({
+        generacion: previo.generacion + 1,
+        usuarioId: dto.usuario_id ?? null,
+      }));
+    },
+    [aplicar]
+  );
 
   const cerrarSesion = useCallback(async (): Promise<string | null> => {
     try {
@@ -111,10 +136,21 @@ export function useSesion(): ControlSesion {
     estadoRef.current = 'sin_sesion';
     setSesion(SIN_SESION);
     setAvisoVencidaVisible(false);
+    setLibro((previo) => ({ generacion: previo.generacion + 1, usuarioId: null }));
     return null;
   }, []);
 
   const ocultarAviso = useCallback(() => setAvisoVencidaVisible(false), []);
 
-  return { sesion, avisoVencidaVisible, ocultarAviso, alIniciarSesion, refrescar, cerrarSesion };
+  const claveLibro = `${libro.usuarioId ?? 'libro'}-${libro.generacion}`;
+
+  return {
+    sesion,
+    avisoVencidaVisible,
+    ocultarAviso,
+    alIniciarSesion,
+    refrescar,
+    cerrarSesion,
+    claveLibro,
+  };
 }

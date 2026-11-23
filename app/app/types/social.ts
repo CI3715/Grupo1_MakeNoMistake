@@ -1,5 +1,7 @@
 /** Tipos de PRESENTACIÓN para las pantallas de Amigos y Grupos. Sin reglas de negocio. */
 
+import type { ControlSincronizacion } from '../utils/useSincronizacion';
+
 export type VistaSocial = 'amigos' | 'grupos';
 
 /**
@@ -29,6 +31,10 @@ export type ErroresCampos<C extends string> = Partial<Record<C | 'general', stri
 export interface ContextoSocial {
   modoOscuro: boolean;
   irAInicioSesion: () => void;
+  /** Lleva a «Mis cuentas» (por ejemplo, para crear la cuenta que recibirá las partes). */
+  irACuentas: () => void;
+  /** Sincronización con el servidor (Entrega 7). La crea `page.tsx` una sola vez. */
+  sincronizacion: ControlSincronizacion;
 }
 
 /** Subpantallas dentro de «Grupos». Estado local de la pantalla (RES-06). */
