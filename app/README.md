@@ -372,6 +372,19 @@ cargo test -p infraestructura --test libros_por_usuario --test cola_envio --test
 cargo test --lib sincronizacion
 ```
 
+## Libro por usuario, sincronización y cola sin conexión (Entrega 7)
+
+Cada usuario tiene su propio SQLite (`cuentas_claras_<id>.db` con sesión; `cuentas_claras.db` sin sesión). El primer login adopta `cuentas_claras.db` y el libro cambia en caliente sin reiniciar Tauri (ADR-014); ante `401` conserva el libro abierto.
+
+- **Sincronización (`GET /cambios?desde=N`):** baja lotes hasta `hay_mas = false` (`sincronizar`, `estado_sincronizacion`, `reiniciar_cursor`).
+- **Cuenta por grupo y pendientes:** `cuentas_para_grupo` y `elegir_cuenta_grupo` aplican `partes_pendientes` en **Otros gastos** (`<grupo> · <gasto>`, `gasto_de_grupo: true`, no corregibles) en una transacción.
+- **Cola offline:** `registrar_gasto_grupo_con_cola` encola en `cola_envio` con `Idempotency-Key` UUID y reintenta sin duplicar; rechazos (`400`/`403`/`404`/`409`) quedan con motivo (`descartar_gasto_en_cola`); `401` pausa la cola. Solo viajan cursor, clave y gasto compartido (INV-16). Usa `CUENTAS_CLARAS_URL`.
+
+```bash
+cargo test --test vectores_sincronizacion
+cargo test -p infraestructura --test libros_por_usuario --test cola_envio --test autonomia_entrega7
+```
+
 ## Ejecutar las pruebas
 
 Desde `src-tauri/`:
@@ -483,6 +496,12 @@ app/
 │       ├── sincronizacion.rs # Comandos de sincronización, cuenta de grupo y cola (Entrega 7)
 │       ├── sincronizacion_cliente.rs # Cliente de GET /cambios?desde=N (Entrega 7)
 │       ├── sincronizacion_libro.rs # Aplicación de lotes y pendientes al libro local (Entrega 7)
+│       ├── libros.rs     # Archivo SQLite por usuario y adopción (Entrega 7)
+│       ├── cambio_libro.rs # Cambio de libro en caliente al iniciar/cerrar sesión (Entrega 7)
+│       ├── social_envio.rs # Envío de cola con Idempotency-Key (Entrega 7)
+│       ├── sincronizacion.rs # Comandos de sincronización, cuenta de grupo y cola (Entrega 7)
+│       ├── sincronizacion_cliente.rs # Cliente GET /cambios?desde=N (Entrega 7)
+│       ├── sincronizacion_libro.rs # Aplicación de lotes al libro local (Entrega 7)
 │       └── ping.rs       # Comando ping_servidor (Entrega 1, fuera del flujo de cuentas)
 ├── next.config.ts        # Configuración de Next.js (exportación estática)
 ├── package.json          # Dependencias y scripts de la interfaz
