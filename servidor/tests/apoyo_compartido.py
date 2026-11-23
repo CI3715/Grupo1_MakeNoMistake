@@ -1,6 +1,7 @@
 """Utilidades compartidas por las pruebas de la Entrega 6 y Entrega 7."""
 
 from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -32,7 +33,11 @@ def es_host_supabase(url: str | None) -> bool:
     if not url:
         return False
     url_baja = url.lower()
-    return "supabase.co" in url_baja or "pooler.supabase.com" in url_baja or "supabase" in url_baja
+    return (
+        "supabase.co" in url_baja
+        or "pooler.supabase.com" in url_baja
+        or "supabase" in url_baja
+    )
 
 
 def verificar_no_supabase(url: str | None) -> None:
@@ -47,7 +52,7 @@ def verificar_no_supabase(url: str | None) -> None:
 def crear_grupo_merida_http(
     cliente: TestClient, usuarios: dict[str, dict[str, Any]]
 ) -> str:
-    """Crea el grupo «Viaje a Mérida» en USD con ana, beto y carla como miembros aceptados.
+    """Crea «Viaje a Mérida» en USD con ana, beto y carla como miembros aceptados.
 
     dario queda registrado pero fuera del grupo.
     """
