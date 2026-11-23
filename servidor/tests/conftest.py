@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from repositorio_en_memoria import (
     RepositorioAmistadesEnMemoria,
+    RepositorioCambiosEnMemoria,
     RepositorioEnMemoria,
     RepositorioGastosEnMemoria,
     RepositorioGruposEnMemoria,
@@ -24,6 +25,7 @@ from base_datos import BaseDatos
 from configuracion import RUTA_ENV
 from main import (
     AlmacenAmistades,
+    AlmacenCambios,
     AlmacenGastos,
     AlmacenGrupos,
     AlmacenUsuarios,
@@ -60,7 +62,11 @@ def es_host_supabase(url: str | None) -> bool:
     if not url:
         return False
     url_baja = url.lower()
-    return "supabase.co" in url_baja or "pooler.supabase.com" in url_baja or "supabase" in url_baja
+    return (
+        "supabase.co" in url_baja
+        or "pooler.supabase.com" in url_baja
+        or "supabase" in url_baja
+    )
 
 
 def verificar_no_supabase(url: str | None) -> None:
@@ -101,6 +107,7 @@ def entorno_prueba(
     grupos: AlmacenGrupos = RepositorioGruposEnMemoria(repositorio_falso)
     amistades: AlmacenAmistades = RepositorioAmistadesEnMemoria(repositorio_falso)
     gastos: AlmacenGastos = RepositorioGastosEnMemoria(repositorio_falso)
+    registro_cambios: AlmacenCambios = RepositorioCambiosEnMemoria(repositorio_falso)
     for variable in VARIABLES_AJENAS:
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setenv("JWT_SECRET", SECRETO_PRUEBA)
@@ -123,6 +130,12 @@ def entorno_prueba(
         app.state,
         "repositorio_gastos",
         gastos,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app.state,
+        "repositorio_cambios",
+        registro_cambios,
         raising=False,
     )
     yield
@@ -257,9 +270,7 @@ def base_datos_pruebas() -> BaseDatos:
 
 
 @pytest.fixture
-def grupo_merida(
-    cliente: TestClient, usuarios_flujo: dict[str, dict[str, Any]]
-) -> str:
+def grupo_merida(cliente: TestClient, usuarios_flujo: dict[str, dict[str, Any]]) -> str:
     """Crea el grupo «Viaje a Mérida» en USD con miembros aceptados.
 
     - ana: creadora y administradora
@@ -293,4 +304,3 @@ def leer_cambios(
 ) -> Any:
     """Consulta GET /cambios?desde=<cursor> con el token del usuario."""
     return c.get(f"/cambios?desde={desde}", headers=auth)
-

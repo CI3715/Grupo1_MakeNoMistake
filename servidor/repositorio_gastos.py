@@ -8,6 +8,10 @@ El repositorio recibe las partes **ya calculadas** por el motor de división.
 Su trabajo es comprobar que la regla se cumple (la suma, los porcentajes o el
 reparto), que las personas pertenecen al grupo y guardar el gasto junto con
 todas sus partes en una sola transacción: o queda todo, o no queda nada.
+
+Desde la Entrega 7, en esa misma transacción también se agregan los eventos
+del registro de cambios de cada participante y, si llega, la clave de
+idempotencia con la huella del cuerpo (ADR-015).
 """
 
 from __future__ import annotations
@@ -22,6 +26,9 @@ from uuid import UUID, uuid4
 from psycopg import Connection, errors
 
 from base_datos import BaseDatos
+from cambios import ParteParaEvento
+from idempotencia import ClaveGuardada
+from repositorio_cambios import agregar_eventos_de_gasto
 
 # Escala y límites del dinero. ``NUMERIC(14, 2)`` admite doce dígitos enteros.
 CENTIMOS = Decimal("0.01")
@@ -65,7 +72,7 @@ SQL_LISTAR_PARTES = """
     ORDER BY p.gasto_id, u.nombre_usuario
 """
 
-SQL_EXISTE_GRUPO = "SELECT 1 FROM grupos WHERE id = %s"
+SQL_DATOS_GRUPO = "SELECT nombre, moneda FROM grupos WHERE id = %s"
 SQL_EXISTE_MIEMBRO_ACEPTADO = """
     SELECT 1 FROM miembros
     WHERE grupo_id = %s AND usuario_id = %s AND estado = 'aceptado'
@@ -75,6 +82,36 @@ SQL_PARTICIPANTES_ACEPTADOS = """
     WHERE grupo_id = %s AND estado = 'aceptado' AND usuario_id = ANY(%s)
 """
 SQL_NOMBRE_USUARIO = "SELECT nombre_usuario FROM usuarios WHERE id = %s"
+
+# Si otra petición ya guardó la misma clave, no inserta nada (y no devuelve
+# fila): la transacción se deshace y la ruta responde con lo ya guardado.
+SQL_GUARDAR_CLAVE = """
+    INSERT INTO claves_idempotencia (
+        usuario_id, clave, huella, gasto_id, fecha_registro
+    )
+    VALUES (%s, %s, %s, %s, %s)
+    ON CONFLICT (usuario_id, clave) DO NOTHING
+    RETURNING usuario_id
+"""
+SQL_BUSCAR_CLAVE = """
+    SELECT gasto_id, huella FROM claves_idempotencia
+    WHERE usuario_id = %s AND clave = %s
+"""
+SQL_BUSCAR_GASTO = """
+    SELECT g.id, g.grupo_id, g.concepto, g.monto, g.fecha, g.pagador_id,
+           g.regla, g.registrado_por, g.fecha_registro,
+           u.nombre_usuario AS pagador_nombre_usuario
+    FROM gastos g
+    JOIN usuarios u ON u.id = g.pagador_id
+    WHERE g.id = %s
+"""
+SQL_PARTES_DE_GASTO = """
+    SELECT p.gasto_id, p.usuario_id, p.monto, p.lleva_residuo, p.porcentaje
+    FROM partes_gasto p
+    JOIN usuarios u ON u.id = p.usuario_id
+    WHERE p.gasto_id = %s
+    ORDER BY u.nombre_usuario
+"""
 
 
 @dataclass(frozen=True)
@@ -148,6 +185,14 @@ class GastoInvalido(Exception):
         super().__init__(mensaje)
 
 
+class ClaveYaUsada(Exception):
+    """Otra petición guardó la misma clave de idempotencia mientras tanto.
+
+    No se guardó nada de este registro. La ruta vuelve a leer la clave y
+    responde 200 o 409 según la huella.
+    """
+
+
 class RepositorioGastos:
     """Consultas de las tablas `gastos` y `partes_gasto`."""
 
@@ -166,15 +211,24 @@ class RepositorioGastos:
         partes: Sequence[ParteEntrada],
         registrado_por: UUID,
         ahora: datetime,
+        clave_idempotencia: str | None = None,
+        huella: str | None = None,
     ) -> GastoVista:
-        """Guarda el gasto y sus partes en una sola transacción.
+        """Guarda el gasto, sus partes y sus eventos en una sola transacción.
 
         Antes de tocar la base se comprueba que la suma de las partes sea
         exactamente ``monto`` y que la regla se cumpla; después, que pagador,
         registrador y participantes sean miembros aceptados del grupo. Si
         algo falla se lanza ``GastoInvalido`` con el campo y la regla, y no se
         guarda nada (INV-07).
+
+        Cada participante con parte recibe un evento en su registro de cambios
+        (``cambios.eventos_de_gasto``). Con ``clave_idempotencia`` se guarda
+        también la clave y su ``huella``; si otra petición la guardó antes, se
+        lanza ``ClaveYaUsada`` y tampoco queda nada.
         """
+        if (clave_idempotencia is None) != (huella is None):
+            raise ValueError("La clave de idempotencia y su huella van juntas.")
         regla_normalizada = _normalizar_regla(regla)
         monto_exacto = _monto_valido(monto, "monto", permitir_cero=False)
         concepto_limpio = concepto.strip()
@@ -209,7 +263,7 @@ class RepositorioGastos:
         )
 
         with self._base_datos.conexion() as conexion:
-            _exigir_grupo(conexion, grupo_id)
+            grupo_nombre, moneda = _datos_grupo(conexion, grupo_id)
             _exigir_miembro_aceptado(
                 conexion,
                 grupo_id,
@@ -243,6 +297,37 @@ class RepositorioGastos:
                     ),
                 )
                 _insertar_partes(conexion, partes_guardadas)
+                if clave_idempotencia is not None:
+                    guardada = conexion.execute(
+                        SQL_GUARDAR_CLAVE,
+                        (
+                            registrado_por,
+                            clave_idempotencia,
+                            huella,
+                            gasto.id,
+                            gasto.fecha_registro,
+                        ),
+                    ).fetchone()
+                    if guardada is None:
+                        raise ClaveYaUsada
+                agregar_eventos_de_gasto(
+                    conexion,
+                    gasto_id=gasto.id,
+                    concepto=gasto.concepto,
+                    fecha=gasto.fecha,
+                    grupo_id=grupo_id,
+                    grupo_nombre=grupo_nombre,
+                    moneda=moneda,
+                    partes=[
+                        ParteParaEvento(
+                            usuario=parte.usuario_id,
+                            monto=parte.monto,
+                            incluye_redondeo=parte.lleva_residuo,
+                        )
+                        for parte in partes_guardadas
+                    ],
+                    ahora=gasto.fecha_registro,
+                )
             except errors.ForeignKeyViolation as error:
                 raise GastoInvalido(
                     "participantes",
@@ -269,6 +354,29 @@ class RepositorioGastos:
             gasto=gasto,
             pagador_nombre_usuario=nombre_pagador,
             partes=partes_guardadas,
+        )
+
+    def buscar_clave(self, usuario_id: UUID, clave: str) -> ClaveGuardada | None:
+        """La clave de idempotencia ya consumida por ``usuario_id``, si existe."""
+
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(SQL_BUSCAR_CLAVE, (usuario_id, clave)).fetchone()
+        if fila is None:
+            return None
+        return ClaveGuardada(gasto_id=fila["gasto_id"], huella=str(fila["huella"]))
+
+    def buscar(self, gasto_id: UUID) -> GastoVista | None:
+        """Un gasto ya guardado con sus partes (para responder un reintento)."""
+
+        with self._base_datos.conexion() as conexion:
+            fila = conexion.execute(SQL_BUSCAR_GASTO, (gasto_id,)).fetchone()
+            if fila is None:
+                return None
+            partes = conexion.execute(SQL_PARTES_DE_GASTO, (gasto_id,)).fetchall()
+        return GastoVista(
+            gasto=_gasto_desde_fila(fila),
+            pagador_nombre_usuario=fila["pagador_nombre_usuario"],
+            partes=tuple(_parte_desde_fila(p) for p in partes),
         )
 
     def listar_del_grupo(self, id_grupo: UUID) -> list[GastoVista]:
@@ -498,9 +606,14 @@ def _centimos(monto: Decimal) -> int:
     return int(monto * 100)
 
 
-def _exigir_grupo(conexion: Connection[dict[str, Any]], grupo_id: UUID) -> None:
-    if conexion.execute(SQL_EXISTE_GRUPO, (grupo_id,)).fetchone() is None:
+def _datos_grupo(
+    conexion: Connection[dict[str, Any]], grupo_id: UUID
+) -> tuple[str, str]:
+    """Nombre y moneda del grupo (los copian los eventos), o falla si no existe."""
+    fila = conexion.execute(SQL_DATOS_GRUPO, (grupo_id,)).fetchone()
+    if fila is None:
         raise GastoInvalido("grupo_id", "El grupo no existe.")
+    return str(fila["nombre"]), str(fila["moneda"])
 
 
 def _exigir_miembro_aceptado(
