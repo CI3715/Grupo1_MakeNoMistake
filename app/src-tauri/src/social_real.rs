@@ -301,7 +301,7 @@ pub async fn registrar_gasto<C: ClienteSocial, A: Almacen>(
 
 // ---------- Comandos (envoltorios con la red real y el almacén del sistema) ----------
 
-fn almacen_de(app: &tauri::AppHandle) -> Result<AlmacenSistema, ErroresDto> {
+pub(crate) fn almacen_de(app: &tauri::AppHandle) -> Result<AlmacenSistema, ErroresDto> {
     let carpeta = app
         .path()
         .app_data_dir()

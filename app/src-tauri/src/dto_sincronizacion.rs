@@ -56,6 +56,8 @@ pub struct CuentaParaGrupoDto {
 #[serde(default)]
 pub struct ConsultaCuentasGrupoDto {
     pub grupo_id: String,
+    /// Moneda del grupo: solo se ofrecen cuentas de esa moneda.
+    pub moneda: String,
 }
 
 /// Las cuentas elegibles de un grupo y cuál está elegida hoy (si hay alguna).
@@ -71,6 +73,7 @@ pub struct CuentasParaGrupoDto {
 pub struct ElegirCuentaGrupoDto {
     pub grupo_id: String,
     pub cuenta_id: String,
+    pub moneda: String,
 }
 
 /// Resultado de registrar un gasto de grupo cuando pasa por la cola local.

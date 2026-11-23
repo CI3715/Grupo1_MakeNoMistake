@@ -614,15 +614,21 @@ export async function estadoSincronizacion(): Promise<EstadoSincronizacionDto> {
   return await invoke<EstadoSincronizacionDto>('estado_sincronizacion');
 }
 
-export async function cuentasParaGrupo(grupo_id: string): Promise<CuentasParaGrupoDto> {
-  return await invoke<CuentasParaGrupoDto>('cuentas_para_grupo', { datos: { grupo_id } });
+export async function cuentasParaGrupo(
+  grupo_id: string,
+  moneda: string,
+): Promise<CuentasParaGrupoDto> {
+  return await invoke<CuentasParaGrupoDto>('cuentas_para_grupo', { datos: { grupo_id, moneda } });
 }
 
 export async function elegirCuentaGrupo(
   grupo_id: string,
   cuenta_id: string,
+  moneda: string,
 ): Promise<CuentasParaGrupoDto> {
-  return await invoke<CuentasParaGrupoDto>('elegir_cuenta_grupo', { datos: { grupo_id, cuenta_id } });
+  return await invoke<CuentasParaGrupoDto>('elegir_cuenta_grupo', {
+    datos: { grupo_id, cuenta_id, moneda },
+  });
 }
 
 export async function listarPartesPendientes(): Promise<ParteGrupoPendienteDto[]> {

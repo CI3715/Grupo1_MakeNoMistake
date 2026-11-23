@@ -10,8 +10,6 @@
 //! El resultado es un `LoteLocal`, que `SincronizacionSqlite::guardar_lote` guarda junto
 //! con el cursor en una sola transacción (INV-13, INV-14, INV-15).
 
-#![allow(dead_code)] // lo usa el comando de sincronización (Cristina - Tarea 9)
-
 use aplicacion::{CasosDeUso, ErrorAplicacion, ParteDeGrupoEntrante};
 use infraestructura::sincronizacion::{LoteLocal, SincronizacionSqlite};
 

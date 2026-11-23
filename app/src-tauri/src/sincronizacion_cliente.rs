@@ -6,8 +6,6 @@
 //! `ClienteHttp`, en `sesion.rs`, igual que en los demás clientes. Lo único que viaja
 //! es el cursor (INV-16, RES-02).
 
-#![allow(dead_code)] // lo usa el comando de sincronización (Cristina - Tarea 9)
-
 use serde::Deserialize;
 
 use crate::dto::ErroresDto;
