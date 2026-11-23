@@ -11,6 +11,8 @@ mod ping;
 mod previsualizacion;
 mod sesion;
 mod sincronizacion;
+mod sincronizacion_cliente;
+mod sincronizacion_libro;
 mod social;
 mod social_cliente;
 mod social_fijo;

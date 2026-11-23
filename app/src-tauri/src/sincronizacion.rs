@@ -3,7 +3,7 @@
 //! VERSIÓN CON DATOS FIJOS para construir la interfaz: responden siempre lo mismo.
 //! Los comandos reales los reemplazan (Cristina - Tareas 9 y 10).
 //!
-//!   sincronizar                POST/GET /cambios en bucle      (real, después)
+//!   sincronizar                pide los cambios, en bucle      (real, después)
 //!   estado_sincronizacion      lee el estado local             (real, después)
 //!   cuentas_para_grupo         cuentas activas en la moneda del grupo
 //!   elegir_cuenta_grupo        guarda la elección solo en el dispositivo
