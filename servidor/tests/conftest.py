@@ -47,6 +47,28 @@ VARIABLES_AJENAS = (
     "CUENTAS_CLARAS_MINUTOS_TOKEN",
 )
 
+# Guarda anti-borrado para la base compartida en Supabase (Angel - Tarea 3)
+MENSAJE_ERROR_SUPABASE = (
+    "CUENTAS_CLARAS_DB_URL_PRUEBAS no puede apuntar a Supabase (haría TRUNCATE "
+    "y borraría los datos compartidos del equipo). Usa PostgreSQL local con "
+    "Docker Compose en el puerto 55432."
+)
+
+
+def es_host_supabase(url: str | None) -> bool:
+    """Detecta si la URL apunta a un host o pooler de Supabase."""
+    if not url:
+        return False
+    url_baja = url.lower()
+    return "supabase.co" in url_baja or "pooler.supabase.com" in url_baja or "supabase" in url_baja
+
+
+def verificar_no_supabase(url: str | None) -> None:
+    """Impide que las pruebas de integración con TRUNCATE corran contra Supabase."""
+    if es_host_supabase(url):
+        pytest.fail(MENSAJE_ERROR_SUPABASE)
+
+
 # Solo lo compartido entre varias personas (Entregas 6 y 7). Cualquier tabla
 # nueva tiene que justificarse aquí: añadir una del libro personal rompe INV-16.
 TABLAS_PERMITIDAS = {
@@ -57,7 +79,8 @@ TABLAS_PERMITIDAS = {
     "gastos",
     "partes_gasto",
     "cambios",
-    "posiciones",
+    "posiciones_usuario",
+    "claves_idempotencia",
 }
 
 
@@ -220,9 +243,54 @@ def base_datos_pruebas() -> BaseDatos:
             "contra PostgreSQL."
         )
 
+    verificar_no_supabase(URL_PRUEBAS)
+
     base_datos = BaseDatos(URL_PRUEBAS)
     base_datos.crear_esquema()
     with base_datos.conexion() as conexion:
         # CASCADE limpia también grupos, gastos, cambios y posiciones.
         conexion.execute("TRUNCATE TABLE usuarios CASCADE")
     return base_datos
+
+
+# ---------- Ayudantes para la Entrega 7 (Angel - Tarea 2) ----------
+
+
+@pytest.fixture
+def grupo_merida(
+    cliente: TestClient, usuarios_flujo: dict[str, dict[str, Any]]
+) -> str:
+    """Crea el grupo «Viaje a Mérida» en USD con miembros aceptados.
+
+    - ana: creadora y administradora
+    - beto: amigo y miembro aceptado
+    - carla: amiga y miembro aceptado
+    - dario: no pertenece al grupo
+    """
+    from apoyo_compartido import crear_grupo_merida_http
+
+    return crear_grupo_merida_http(cliente, usuarios_flujo)
+
+
+def registrar_gasto_idempotente(
+    c: TestClient,
+    grupo_id: str,
+    auth: dict[str, str],
+    cuerpo: dict[str, Any],
+    clave_idempotencia: str | None = None,
+) -> Any:
+    """Registra un gasto en un grupo con o sin encabezado Idempotency-Key."""
+    encabezados = dict(auth)
+    if clave_idempotencia is not None:
+        encabezados["Idempotency-Key"] = clave_idempotencia
+    return c.post(f"/grupos/{grupo_id}/gastos", json=cuerpo, headers=encabezados)
+
+
+def leer_cambios(
+    c: TestClient,
+    auth: dict[str, str],
+    desde: int | str = 0,
+) -> Any:
+    """Consulta GET /cambios?desde=<cursor> con el token del usuario."""
+    return c.get(f"/cambios?desde={desde}", headers=auth)
+
