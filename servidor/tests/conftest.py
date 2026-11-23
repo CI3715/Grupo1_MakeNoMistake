@@ -47,8 +47,8 @@ VARIABLES_AJENAS = (
     "CUENTAS_CLARAS_MINUTOS_TOKEN",
 )
 
-# Solo lo compartido entre varias personas (Entrega 6). Cualquier tabla nueva
-# tiene que justificarse aquí: añadir una del libro personal rompe INV-16.
+# Solo lo compartido entre varias personas (Entregas 6 y 7). Cualquier tabla
+# nueva tiene que justificarse aquí: añadir una del libro personal rompe INV-16.
 TABLAS_PERMITIDAS = {
     "usuarios",
     "amistades",
@@ -56,6 +56,8 @@ TABLAS_PERMITIDAS = {
     "miembros",
     "gastos",
     "partes_gasto",
+    "cambios",
+    "posiciones",
 }
 
 
@@ -221,6 +223,6 @@ def base_datos_pruebas() -> BaseDatos:
     base_datos = BaseDatos(URL_PRUEBAS)
     base_datos.crear_esquema()
     with base_datos.conexion() as conexion:
-        # CASCADE limpia también amistades, grupos, miembros, gastos y partes.
+        # CASCADE limpia también grupos, gastos, cambios y posiciones.
         conexion.execute("TRUNCATE TABLE usuarios CASCADE")
     return base_datos
