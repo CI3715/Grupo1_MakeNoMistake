@@ -2,7 +2,7 @@
 
 import React, { useCallback } from 'react';
 import type { ContextoSocial } from '../../types/social';
-import { verGrupoCommand } from '../../utils/tauriCommands';
+import { verGrupoConCache } from '../../utils/cacheGrupos';
 import { temaSocial } from '../../utils/temaSocial';
 import { useCargaRemota } from '../../utils/useCargaRemota';
 import { IconoMas } from '../Iconos';
@@ -27,8 +27,9 @@ interface Props {
 
 /** Detalle de un grupo: balances, gastos con sus partes y miembros. Solo para miembros. */
 export function DetalleGrupo({ ctx, grupoId, aviso, onVolver, onNuevoGasto }: Props) {
-  const cargar = useCallback(() => verGrupoCommand(grupoId), [grupoId]);
-  const { carga, recargar } = useCargaRemota(cargar);
+  const cargar = useCallback(() => verGrupoConCache(grupoId), [grupoId]);
+  // Al terminar una sincronización (p. ej. la cola enviada al volver la red) se vuelve a leer.
+  const { carga, recargar } = useCargaRemota(cargar, ctx.sincronizacion.versionDatos);
   const tema = temaSocial(ctx.modoOscuro);
 
   return (

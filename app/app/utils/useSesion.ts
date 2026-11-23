@@ -1,5 +1,6 @@
 'use client';
 
+import { olvidarGruposVistos } from './cacheGrupos';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cerrarSesionCommand, estadoSesionCommand, type SesionDto } from './tauriCommands';
 import type { SesionUI } from '../types/sesion';
@@ -119,6 +120,7 @@ export function useSesion(): ControlSesion {
   const alIniciarSesion = useCallback(
     (dto: SesionDto) => {
       aplicar(dto);
+      olvidarGruposVistos();
       setLibro((previo) => ({
         generacion: previo.generacion + 1,
         usuarioId: dto.usuario_id ?? null,
@@ -136,6 +138,7 @@ export function useSesion(): ControlSesion {
     estadoRef.current = 'sin_sesion';
     setSesion(SIN_SESION);
     setAvisoVencidaVisible(false);
+    olvidarGruposVistos();
     setLibro((previo) => ({ generacion: previo.generacion + 1, usuarioId: null }));
     return null;
   }, []);

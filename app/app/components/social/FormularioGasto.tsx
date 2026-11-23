@@ -7,14 +7,14 @@ import { erroresDeAccion } from '../../utils/erroresSocial';
 import { fechaHoyLocal, formatearMontoTexto, normalizarDecimal } from '../../utils/formato';
 import { ETIQUETA_REGLA, REGLAS, signoBalance } from '../../utils/formatoSocial';
 import {
-  registrarGastoGrupoCommand,
-  verGrupoCommand,
+  registrarGastoGrupoConCola,
   type GrupoResumenDto,
   type MiembroDto,
   type ParticipantePayload,
   type ReglaDivision,
 } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
+import { verGrupoConCache } from '../../utils/cacheGrupos';
 import { useCargaRemota, useMontado } from '../../utils/useCargaRemota';
 import { useVistaPreviaDivision } from '../../utils/useVistaPreviaDivision';
 import { AvisoFalloSocial } from './AvisoFalloSocial';
@@ -51,12 +51,13 @@ interface Props {
   ctx: ContextoSocial;
   grupoId: string;
   onCancelar: () => void;
-  onRegistrado: () => void;
+  /** `pendiente`: sin conexión, quedó en la cola y se enviará al volver la red. */
+  onRegistrado: (pendiente: boolean) => void;
 }
 
 /** Carga el grupo (moneda y miembros) y muestra el formulario cuando está listo. */
 export function FormularioGasto({ ctx, grupoId, onCancelar, onRegistrado }: Props) {
-  const cargar = useCallback(() => verGrupoCommand(grupoId), [grupoId]);
+  const cargar = useCallback(() => verGrupoConCache(grupoId), [grupoId]);
   const { carga, recargar } = useCargaRemota(cargar);
 
   return (
@@ -84,7 +85,8 @@ interface CuerpoProps {
   grupo: GrupoResumenDto;
   miembros: MiembroDto[];
   onCancelar: () => void;
-  onRegistrado: () => void;
+  /** `pendiente`: sin conexión, quedó en la cola y se enviará al volver la red. */
+  onRegistrado: (pendiente: boolean) => void;
 }
 
 function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: CuerpoProps) {
@@ -132,16 +134,21 @@ function CuerpoFormulario({ ctx, grupo, miembros, onCancelar, onRegistrado }: Cu
     setEnviando(true);
     setErrores({});
     try {
-      await registrarGastoGrupoCommand({
-        grupo_id: grupo.id,
-        concepto,
-        monto: normalizarDecimal(monto),
-        fecha,
-        pagador,
-        regla,
-        participantes,
-      });
-      if (montado.current) onRegistrado();
+      // Pasa por la cola local: sin conexión queda «pendiente» y se envía al volver la red.
+      const resultado = await registrarGastoGrupoConCola(
+        {
+          grupo_id: grupo.id,
+          concepto,
+          monto: normalizarDecimal(monto),
+          fecha,
+          pagador,
+          regla,
+          participantes,
+        },
+        grupo.nombre,
+        grupo.moneda
+      );
+      if (montado.current) onRegistrado(resultado.estado === 'pendiente');
     } catch (err) {
       if (montado.current) {
         const r = erroresDeAccion(err, CAMPOS);

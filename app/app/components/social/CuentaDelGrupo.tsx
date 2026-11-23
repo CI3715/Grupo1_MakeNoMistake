@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { ContextoSocial } from '../../types/social';
 import { cuentasParaGrupo, elegirCuentaGrupo } from '../../utils/tauriCommands';
 import { temaSocial } from '../../utils/temaSocial';
@@ -26,18 +26,24 @@ interface Props {
  */
 export function CuentaDelGrupo({ ctx, grupoId, moneda }: Props) {
   const tema = temaSocial(ctx.modoOscuro);
-  const cargar = useCallback(() => cuentasParaGrupo(grupoId), [grupoId]);
+  const cargar = useCallback(() => cuentasParaGrupo(grupoId, moneda), [grupoId, moneda]);
   const { carga, recargar } = useCargaRemota(cargar);
   const envio = useEnvio(CAMPOS);
   const [seleccion, setSeleccion] = useState<string | null>(null);
   const [confirmada, setConfirmada] = useState<string | null>(null);
   const { refrescar } = ctx.sincronizacion;
 
+  const errorCampo = envio.errores.cuenta_id ?? envio.errores.cuenta ?? envio.errores.general;
+  // Tras un error, el foco vuelve al selector para corregir (el error está debajo de él).
+  useEffect(() => {
+    if (errorCampo) document.getElementById(`cuenta-grupo-${grupoId}`)?.focus();
+  }, [errorCampo, grupoId]);
+
   const elegir = async (cuentaId: string) => {
     if (!cuentaId) return;
     setConfirmada(null);
     setSeleccion(cuentaId);
-    const r = await envio.enviar(() => elegirCuentaGrupo(grupoId, cuentaId), 'elegir');
+    const r = await envio.enviar(() => elegirCuentaGrupo(grupoId, cuentaId, moneda), 'elegir');
     setSeleccion(null);
     if (!r.ok) return;
     setConfirmada(r.valor.cuentas.find((c) => c.id === r.valor.cuenta_elegida)?.nombre ?? '');
@@ -49,8 +55,8 @@ export function CuentaDelGrupo({ ctx, grupoId, moneda }: Props) {
   return (
     <Tarjeta
       modoOscuro={ctx.modoOscuro}
-      titulo="Cuenta para este grupo"
-      descripcion="Aquí se aplica tu parte de cada gasto, una sola vez."
+      titulo="Tu parte en el libro"
+      descripcion="Aquí se aplica tu parte de cada gasto del grupo, una sola vez."
     >
       {carga.estado === 'cargando' && (
         <div role="status" aria-busy="true">
@@ -104,7 +110,7 @@ export function CuentaDelGrupo({ ctx, grupoId, moneda }: Props) {
             placeholder="Elige una cuenta"
             onCambio={(valor) => void elegir(valor)}
             deshabilitado={envio.cargando}
-            error={envio.errores.cuenta_id ?? envio.errores.cuenta ?? envio.errores.general}
+            error={errorCampo}
             modoOscuro={ctx.modoOscuro}
           />
 

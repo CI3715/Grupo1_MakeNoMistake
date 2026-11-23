@@ -15,7 +15,11 @@ export interface ControlCarga<T> {
  * la pantalla, sin contexto global (RES-06). `cargar` debe ser estable (una función de
  * módulo o un useCallback). El estado solo cambia dentro de las promesas.
  */
-export function useCargaRemota<T>(cargar: () => Promise<T>): ControlCarga<T> {
+export function useCargaRemota<T>(
+  cargar: () => Promise<T>,
+  /** Si cambia, vuelve a pedir los datos sin mostrar «cargando» (p. ej. tras sincronizar). */
+  refrescarCon: number = 0
+): ControlCarga<T> {
   const [carga, setCarga] = useState<CargaRemota<T>>({ estado: 'cargando' });
   const [version, setVersion] = useState(0);
 
@@ -31,7 +35,7 @@ export function useCargaRemota<T>(cargar: () => Promise<T>): ControlCarga<T> {
     return () => {
       activo = false;
     };
-  }, [cargar, version]);
+  }, [cargar, version, refrescarCon]);
 
   const recargar = useCallback((mostrarCarga = true) => {
     if (mostrarCarga) setCarga({ estado: 'cargando' });
