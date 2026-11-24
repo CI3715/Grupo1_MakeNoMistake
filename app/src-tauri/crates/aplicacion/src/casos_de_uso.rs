@@ -305,6 +305,14 @@ impl CasosDeUso {
         Ok(moneda_a_dto(moneda))
     }
 
+    /// Todos los eventos del libro en orden de inserción, tal como están guardados.
+    /// Solo lee: exportar no modifica el libro (RF-INT-01).
+    pub fn eventos_del_libro(
+        &self,
+    ) -> Result<Vec<crate::puertos::EventoRegistrado>, ErrorAplicacion> {
+        Ok(self.repositorio.listar()?)
+    }
+
     /// Reconstruye el listado de cuentas con su saldo actual derivado de todos sus
     /// movimientos y ajustes (INV-05), y calcula los subtotales separados por moneda (INV-02).
     pub fn listar_cuentas(&self) -> Result<ListaCuentas, ErrorAplicacion> {
