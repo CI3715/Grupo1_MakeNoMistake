@@ -81,7 +81,10 @@ fn lo_escrito_no_lo_ven_los_demas_hasta_publicar_y_traer() {
     assert!(destino.lotes_publicados_de("laptop").is_empty());
 
     a.publicar().unwrap();
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
     // Publicado, pero el teléfono todavía no hizo traer.
     assert!(b.listar_lotes("laptop").unwrap().is_empty());
 
@@ -154,7 +157,10 @@ fn las_credenciales_rechazadas_no_son_reintentables_y_se_corrigen() {
 
     destino.rechazar_credenciales(false);
     a.publicar().unwrap();
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
 }
 
 #[test]
@@ -177,7 +183,10 @@ fn si_el_destino_cambia_al_publicar_se_reintenta_y_no_se_pierde_nada() {
     }
     assert_eq!(intentos, 3);
     assert_eq!(destino.publicaciones(), 1);
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
 }
 
 #[test]
@@ -252,11 +261,17 @@ fn publicar_un_lote_que_ya_estaba_publicado_no_publica_ninguno() {
         a2.publicar(),
         Err(ErrorTransporte::LoteYaExiste { .. })
     ));
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
 
     let mut b = destino.conectar("telefono").unwrap();
     b.traer().unwrap();
-    assert_eq!(b.leer_lote("laptop", "lote-0001").unwrap(), b"original".to_vec());
+    assert_eq!(
+        b.leer_lote("laptop", "lote-0001").unwrap(),
+        b"original".to_vec()
+    );
 }
 
 #[test]
@@ -272,7 +287,10 @@ fn el_destino_expone_lo_publicado_para_las_pruebas_de_privacidad() {
     b.publicar().unwrap();
     let mut contenidos = destino.contenidos_publicados();
     contenidos.sort();
-    assert_eq!(contenidos, vec![b"cifrado-a".to_vec(), b"cifrado-b".to_vec()]);
+    assert_eq!(
+        contenidos,
+        vec![b"cifrado-a".to_vec(), b"cifrado-b".to_vec()]
+    );
 }
 
 // ---------- Convergencia a nivel de transporte ----------
@@ -285,8 +303,12 @@ fn dos_dispositivos_convergen_en_cualquier_orden_de_sincronizacion() {
         let destino = DestinoEnMemoria::nuevo();
         let mut laptop = destino.conectar("laptop").unwrap();
         let mut telefono = destino.conectar("telefono").unwrap();
-        laptop.escribir_lote("lote-0001", b"almuerzo y cafe").unwrap();
-        telefono.escribir_lote("lote-0001", b"ingreso y gasto").unwrap();
+        laptop
+            .escribir_lote("lote-0001", b"almuerzo y cafe")
+            .unwrap();
+        telefono
+            .escribir_lote("lote-0001", b"ingreso y gasto")
+            .unwrap();
 
         if laptop_primero {
             sincronizar(&mut laptop);

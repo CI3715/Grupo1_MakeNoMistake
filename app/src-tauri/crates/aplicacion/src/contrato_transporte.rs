@@ -154,8 +154,10 @@ pub fn dos_dispositivos_no_se_pisan(banco: &dyn BancoDeDestino) {
         .expect("dos_dispositivos_no_se_pisan: escribir en a");
     b.escribir_lote("lote-0001", b"del telefono")
         .expect("dos_dispositivos_no_se_pisan: escribir en b");
-    a.publicar().expect("dos_dispositivos_no_se_pisan: publicar a");
-    b.publicar().expect("dos_dispositivos_no_se_pisan: publicar b");
+    a.publicar()
+        .expect("dos_dispositivos_no_se_pisan: publicar a");
+    b.publicar()
+        .expect("dos_dispositivos_no_se_pisan: publicar b");
     a.traer().expect("dos_dispositivos_no_se_pisan: traer a");
     b.traer().expect("dos_dispositivos_no_se_pisan: traer b");
 
@@ -193,7 +195,10 @@ pub fn un_lote_escrito_no_se_modifica(banco: &dyn BancoDeDestino) {
     publicar_y_traer(a.as_mut(), b.as_mut());
     let despues_de_publicar = a.escribir_lote("lote-0001", b"otro contenido");
     assert!(
-        matches!(despues_de_publicar, Err(ErrorTransporte::LoteYaExiste { .. })),
+        matches!(
+            despues_de_publicar,
+            Err(ErrorTransporte::LoteYaExiste { .. })
+        ),
         "un_lote_escrito_no_se_modifica: reescribir después de publicar debe fallar, fue {despues_de_publicar:?}"
     );
 
@@ -268,7 +273,11 @@ pub fn solo_llegan_los_lotes_nuevos(banco: &dyn BancoDeDestino) {
 
     // Quien sincroniza sabe que ya leyó el primero y pide solo el que falta.
     let faltantes: Vec<&String> = lotes.iter().filter(|l| l.as_str() != "lote-0001").collect();
-    assert_eq!(faltantes.len(), 1, "solo_llegan_los_lotes_nuevos: faltantes");
+    assert_eq!(
+        faltantes.len(),
+        1,
+        "solo_llegan_los_lotes_nuevos: faltantes"
+    );
     assert_eq!(
         b.leer_lote("laptop", faltantes[0]).unwrap(),
         b"segundo".to_vec(),
