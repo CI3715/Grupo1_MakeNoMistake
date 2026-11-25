@@ -7,11 +7,14 @@ pub mod casos_de_uso;
 pub mod categorias;
 pub mod codec;
 pub mod contrato;
+pub mod contrato_transporte;
 pub mod errores;
 pub mod memoria;
 pub mod proyector;
 pub mod puertos;
 pub mod respaldo;
+pub mod transporte;
+pub mod transporte_memoria;
 pub mod unidades;
 pub mod vistas;
 
@@ -38,6 +41,10 @@ pub use puertos::{
 pub use respaldo::{
     Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, leer_libro, libro_a_texto,
 };
+pub use transporte::{
+    ErrorTransporte, LARGO_MAXIMO_NOMBRE, TransporteSincronizacion, nombre_de_lote, validar_nombre,
+};
+pub use transporte_memoria::{DestinoEnMemoria, TransporteEnMemoria};
 pub use vistas::{
     CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, DetalleCuentaVista,
     ListaCuentas, MonedaDto, MovimientoListado, ParFaltanteVista, PatrimonioVista,
