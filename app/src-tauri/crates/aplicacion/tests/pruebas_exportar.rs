@@ -83,3 +83,37 @@ fn exporta_los_eventos_reales_del_libro() {
     assert!(texto.contains("eventos=1"));
     assert!(texto.contains(&eventos[0].id));
 }
+
+fn app_con_una_cuenta() -> CasosDeUso {
+    let mut app = CasosDeUso::nuevo(
+        Box::new(RepositorioEnMemoria::nuevo()),
+        Box::new(RelojFijo::nuevo("2026-11-24T12:00:00Z")),
+        Box::new(GeneradorSecuencial::nuevo()),
+        Box::new(DispositivoFijo::nuevo("disp-1")),
+    );
+    app.crear_cuenta(NuevaCuenta {
+        nombre: "Efectivo".to_string(),
+        tipo: "efectivo".to_string(),
+        moneda: "USD".to_string(),
+        saldo_inicial: "10.00".to_string(),
+    })
+    .unwrap();
+    app
+}
+
+#[test]
+fn exportar_copia_usa_la_fecha_del_reloj_y_los_eventos_del_libro() {
+    let app = app_con_una_cuenta();
+    let bytes = app.exportar_copia(None, &CifradorFalso).unwrap();
+    let texto = String::from_utf8(bytes).unwrap();
+    assert!(texto.contains("exportado=2026-11-24T12:00:00Z"));
+    assert!(texto.contains("eventos=1"));
+}
+
+#[test]
+fn exportar_copia_con_frase_corta_falla_y_no_toca_el_libro() {
+    let app = app_con_una_cuenta();
+    let antes = app.eventos_del_libro().unwrap();
+    assert!(app.exportar_copia(Some("corta"), &CifradorFalso).is_err());
+    assert_eq!(app.eventos_del_libro().unwrap(), antes);
+}
