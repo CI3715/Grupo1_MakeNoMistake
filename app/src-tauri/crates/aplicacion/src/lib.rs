@@ -11,6 +11,7 @@ pub mod errores;
 pub mod memoria;
 pub mod proyector;
 pub mod puertos;
+pub mod respaldo;
 pub mod unidades;
 pub mod vistas;
 
@@ -33,6 +34,9 @@ pub use puertos::{
     CategoriaProyectada, CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
     GeneradorIdentificadores, MonedaProyectada, MovimientoProyectado, Reloj, RepositorioEventos,
     ResultadoGuardado, TasaProyectada,
+};
+pub use respaldo::{
+    Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, leer_libro, libro_a_texto,
 };
 pub use vistas::{
     CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, DetalleCuentaVista,
