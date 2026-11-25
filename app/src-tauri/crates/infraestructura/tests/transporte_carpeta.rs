@@ -29,10 +29,8 @@ impl BancoCarpeta {
             .unwrap()
             .as_nanos();
         let n = CONTADOR.fetch_add(1, Ordering::Relaxed);
-        let base = std::env::temp_dir().join(format!(
-            "cc_transporte_{}_{nanos}_{n}",
-            std::process::id()
-        ));
+        let base =
+            std::env::temp_dir().join(format!("cc_transporte_{}_{nanos}_{n}", std::process::id()));
         fs::create_dir_all(base.join("destino")).unwrap();
         BancoCarpeta { base }
     }
@@ -141,7 +139,10 @@ fn los_temporales_y_los_archivos_ajenos_se_ignoran_al_leer() {
     fs::create_dir_all(telefono.join("lote-0005.lote")).unwrap();
 
     let laptop = banco.transporte("laptop");
-    assert_eq!(laptop.listar_lotes("telefono").unwrap(), nombres(&["lote-0002"]));
+    assert_eq!(
+        laptop.listar_lotes("telefono").unwrap(),
+        nombres(&["lote-0002"])
+    );
     assert_eq!(
         laptop.leer_lote("telefono", "lote-0002").unwrap(),
         b"bueno".to_vec()
@@ -178,7 +179,10 @@ fn las_carpetas_de_otros_programas_no_son_dispositivos() {
     let mut telefono = banco.transporte("telefono");
     telefono.escribir_lote("lote-0001", b"uno").unwrap();
     let laptop = banco.transporte("laptop");
-    assert_eq!(laptop.listar_dispositivos().unwrap(), nombres(&["telefono"]));
+    assert_eq!(
+        laptop.listar_dispositivos().unwrap(),
+        nombres(&["telefono"])
+    );
 }
 
 #[test]
@@ -202,7 +206,11 @@ fn un_temporal_abandonado_por_un_cierre_brusco_no_impide_reintentar() {
     let banco = BancoCarpeta::nuevo();
     let propia = banco.destino().join("laptop");
     fs::create_dir_all(&propia).unwrap();
-    fs::write(propia.join("lote-0001.lote.tmp"), b"restos de un cierre brusco").unwrap();
+    fs::write(
+        propia.join("lote-0001.lote.tmp"),
+        b"restos de un cierre brusco",
+    )
+    .unwrap();
 
     let mut laptop = banco.transporte("laptop");
     assert!(laptop.listar_lotes("laptop").unwrap().is_empty());
@@ -271,8 +279,12 @@ fn dos_instancias_sobre_la_misma_carpeta_convergen_en_cualquier_orden() {
         let banco = BancoCarpeta::nuevo();
         let mut laptop = banco.transporte("laptop");
         let mut telefono = banco.transporte("telefono");
-        laptop.escribir_lote("lote-0001", b"almuerzo y cafe").unwrap();
-        telefono.escribir_lote("lote-0001", b"ingreso y gasto").unwrap();
+        laptop
+            .escribir_lote("lote-0001", b"almuerzo y cafe")
+            .unwrap();
+        telefono
+            .escribir_lote("lote-0001", b"ingreso y gasto")
+            .unwrap();
 
         if laptop_primero {
             sincronizar(&mut laptop);

@@ -258,7 +258,10 @@ impl TransporteSincronizacion for TransporteEnMemoria {
         }
         {
             let propios = self.copia.get(&self.dispositivo);
-            let publicados = estado.publicados.entry(self.dispositivo.clone()).or_default();
+            let publicados = estado
+                .publicados
+                .entry(self.dispositivo.clone())
+                .or_default();
             // Todo o nada: si algún lote ya está publicado con ese nombre, no se publica ninguno.
             if let Some(lote) = self
                 .pendientes

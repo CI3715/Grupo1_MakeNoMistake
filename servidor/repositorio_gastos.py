@@ -378,9 +378,7 @@ class RepositorioGastos:
             fila = conexion.execute(SQL_BUSCAR_GASTO, (gasto_id,)).fetchone()
             if fila is None:
                 return None
-            filas_partes = conexion.execute(
-                SQL_BUSCAR_PARTES, (gasto_id,)
-            ).fetchall()
+            filas_partes = conexion.execute(SQL_BUSCAR_PARTES, (gasto_id,)).fetchall()
         return GastoVista(
             gasto=_gasto_desde_fila(fila),
             pagador_nombre_usuario=fila["pagador_nombre_usuario"],
