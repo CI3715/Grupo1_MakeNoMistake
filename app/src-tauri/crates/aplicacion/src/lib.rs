@@ -35,7 +35,9 @@ pub use puertos::{
     GeneradorIdentificadores, MonedaProyectada, MovimientoProyectado, Reloj, RepositorioEventos,
     ResultadoGuardado, TasaProyectada,
 };
-pub use respaldo::{Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, libro_a_texto};
+pub use respaldo::{
+    Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, leer_libro, libro_a_texto,
+};
 pub use vistas::{
     CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, DetalleCuentaVista,
     ListaCuentas, MonedaDto, MovimientoListado, ParFaltanteVista, PatrimonioVista,
