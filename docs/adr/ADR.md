@@ -11,7 +11,7 @@ Este directorio contiene las Architecture Decision Records (ADRs) del proyecto.
 - [ADR-005: Workspace de Cargo con arquitectura hexagonal](./ADR-005-workspace-hexagonal.md)
 - [ADR-006: Almacenamiento Local de Eventos con SQLite y rusqlite](./ADR-006-almacenamiento-sqlite.md)
 - [ADR-008: Modelado de tasas de cambio, monedas configurables y consolidación con redondeo único](./ADR-008-tasa-moneda-base-y-consolidacion.md)
-- [ADR-009: Base de datos del servidor con PostgreSQL](./ADR-009-base-de-datos-del-servidor.md)
+- [ADR-009: Base de datos del servidor con PostgreSQL](./ADR-009-base-de-datos-del-servidor.md) — las partes sobre Neon y sobre el clúster local como única forma de desarrollo quedan sustituidas por ADR-016 (el texto de la ADR-009 no se modifica)
 - [ADR-010: Sesión con token firmado, vigencia configurable y mensaje idéntico ante credenciales incorrectas](./ADR-010-sesion-con-token-firmado.md)
 - [ADR-011: Datos compartidos del servidor (amistades, grupos y gastos)](./ADR-011-datos-compartidos-de-grupos.md) — el punto 3 (tipo de los montos) queda sustituido por ADR-012
 - [ADR-012: Montos `NUMERIC` y repositorios compartidos implementados](./ADR-012-montos-numeric-y-repositorios-compartidos.md)
@@ -19,3 +19,8 @@ Este directorio contiene las Architecture Decision Records (ADRs) del proyecto.
 - [ADR-014: Libro personal por usuario en el dispositivo](./ADR-014-libro-personal-por-usuario.md)
 - [ADR-015: Registro de cambios por usuario y clave de idempotencia en el servidor](./ADR-015-registro-de-cambios-e-idempotencia.md)
 - [ADR-016: PostgreSQL con Docker Compose y Supabase para el servidor](./ADR-016-postgresql-con-docker-compose-y-supabase.md) — sustituye las partes de ADR-009 sobre Neon y sobre el clúster local como única forma de desarrollo
+
+## Notas
+
+- **ADR-007:** no existe. La numeración pasa de la ADR-006 a la ADR-008; en el repositorio no hay un archivo con ese número ni ninguna referencia a él. El número no se reutiliza y no se crea una ADR retroactiva: cualquier decisión que se tome en adelante recibe el siguiente número libre.
+- **ADR-009 y Neon:** la ADR-009 preveía desplegar el servidor en Neon. Esa previsión quedó sustituida por la ADR-016 (Docker Compose para desarrollo y pruebas, Supabase para el trabajo compartido). La ADR-009 se conserva tal como se escribió.
