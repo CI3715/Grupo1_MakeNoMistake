@@ -9,6 +9,7 @@ mod libros;
 mod movimientos;
 mod ping;
 mod previsualizacion;
+mod respaldo;
 mod sesion;
 mod sincronizacion;
 mod sincronizacion_cliente;
@@ -100,7 +101,8 @@ pub fn run() {
             tasas::listar_tasas,
             tasas::cambiar_moneda_base,
             tasas::crear_moneda,
-            tasas::consultar_patrimonio
+            tasas::consultar_patrimonio,
+            respaldo::exportar_copia
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

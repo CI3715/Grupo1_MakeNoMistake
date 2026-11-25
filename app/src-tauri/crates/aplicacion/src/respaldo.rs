@@ -26,6 +26,8 @@ pub enum ErrorRespaldo {
     FraseIncorrectaOArchivoDanado,
     #[error("No se pudo leer el libro del dispositivo. Intenta de nuevo.")]
     LibroNoLegible,
+    #[error("El cifrado de la copia todavía no está disponible.")]
+    CifradoNoDisponible,
 }
 
 /// Puerto del cifrado con frase de paso. Una frase incorrecta y un archivo alterado
