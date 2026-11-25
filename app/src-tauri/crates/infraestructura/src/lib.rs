@@ -1,5 +1,6 @@
 //! Adaptadores que implementan los puertos (almacenamiento, reloj, identificadores).
 
+pub mod cifrado;
 pub mod db;
 pub mod dispositivo;
 pub mod id_gen;
