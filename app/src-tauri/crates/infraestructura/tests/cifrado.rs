@@ -75,8 +75,13 @@ fn cifrado_ida_y_vuelta_con_parametros_de_produccion() {
 fn cifrado_ida_y_vuelta_con_exportar_y_leer_libro() {
     let cifrador = CifradorArgon2::con_parametros(params_rapidos());
     let eventos = eventos_de_ejemplo();
-    let archivo = exportar_libro(&eventos, "2026-11-25T12:00:00Z", Some(FRASE_VALIDA), &cifrador)
-        .expect("exportar con cifrador real debe funcionar");
+    let archivo = exportar_libro(
+        &eventos,
+        "2026-11-25T12:00:00Z",
+        Some(FRASE_VALIDA),
+        &cifrador,
+    )
+    .expect("exportar con cifrador real debe funcionar");
 
     let leidos = leer_libro(&archivo, Some(FRASE_VALIDA), &cifrador)
         .expect("leer libro cifrado con frase correcta debe funcionar");
@@ -211,8 +216,13 @@ fn dos_cifrados_del_mismo_contenido_producen_archivos_distintos() {
 fn la_parte_en_claro_y_el_archivo_no_contienen_texto_del_libro_ni_la_frase() {
     let cifrador = CifradorArgon2::con_parametros(params_rapidos());
     let eventos = eventos_de_ejemplo();
-    let archivo =
-        exportar_libro(&eventos, "2026-11-25T12:00:00Z", Some(FRASE_VALIDA), &cifrador).unwrap();
+    let archivo = exportar_libro(
+        &eventos,
+        "2026-11-25T12:00:00Z",
+        Some(FRASE_VALIDA),
+        &cifrador,
+    )
+    .unwrap();
 
     let cabecera_texto = String::from_utf8_lossy(&archivo[..LARGO_CABECERA]);
     let archivo_texto = String::from_utf8_lossy(&archivo);

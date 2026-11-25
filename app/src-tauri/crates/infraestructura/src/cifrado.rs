@@ -190,8 +190,8 @@ pub fn cifrar_con_parametros(
     cabecera.extend_from_slice(&nonce_bytes);
     debug_assert_eq!(cabecera.len(), LARGO_CABECERA);
 
-    let cifrador = Aes256Gcm::new_from_slice(&clave)
-        .map_err(|_| ErrorRespaldo::CifradoNoDisponible)?;
+    let cifrador =
+        Aes256Gcm::new_from_slice(&clave).map_err(|_| ErrorRespaldo::CifradoNoDisponible)?;
     let nonce = Nonce::from_slice(&nonce_bytes);
     let carga = Payload {
         msg: claro,

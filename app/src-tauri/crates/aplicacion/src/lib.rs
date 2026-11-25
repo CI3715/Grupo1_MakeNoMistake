@@ -13,6 +13,7 @@ pub mod memoria;
 pub mod proyector;
 pub mod puertos;
 pub mod respaldo;
+pub mod secretos;
 pub mod transporte;
 pub mod transporte_memoria;
 pub mod unidades;
@@ -40,6 +41,10 @@ pub use puertos::{
 };
 pub use respaldo::{
     Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, leer_libro, libro_a_texto,
+};
+pub use secretos::{
+    AlmacenSecretos, AlmacenSecretosEnMemoria, CredencialesGit, ErrorSecretos,
+    bateria_contrato_almacen_secretos, validar_credenciales_git, validar_frase_de_paso,
 };
 pub use transporte::{
     ErrorTransporte, LARGO_MAXIMO_NOMBRE, TransporteSincronizacion, nombre_de_lote, validar_nombre,
