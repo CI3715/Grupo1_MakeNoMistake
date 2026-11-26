@@ -102,7 +102,8 @@ pub fn run() {
             tasas::cambiar_moneda_base,
             tasas::crear_moneda,
             tasas::consultar_patrimonio,
-            respaldo::exportar_copia
+            respaldo::exportar_copia,
+            respaldo::importar_copia
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
