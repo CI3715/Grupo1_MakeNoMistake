@@ -1,5 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { DatosInicioSesion, DatosRegistro } from '../types/sesion';
+import type {
+  ActualizarCredencialesPayload,
+  ConfigurarDestinoPayload,
+  DestinoSincronizacionDto,
+  EstadoSincronizacionLibroDto,
+  InformeSincronizacionLibroDto,
+  ResumenImportacionDto,
+} from '../types/copia';
+import * as simulacion from './simulacionIntercambio';
 
 /*
  * Capa de comandos: es el único lugar del frontend que conoce los nombres de los
@@ -21,6 +30,11 @@ import type { DatosInicioSesion, DatosRegistro } from '../types/sesion';
 export interface ErrorCampo {
   campo: string | null;
   mensaje: string;
+  /**
+   * Código estable del error (p. ej. «frase_incorrecta»), opcional. Si el núcleo lo envía, la
+   * interfaz lo usa; si no, reconoce el tipo por el texto (ver `utils/erroresCopia.ts`).
+   */
+  codigo?: string | null;
 }
 
 export interface ErroresDto {
@@ -663,4 +677,79 @@ export async function registrarGastoGrupoConCola(
     grupo_nombre: grupoNombre,
     moneda,
   });
+}
+
+
+// ---------- Comandos: copia de seguridad y sincronización del libro (Entrega 8) ----------
+// Todo ocurre entre el dispositivo y un archivo o destino que elige la persona: ninguno de
+// estos comandos habla con el servidor de Cuentas Claras (RNF-01, INV-16).
+//
+// Los comandos de esta sección (como `exportar_copia`) llevan `rename_all = "snake_case"`:
+// reciben sus argumentos sueltos (`ruta`, `frase`) y los que traen un cuerpo, en `datos`.
+//
+// SIMULACIÓN: con `NEXT_PUBLIC_SIMULAR_INTERCAMBIO=1` (solo desarrollo) estas funciones no
+// llaman a Rust: responden `utils/simulacionIntercambio.ts`, que permite probar la interfaz
+// con los cinco errores de la sección 2.7 mientras el cifrado, la importación y la
+// sincronización se integran. Con la bandera apagada se usan los comandos reales.
+
+/** `true` solo si se arrancó con `NEXT_PUBLIC_SIMULAR_INTERCAMBIO=1`. Next lo fija al compilar. */
+export const SIMULAR_INTERCAMBIO = process.env.NEXT_PUBLIC_SIMULAR_INTERCAMBIO === '1';
+
+/**
+ * Escribe la copia en `ruta`. Sin `frase` queda en texto legible; con `frase` va cifrada
+ * (mínimo 12 caracteres). No modifica el libro (RF-INT-01).
+ */
+export async function exportarCopiaCommand(ruta: string, frase: string | null): Promise<void> {
+  if (SIMULAR_INTERCAMBIO) return await simulacion.exportarCopia(ruta, frase);
+  return await invoke<void>('exportar_copia', { ruta, frase });
+}
+
+/**
+ * Descifra y valida todo el archivo y lo fusiona con el libro en una sola transacción:
+ * importar dos veces el mismo archivo no cambia nada la segunda vez (RF-INT-02, ESC-04).
+ * `frase` es `null` si el archivo está en texto legible.
+ */
+export async function importarCopiaCommand(
+  ruta: string,
+  frase: string | null
+): Promise<ResumenImportacionDto> {
+  if (SIMULAR_INTERCAMBIO) return await simulacion.importarCopia(ruta, frase);
+  return await invoke<ResumenImportacionDto>('importar_copia', { ruta, frase });
+}
+
+/** Destino configurado (si lo hay) y fecha de la última sincronización exitosa. Sin red. */
+export async function estadoSincronizacionLibroCommand(): Promise<EstadoSincronizacionLibroDto> {
+  if (SIMULAR_INTERCAMBIO) return await simulacion.estadoSincronizacionLibro();
+  return await invoke<EstadoSincronizacionLibroDto>('estado_sincronizacion_libro');
+}
+
+/**
+ * Guarda el destino. La frase de paso y las credenciales de Git van al almacén de secretos
+ * del sistema: nunca al libro, al destino ni a la exportación (RF-INT-05).
+ */
+export async function configurarDestinoCommand(
+  datos: ConfigurarDestinoPayload
+): Promise<DestinoSincronizacionDto> {
+  if (SIMULAR_INTERCAMBIO) return await simulacion.configurarDestino(datos);
+  return await invoke<DestinoSincronizacionDto>('configurar_destino_sincronizacion', { datos });
+}
+
+/** Reemplaza usuario y token del repositorio Git configurado. */
+export async function actualizarCredencialesDestinoCommand(
+  datos: ActualizarCredencialesPayload
+): Promise<void> {
+  if (SIMULAR_INTERCAMBIO) return await simulacion.actualizarCredenciales(datos);
+  return await invoke<void>('actualizar_credenciales_destino', { datos });
+}
+
+/** Quita el destino y borra del almacén de secretos su frase y credenciales. */
+export async function quitarDestinoCommand(): Promise<void> {
+  if (SIMULAR_INTERCAMBIO) return await simulacion.quitarDestino();
+  return await invoke<void>('quitar_destino_sincronizacion');
+}
+
+/** Trae, fusiona, envía y publica (RF-INT-03). Informa enviados, recibidos y rechazados. */
+export async function sincronizarLibroCommand(): Promise<InformeSincronizacionLibroDto> {
+  if (SIMULAR_INTERCAMBIO) return await simulacion.sincronizarLibro();
+  return await invoke<InformeSincronizacionLibroDto>('sincronizar_libro');
 }

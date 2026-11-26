@@ -7,10 +7,13 @@ import { PantallaTasas } from './components/PantallaTasas';
 import { PantallaPatrimonio } from './components/PantallaPatrimonio';
 import { PantallaSesion } from './components/sesion/PantallaSesion';
 import { PantallaSocial } from './components/social/PantallaSocial';
+import { PantallaCopiaSeguridad } from './components/copia/PantallaCopiaSeguridad';
+import { PantallaSincronizacionLibro } from './components/sincronizacionLibro/PantallaSincronizacionLibro';
 import { BienvenidaPrimerAcceso } from './components/sesion/BienvenidaPrimerAcceso';
 import { AvisoSesionVencida } from './components/sesion/AvisoSesionVencida';
 import { useSesion } from './utils/useSesion';
 import { useSincronizacion } from './utils/useSincronizacion';
+import { useSincronizacionLibro } from './utils/useSincronizacionLibro';
 
 export default function Home() {
   const [pantallaActual, setPantallaActual] = useState<string>('mis-cuentas');
@@ -19,6 +22,14 @@ export default function Home() {
   const sincronizacion = useSincronizacion({
     sesionEstado: control.sesion.estado,
     claveLibro: control.claveLibro,
+  });
+  // Sincronización del libro entre dispositivos propios (Entrega 8). Es distinta de la
+  // anterior (gastos de grupo con el servidor). Cuando llegan eventos de otro dispositivo o se
+  // importa una copia, las pantallas personales vuelven a leer el libro.
+  const refrescarLibro = sincronizacion.refrescar;
+  const sincronizacionLibro = useSincronizacionLibro({
+    claveLibro: control.claveLibro,
+    alCambiarLibro: () => void refrescarLibro(),
   });
 
   const toggleModoOscuro = () => {
@@ -81,6 +92,15 @@ export default function Home() {
                 setPantallaActual={setPantallaActual}
                 sincronizacion={sincronizacion}
               />
+            )}
+            {pantallaActual === 'copia-seguridad' && (
+              <PantallaCopiaSeguridad
+                modoOscuro={modoOscuro}
+                alCambiarLibro={() => void refrescarLibro()}
+              />
+            )}
+            {pantallaActual === 'sincronizacion-libro' && (
+              <PantallaSincronizacionLibro modoOscuro={modoOscuro} control={sincronizacionLibro} />
             )}
           </Fragment>
           {(pantallaActual === 'inicio-sesion' ||
