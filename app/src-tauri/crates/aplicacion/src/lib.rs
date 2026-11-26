@@ -15,6 +15,7 @@ pub mod proyector;
 pub mod puertos;
 pub mod respaldo;
 pub mod secretos;
+pub mod sincronizar_libro;
 pub mod transporte;
 pub mod transporte_memoria;
 pub mod unidades;
