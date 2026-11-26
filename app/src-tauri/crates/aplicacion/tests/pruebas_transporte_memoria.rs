@@ -6,10 +6,12 @@
 //! dispositivos, que se comporta como Git (publicar y traer) y que reproduce los
 //! fallos de la sección 2.7 sin perder nada.
 
+use std::collections::BTreeSet;
+
 use aplicacion::contrato_transporte::{BancoDeDestino, bateria_contrato_transporte};
 use aplicacion::{
-    DestinoEnMemoria, ErrorTransporte, TransporteEnMemoria, TransporteSincronizacion,
-    nombre_de_lote, validar_nombre,
+    DestinoEnMemoria, ErrorTransporte, LoteDeDispositivo, TransporteEnMemoria,
+    TransporteSincronizacion, lotes_por_leer, nombre_de_lote, validar_nombre,
 };
 
 struct BancoMemoria {
@@ -226,6 +228,66 @@ fn las_lecturas_se_cuentan_por_lote() {
     assert_eq!(b.lecturas(), 0);
     let _ = b.leer_lote("laptop", "lote-0002").unwrap();
     assert_eq!(b.lecturas(), 1);
+}
+
+/// Lee con `leer_lote` solo lo que `lotes_por_leer` indica y lo marca como leído.
+fn leer_lo_que_falta(t: &TransporteEnMemoria, leidos: &mut BTreeSet<LoteDeDispositivo>) {
+    for (dispositivo, lote) in lotes_por_leer(t, leidos).unwrap() {
+        t.leer_lote(&dispositivo, &lote).unwrap();
+        leidos.insert((dispositivo, lote));
+    }
+}
+
+#[test]
+fn los_lotes_ya_leidos_no_se_vuelven_a_leer() {
+    let destino = DestinoEnMemoria::nuevo();
+    let mut a = destino.conectar("laptop").unwrap();
+    let mut b = destino.conectar("telefono").unwrap();
+    let mut leidos = BTreeSet::new();
+
+    for lote in ["lote-0001", "lote-0002", "lote-0003"] {
+        a.escribir_lote(lote, b"x").unwrap();
+    }
+    sincronizar(&mut a);
+    b.traer().unwrap();
+    leer_lo_que_falta(&b, &mut leidos);
+    assert_eq!(b.lecturas(), 3);
+
+    // Sin novedades: ni se traen ni se leen lotes.
+    b.traer().unwrap();
+    b.traer().unwrap();
+    leer_lo_que_falta(&b, &mut leidos);
+    assert_eq!(b.lecturas(), 3);
+    assert_eq!(b.lotes_traidos(), 3);
+
+    // Llega un lote nuevo: se lee uno solo, no los cuatro (RNF-10).
+    a.escribir_lote("lote-0004", b"x").unwrap();
+    sincronizar(&mut a);
+    b.traer().unwrap();
+    leer_lo_que_falta(&b, &mut leidos);
+    assert_eq!(b.lecturas(), 4);
+    assert_eq!(b.lotes_traidos(), 4);
+}
+
+#[test]
+fn un_lote_que_no_se_pudo_aplicar_vuelve_a_aparecer() {
+    let destino = DestinoEnMemoria::nuevo();
+    let mut a = destino.conectar("laptop").unwrap();
+    let mut b = destino.conectar("telefono").unwrap();
+    a.escribir_lote("lote-0001", b"x").unwrap();
+    sincronizar(&mut a);
+    b.traer().unwrap();
+
+    // Quien sincroniza no lo marcó como leído (falló al aplicarlo): sigue pendiente.
+    let leidos = BTreeSet::new();
+    assert_eq!(
+        lotes_por_leer(&b, &leidos).unwrap(),
+        vec![("laptop".to_string(), "lote-0001".to_string())]
+    );
+    assert_eq!(
+        lotes_por_leer(&b, &leidos).unwrap(),
+        vec![("laptop".to_string(), "lote-0001".to_string())]
+    );
 }
 
 #[test]

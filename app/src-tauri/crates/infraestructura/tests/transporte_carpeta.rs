@@ -6,13 +6,14 @@
 //! propio de una carpeta: escritura con nombre temporal y renombrado, archivos
 //! ajenos que se ignoran, una carpeta que desaparece.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aplicacion::contrato_transporte::{BancoDeDestino, bateria_contrato_transporte};
-use aplicacion::{ErrorTransporte, TransporteSincronizacion};
+use aplicacion::{ErrorTransporte, TransporteSincronizacion, lotes_por_leer};
 use infraestructura::transporte_carpeta::TransporteCarpeta;
 
 static CONTADOR: AtomicU32 = AtomicU32::new(0);
@@ -152,6 +153,71 @@ fn los_temporales_y_los_archivos_ajenos_se_ignoran_al_leer() {
         laptop.leer_lote("telefono", "lote-0001"),
         Err(ErrorTransporte::LoteNoExiste { .. })
     ));
+}
+
+#[test]
+fn solo_se_leen_los_lotes_nuevos_y_nunca_temporales_ni_copias_en_conflicto() {
+    let banco = BancoCarpeta::nuevo();
+    let telefono = banco.destino().join("telefono");
+    fs::create_dir_all(&telefono).unwrap();
+    let primero = "20261124T120000Z-0001";
+    let segundo = "20261124T130000Z-0002";
+    fs::write(telefono.join(format!("{primero}.lote")), b"uno").unwrap();
+    // El servicio de carpetas todavía está copiando el segundo lote.
+    fs::write(telefono.join(format!("{segundo}.lote.tmp")), b"a medias").unwrap();
+    // Copias en conflicto como las que generan Syncthing y Dropbox.
+    fs::write(
+        telefono.join(format!(
+            "{primero}.sync-conflict-20261124-130000-ABCDEFG.lote"
+        )),
+        b"copia",
+    )
+    .unwrap();
+    fs::write(
+        telefono.join(format!("{primero} (conflicted copy).lote")),
+        b"copia",
+    )
+    .unwrap();
+
+    let laptop = banco.transporte("laptop");
+    let mut leidos = BTreeSet::new();
+    let primera = lotes_por_leer(&laptop, &leidos).unwrap();
+    assert_eq!(primera, vec![("telefono".to_string(), primero.to_string())]);
+    leidos.extend(primera);
+    assert!(lotes_por_leer(&laptop, &leidos).unwrap().is_empty());
+
+    // El servicio termina de copiar: el renombrado hace visible el segundo lote y
+    // solo ese se lee.
+    fs::rename(
+        telefono.join(format!("{segundo}.lote.tmp")),
+        telefono.join(format!("{segundo}.lote")),
+    )
+    .unwrap();
+    assert_eq!(
+        lotes_por_leer(&laptop, &leidos).unwrap(),
+        vec![("telefono".to_string(), segundo.to_string())]
+    );
+}
+
+#[test]
+fn con_la_carpeta_inaccesible_no_se_lee_nada_y_se_puede_reintentar() {
+    let banco = BancoCarpeta::nuevo();
+    let mut telefono = banco.transporte("telefono");
+    telefono.escribir_lote("lote-0001", b"uno").unwrap();
+    let laptop = banco.transporte("laptop");
+    let leidos = BTreeSet::new();
+
+    banco.dejar_inaccesible();
+    assert_eq!(
+        lotes_por_leer(&laptop, &leidos),
+        Err(ErrorTransporte::DestinoInaccesible)
+    );
+
+    banco.restablecer();
+    assert_eq!(
+        lotes_por_leer(&laptop, &leidos).unwrap(),
+        vec![("telefono".to_string(), "lote-0001".to_string())]
+    );
 }
 
 #[test]

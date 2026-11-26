@@ -91,7 +91,8 @@ pub fn exportar_copia(
 mod pruebas {
     use super::*;
     use aplicacion::{
-        DispositivoFijo, GeneradorSecuencial, NuevaCuenta, RelojFijo, RepositorioEnMemoria,
+        DispositivoFijo, ErrorRespaldo, GeneradorSecuencial, NuevaCuenta, RelojFijo,
+        RepositorioEnMemoria,
     };
 
     const FRASE: &str = "una frase de paso larga";

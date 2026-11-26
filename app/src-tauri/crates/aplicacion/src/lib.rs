@@ -47,7 +47,8 @@ pub use secretos::{
     bateria_contrato_almacen_secretos, validar_credenciales_git, validar_frase_de_paso,
 };
 pub use transporte::{
-    ErrorTransporte, LARGO_MAXIMO_NOMBRE, TransporteSincronizacion, nombre_de_lote, validar_nombre,
+    ErrorTransporte, LARGO_MAXIMO_NOMBRE, LoteDeDispositivo, TransporteSincronizacion,
+    lotes_por_leer, nombre_de_lote, validar_nombre,
 };
 pub use transporte_memoria::{DestinoEnMemoria, TransporteEnMemoria};
 pub use vistas::{
