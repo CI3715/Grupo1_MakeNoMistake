@@ -161,6 +161,11 @@ pub trait RepositorioEventos: Send {
     fn guardar(&mut self, evento: &EventoRegistrado)
     -> Result<ResultadoGuardado, ErrorRepositorio>;
 
+    /// Almacena un lote de eventos nuevos como una sola operación: si alguno
+    /// falla, no se queda ninguno. Los identificadores que ya existen se omiten.
+    /// Lo usa la fusión para aplicar un respaldo o un lote de sincronización.
+    fn guardar_lote(&mut self, eventos: &[EventoRegistrado]) -> Result<(), ErrorRepositorio>;
+
     /// Eventos en estricto orden de inserción (fuente de verdad).
     fn listar(&self) -> Result<Vec<EventoRegistrado>, ErrorRepositorio>;
 
