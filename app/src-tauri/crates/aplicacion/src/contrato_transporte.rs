@@ -17,7 +17,11 @@
 //! `publicar` antes de que otro dispositivo haga `traer`, y nunca se exige que un lote
 //! sin publicar sea invisible para los demás (una carpeta lo hace visible al instante).
 
-use crate::transporte::{ErrorTransporte, TransporteSincronizacion};
+use std::collections::BTreeSet;
+
+use crate::transporte::{
+    ErrorTransporte, LoteDeDispositivo, TransporteSincronizacion, lotes_por_leer,
+};
 
 /// Un destino de pruebas del que se pueden obtener transportes para varios dispositivos
 /// y al que se le puede cortar el acceso.
@@ -43,6 +47,7 @@ pub fn bateria_contrato_transporte(nuevo_banco: &dyn Fn() -> Box<dyn BancoDeDest
     un_lote_escrito_no_se_modifica(&*nuevo_banco());
     publicar_y_traer_son_idempotentes(&*nuevo_banco());
     solo_llegan_los_lotes_nuevos(&*nuevo_banco());
+    solo_se_leen_los_lotes_que_faltan(&*nuevo_banco());
     un_lote_inexistente_se_informa(&*nuevo_banco());
     los_nombres_peligrosos_se_rechazan(&*nuevo_banco());
     un_destino_inaccesible_conserva_lo_pendiente(&*nuevo_banco());
@@ -154,8 +159,10 @@ pub fn dos_dispositivos_no_se_pisan(banco: &dyn BancoDeDestino) {
         .expect("dos_dispositivos_no_se_pisan: escribir en a");
     b.escribir_lote("lote-0001", b"del telefono")
         .expect("dos_dispositivos_no_se_pisan: escribir en b");
-    a.publicar().expect("dos_dispositivos_no_se_pisan: publicar a");
-    b.publicar().expect("dos_dispositivos_no_se_pisan: publicar b");
+    a.publicar()
+        .expect("dos_dispositivos_no_se_pisan: publicar a");
+    b.publicar()
+        .expect("dos_dispositivos_no_se_pisan: publicar b");
     a.traer().expect("dos_dispositivos_no_se_pisan: traer a");
     b.traer().expect("dos_dispositivos_no_se_pisan: traer b");
 
@@ -193,7 +200,10 @@ pub fn un_lote_escrito_no_se_modifica(banco: &dyn BancoDeDestino) {
     publicar_y_traer(a.as_mut(), b.as_mut());
     let despues_de_publicar = a.escribir_lote("lote-0001", b"otro contenido");
     assert!(
-        matches!(despues_de_publicar, Err(ErrorTransporte::LoteYaExiste { .. })),
+        matches!(
+            despues_de_publicar,
+            Err(ErrorTransporte::LoteYaExiste { .. })
+        ),
         "un_lote_escrito_no_se_modifica: reescribir después de publicar debe fallar, fue {despues_de_publicar:?}"
     );
 
@@ -268,7 +278,11 @@ pub fn solo_llegan_los_lotes_nuevos(banco: &dyn BancoDeDestino) {
 
     // Quien sincroniza sabe que ya leyó el primero y pide solo el que falta.
     let faltantes: Vec<&String> = lotes.iter().filter(|l| l.as_str() != "lote-0001").collect();
-    assert_eq!(faltantes.len(), 1, "solo_llegan_los_lotes_nuevos: faltantes");
+    assert_eq!(
+        faltantes.len(),
+        1,
+        "solo_llegan_los_lotes_nuevos: faltantes"
+    );
     assert_eq!(
         b.leer_lote("laptop", faltantes[0]).unwrap(),
         b"segundo".to_vec(),
@@ -278,6 +292,88 @@ pub fn solo_llegan_los_lotes_nuevos(banco: &dyn BancoDeDestino) {
         b.leer_lote("laptop", "lote-0001").unwrap(),
         b"primero".to_vec(),
         "solo_llegan_los_lotes_nuevos: el lote viejo no cambió"
+    );
+}
+
+/// Lee los lotes que `lector` todavía no ha leído, los marca como leídos y devuelve
+/// cuántos leyó.
+fn leer_lo_que_falta(
+    lector: &dyn TransporteSincronizacion,
+    leidos: &mut BTreeSet<LoteDeDispositivo>,
+) -> usize {
+    let faltan =
+        lotes_por_leer(lector, leidos).expect("solo_se_leen_los_lotes_que_faltan: lotes_por_leer");
+    for (dispositivo, lote) in &faltan {
+        lector
+            .leer_lote(dispositivo, lote)
+            .expect("solo_se_leen_los_lotes_que_faltan: leer");
+        leidos.insert((dispositivo.clone(), lote.clone()));
+    }
+    faltan.len()
+}
+
+pub fn solo_se_leen_los_lotes_que_faltan(banco: &dyn BancoDeDestino) {
+    let mut a = banco.conectar("laptop");
+    let mut b = banco.conectar("telefono");
+    let mut leidos: BTreeSet<LoteDeDispositivo> = BTreeSet::new();
+
+    // Destino vacío: no hay nada que leer.
+    publicar_y_traer(a.as_mut(), b.as_mut());
+    assert_eq!(
+        leer_lo_que_falta(&*b, &mut leidos),
+        0,
+        "solo_se_leen_los_lotes_que_faltan: destino vacío"
+    );
+
+    // Primera ronda: llega un lote y se lee.
+    a.escribir_lote("lote-0001", b"primero")
+        .expect("solo_se_leen_los_lotes_que_faltan: escribir 1");
+    publicar_y_traer(a.as_mut(), b.as_mut());
+    assert_eq!(
+        leer_lo_que_falta(&*b, &mut leidos),
+        1,
+        "solo_se_leen_los_lotes_que_faltan: primera ronda"
+    );
+
+    // Sin novedades: ninguna lectura, aunque se sincronice varias veces.
+    publicar_y_traer(a.as_mut(), b.as_mut());
+    publicar_y_traer(a.as_mut(), b.as_mut());
+    assert_eq!(
+        leer_lo_que_falta(&*b, &mut leidos),
+        0,
+        "solo_se_leen_los_lotes_que_faltan: sin novedades"
+    );
+
+    // Un lote propio, marcado como leído al escribirlo, tampoco se relee.
+    b.escribir_lote("lote-0001", b"del telefono")
+        .expect("solo_se_leen_los_lotes_que_faltan: escribir propio");
+    leidos.insert(("telefono".to_string(), "lote-0001".to_string()));
+    assert_eq!(
+        leer_lo_que_falta(&*b, &mut leidos),
+        0,
+        "solo_se_leen_los_lotes_que_faltan: lote propio"
+    );
+
+    // Segunda ronda: llega solo el lote nuevo, no el que ya se había leído.
+    a.escribir_lote("lote-0002", b"segundo")
+        .expect("solo_se_leen_los_lotes_que_faltan: escribir 2");
+    publicar_y_traer(a.as_mut(), b.as_mut());
+    let faltan =
+        lotes_por_leer(&*b, &leidos).expect("solo_se_leen_los_lotes_que_faltan: segunda ronda");
+    assert_eq!(
+        faltan,
+        vec![("laptop".to_string(), "lote-0002".to_string())],
+        "solo_se_leen_los_lotes_que_faltan: segunda ronda"
+    );
+    assert_eq!(
+        leer_lo_que_falta(&*b, &mut leidos),
+        1,
+        "solo_se_leen_los_lotes_que_faltan: segunda ronda, lecturas"
+    );
+    assert_eq!(
+        leer_lo_que_falta(&*b, &mut leidos),
+        0,
+        "solo_se_leen_los_lotes_que_faltan: tras la segunda ronda"
     );
 }
 

@@ -380,6 +380,10 @@ pub fn reiniciar_cursor(
 }
 
 #[cfg(test)]
+#[path = "sincronizacion/pruebas.rs"]
+mod pruebas_interrupcion;
+
+#[cfg(test)]
 mod pruebas {
     use super::*;
     use crate::sesion::{Respuesta, SesionGuardada, SinConexion};

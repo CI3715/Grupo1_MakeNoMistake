@@ -6,10 +6,12 @@
 //! dispositivos, que se comporta como Git (publicar y traer) y que reproduce los
 //! fallos de la sección 2.7 sin perder nada.
 
+use std::collections::BTreeSet;
+
 use aplicacion::contrato_transporte::{BancoDeDestino, bateria_contrato_transporte};
 use aplicacion::{
-    DestinoEnMemoria, ErrorTransporte, TransporteEnMemoria, TransporteSincronizacion,
-    nombre_de_lote, validar_nombre,
+    DestinoEnMemoria, ErrorTransporte, LoteDeDispositivo, TransporteEnMemoria,
+    TransporteSincronizacion, lotes_por_leer, nombre_de_lote, validar_nombre,
 };
 
 struct BancoMemoria {
@@ -81,7 +83,10 @@ fn lo_escrito_no_lo_ven_los_demas_hasta_publicar_y_traer() {
     assert!(destino.lotes_publicados_de("laptop").is_empty());
 
     a.publicar().unwrap();
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
     // Publicado, pero el teléfono todavía no hizo traer.
     assert!(b.listar_lotes("laptop").unwrap().is_empty());
 
@@ -154,7 +159,10 @@ fn las_credenciales_rechazadas_no_son_reintentables_y_se_corrigen() {
 
     destino.rechazar_credenciales(false);
     a.publicar().unwrap();
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
 }
 
 #[test]
@@ -177,7 +185,10 @@ fn si_el_destino_cambia_al_publicar_se_reintenta_y_no_se_pierde_nada() {
     }
     assert_eq!(intentos, 3);
     assert_eq!(destino.publicaciones(), 1);
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
 }
 
 #[test]
@@ -219,6 +230,66 @@ fn las_lecturas_se_cuentan_por_lote() {
     assert_eq!(b.lecturas(), 1);
 }
 
+/// Lee con `leer_lote` solo lo que `lotes_por_leer` indica y lo marca como leído.
+fn leer_lo_que_falta(t: &TransporteEnMemoria, leidos: &mut BTreeSet<LoteDeDispositivo>) {
+    for (dispositivo, lote) in lotes_por_leer(t, leidos).unwrap() {
+        t.leer_lote(&dispositivo, &lote).unwrap();
+        leidos.insert((dispositivo, lote));
+    }
+}
+
+#[test]
+fn los_lotes_ya_leidos_no_se_vuelven_a_leer() {
+    let destino = DestinoEnMemoria::nuevo();
+    let mut a = destino.conectar("laptop").unwrap();
+    let mut b = destino.conectar("telefono").unwrap();
+    let mut leidos = BTreeSet::new();
+
+    for lote in ["lote-0001", "lote-0002", "lote-0003"] {
+        a.escribir_lote(lote, b"x").unwrap();
+    }
+    sincronizar(&mut a);
+    b.traer().unwrap();
+    leer_lo_que_falta(&b, &mut leidos);
+    assert_eq!(b.lecturas(), 3);
+
+    // Sin novedades: ni se traen ni se leen lotes.
+    b.traer().unwrap();
+    b.traer().unwrap();
+    leer_lo_que_falta(&b, &mut leidos);
+    assert_eq!(b.lecturas(), 3);
+    assert_eq!(b.lotes_traidos(), 3);
+
+    // Llega un lote nuevo: se lee uno solo, no los cuatro (RNF-10).
+    a.escribir_lote("lote-0004", b"x").unwrap();
+    sincronizar(&mut a);
+    b.traer().unwrap();
+    leer_lo_que_falta(&b, &mut leidos);
+    assert_eq!(b.lecturas(), 4);
+    assert_eq!(b.lotes_traidos(), 4);
+}
+
+#[test]
+fn un_lote_que_no_se_pudo_aplicar_vuelve_a_aparecer() {
+    let destino = DestinoEnMemoria::nuevo();
+    let mut a = destino.conectar("laptop").unwrap();
+    let mut b = destino.conectar("telefono").unwrap();
+    a.escribir_lote("lote-0001", b"x").unwrap();
+    sincronizar(&mut a);
+    b.traer().unwrap();
+
+    // Quien sincroniza no lo marcó como leído (falló al aplicarlo): sigue pendiente.
+    let leidos = BTreeSet::new();
+    assert_eq!(
+        lotes_por_leer(&b, &leidos).unwrap(),
+        vec![("laptop".to_string(), "lote-0001".to_string())]
+    );
+    assert_eq!(
+        lotes_por_leer(&b, &leidos).unwrap(),
+        vec![("laptop".to_string(), "lote-0001".to_string())]
+    );
+}
+
 #[test]
 fn un_dispositivo_reconectado_recupera_sus_lotes_publicados() {
     let destino = DestinoEnMemoria::nuevo();
@@ -252,11 +323,17 @@ fn publicar_un_lote_que_ya_estaba_publicado_no_publica_ninguno() {
         a2.publicar(),
         Err(ErrorTransporte::LoteYaExiste { .. })
     ));
-    assert_eq!(destino.lotes_publicados_de("laptop"), nombres(&["lote-0001"]));
+    assert_eq!(
+        destino.lotes_publicados_de("laptop"),
+        nombres(&["lote-0001"])
+    );
 
     let mut b = destino.conectar("telefono").unwrap();
     b.traer().unwrap();
-    assert_eq!(b.leer_lote("laptop", "lote-0001").unwrap(), b"original".to_vec());
+    assert_eq!(
+        b.leer_lote("laptop", "lote-0001").unwrap(),
+        b"original".to_vec()
+    );
 }
 
 #[test]
@@ -272,7 +349,10 @@ fn el_destino_expone_lo_publicado_para_las_pruebas_de_privacidad() {
     b.publicar().unwrap();
     let mut contenidos = destino.contenidos_publicados();
     contenidos.sort();
-    assert_eq!(contenidos, vec![b"cifrado-a".to_vec(), b"cifrado-b".to_vec()]);
+    assert_eq!(
+        contenidos,
+        vec![b"cifrado-a".to_vec(), b"cifrado-b".to_vec()]
+    );
 }
 
 // ---------- Convergencia a nivel de transporte ----------
@@ -285,8 +365,12 @@ fn dos_dispositivos_convergen_en_cualquier_orden_de_sincronizacion() {
         let destino = DestinoEnMemoria::nuevo();
         let mut laptop = destino.conectar("laptop").unwrap();
         let mut telefono = destino.conectar("telefono").unwrap();
-        laptop.escribir_lote("lote-0001", b"almuerzo y cafe").unwrap();
-        telefono.escribir_lote("lote-0001", b"ingreso y gasto").unwrap();
+        laptop
+            .escribir_lote("lote-0001", b"almuerzo y cafe")
+            .unwrap();
+        telefono
+            .escribir_lote("lote-0001", b"ingreso y gasto")
+            .unwrap();
 
         if laptop_primero {
             sincronizar(&mut laptop);

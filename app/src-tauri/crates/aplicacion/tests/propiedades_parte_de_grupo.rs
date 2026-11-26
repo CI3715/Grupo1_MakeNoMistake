@@ -103,7 +103,7 @@ proptest! {
     /// exactamente el mismo saldo y los mismos movimientos que aplicar cada evento
     /// único una sola vez.
     #[test]
-    fn idempotencia_ante_lotes_repetidos_y_reordenados(
+    fn propiedad_idempotencia_ante_lotes_repetidos_y_reordenados(
         saldo_inicial in 100_000_i64..=1_000_000,
         lote in estrategia_lote(),
     ) {
@@ -175,7 +175,7 @@ proptest! {
     /// Reconstruir las proyecciones del repositorio en memoria desde la bitácora de
     /// eventos conserva exactamente el saldo y los movimientos vigentes.
     #[test]
-    fn reconstruir_repositorio_conserva_saldo_y_movimientos(
+    fn propiedad_reconstruir_repositorio_conserva_saldo_y_movimientos(
         saldo_inicial in 100_000_i64..=1_000_000,
         lote in estrategia_lote(),
     ) {
@@ -196,7 +196,7 @@ proptest! {
     /// INV-18: si la moneda del evento no coincide con la de la cuenta elegida,
     /// el núcleo siempre rechaza con error en `cuenta_id` y nunca altera el saldo.
     #[test]
-    fn moneda_distinta_siempre_se_rechaza_sin_tocar_saldo(
+    fn propiedad_moneda_distinta_siempre_se_rechaza_sin_tocar_saldo(
         saldo_inicial in 10_000_i64..=500_000,
         centimos in 1_i64..=20_000,
         moneda_evento in prop_oneof![Just("EUR"), Just("MXN"), Just("COP"), Just("ARS")],
@@ -228,7 +228,7 @@ proptest! {
     /// Ningún movimiento originado en un gasto de grupo puede corregirse desde el
     /// libro personal, sin importar qué subconjunto de eventos se intente editar.
     #[test]
-    fn ningun_movimiento_de_grupo_acepta_correccion_local(
+    fn propiedad_ningun_movimiento_de_grupo_acepta_correccion_local(
         lote in estrategia_lote(),
         nuevo_monto in 1_i64..=20_000,
     ) {
@@ -269,7 +269,7 @@ proptest! {
     /// Sincronización incremental en dos fases (primer lote parcial y luego reenvío
     /// desde cursor 0 o lote completo) converge exactamente al mismo estado final.
     #[test]
-    fn sincronizacion_incremental_en_dos_fases_converge_al_mismo_estado(
+    fn propiedad_sincronizacion_incremental_en_dos_fases_converge_al_mismo_estado(
         saldo_inicial in 100_000_i64..=1_000_000,
         lote in estrategia_lote(),
         corte in 0_usize..=25,

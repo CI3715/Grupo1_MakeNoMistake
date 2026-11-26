@@ -7,23 +7,28 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use aplicacion::{CasosDeUso, Cifrador, ErrorRespaldo};
+use aplicacion::{CasosDeUso, Cifrador};
+use infraestructura::cifrado::CifradorArgon2;
 use tauri::State;
 
 use crate::EstadoCasosDeUso;
 use crate::dto::ErroresDto;
 use crate::sesion::sin_campo;
 
-/// PROVISIONAL: se reemplaza por el cifrador real (Argon2id + cifrado autenticado)
-/// cuando esté en `infraestructura`.
+#[cfg(test)]
 struct CifradoPendiente;
 
+#[cfg(test)]
 impl Cifrador for CifradoPendiente {
-    fn cifrar(&self, _frase: &str, _claro: &[u8]) -> Result<Vec<u8>, ErrorRespaldo> {
-        Err(ErrorRespaldo::CifradoNoDisponible)
+    fn cifrar(&self, _frase: &str, _claro: &[u8]) -> Result<Vec<u8>, aplicacion::ErrorRespaldo> {
+        Err(aplicacion::ErrorRespaldo::CifradoNoDisponible)
     }
-    fn descifrar(&self, _frase: &str, _archivo: &[u8]) -> Result<Vec<u8>, ErrorRespaldo> {
-        Err(ErrorRespaldo::CifradoNoDisponible)
+    fn descifrar(
+        &self,
+        _frase: &str,
+        _archivo: &[u8],
+    ) -> Result<Vec<u8>, aplicacion::ErrorRespaldo> {
+        Err(aplicacion::ErrorRespaldo::CifradoNoDisponible)
     }
 }
 
@@ -78,7 +83,7 @@ pub fn exportar_copia(
         &casos,
         Path::new(&ruta),
         frase.as_deref(),
-        &CifradoPendiente,
+        &CifradorArgon2::nuevo(),
     )
 }
 
@@ -86,7 +91,8 @@ pub fn exportar_copia(
 mod pruebas {
     use super::*;
     use aplicacion::{
-        DispositivoFijo, GeneradorSecuencial, NuevaCuenta, RelojFijo, RepositorioEnMemoria,
+        DispositivoFijo, ErrorRespaldo, GeneradorSecuencial, NuevaCuenta, RelojFijo,
+        RepositorioEnMemoria,
     };
 
     const FRASE: &str = "una frase de paso larga";

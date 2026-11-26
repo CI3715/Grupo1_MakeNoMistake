@@ -34,7 +34,8 @@
 //!    tarde (RNF-17, sección 2.5 de la especificación).
 //! 6. **Solo se transfiere lo que falta (RNF-10).** `listar_lotes` devuelve solo
 //!    nombres; el contenido se pide lote por lote con `leer_lote`. Quien sincroniza
-//!    guarda qué lotes ya leyó y no vuelve a pedirlos.
+//!    guarda qué lotes ya leyó y no vuelve a pedirlos: [`lotes_por_leer`] devuelve solo
+//!    los que faltan.
 //! 7. **Los nombres son seguros.** Los identificadores de dispositivo y de lote usan
 //!    solo letras ASCII, números, guion y guion bajo (ver [`validar_nombre`]): nunca
 //!    pueden salirse de la carpeta del destino.
@@ -45,6 +46,8 @@
 //! de contrato implementando `BancoDeDestino` para el destino nuevo. No se toca
 //! `dominio` ni los casos de uso (RNF-15). La guía completa está en
 //! `docs/adr/ADR-018-puerto-transporte-sincronizacion.md`.
+
+use std::collections::BTreeSet;
 
 use thiserror::Error;
 
@@ -134,6 +137,39 @@ pub fn nombre_de_lote(momento_utc: &str, secuencia: u32) -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
     format!("{marca}-{secuencia:04}")
+}
+
+/// Un lote identificado por su dispositivo y su nombre: `(dispositivo, lote)`.
+pub type LoteDeDispositivo = (String, String);
+
+/// Lotes visibles en el transporte que todavía no están en `ya_leidos`, en orden de
+/// dispositivo y luego de lote (orden de texto, que coincide con el orden de tiempo).
+///
+/// Solo consulta nombres (`listar_dispositivos` y `listar_lotes`): no lee contenido.
+/// Así quien sincroniza pide con `leer_lote` únicamente los lotes que faltan y no
+/// vuelve a leer los que ya aplicó (RNF-10). Los archivos temporales, las copias en
+/// conflicto y cualquier otra cosa que no sea un lote terminado no aparecen aquí
+/// porque el adaptador ya los descarta al listar.
+///
+/// Quien llama añade cada `(dispositivo, lote)` a `ya_leidos` solo después de aplicar
+/// su contenido: si algo falla a mitad, el lote vuelve a aparecer en la siguiente
+/// sincronización y la fusión (idempotente, INV-13) lo deja una sola vez. Los lotes
+/// del propio dispositivo también se listan; para no releerlos, se marcan como
+/// leídos al escribirlos.
+pub fn lotes_por_leer(
+    transporte: &dyn TransporteSincronizacion,
+    ya_leidos: &BTreeSet<LoteDeDispositivo>,
+) -> Result<Vec<LoteDeDispositivo>, ErrorTransporte> {
+    let mut faltan = Vec::new();
+    for dispositivo in transporte.listar_dispositivos()? {
+        for lote in transporte.listar_lotes(&dispositivo)? {
+            let clave = (dispositivo.clone(), lote);
+            if !ya_leidos.contains(&clave) {
+                faltan.push(clave);
+            }
+        }
+    }
+    Ok(faltan)
 }
 
 /// Puerto del transporte de sincronización. Ver la documentación del módulo para las
