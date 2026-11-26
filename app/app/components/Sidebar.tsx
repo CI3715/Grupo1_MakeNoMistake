@@ -11,6 +11,8 @@ import {
   IconoPatrimonio,
   IconoAmigos,
   IconoGrupos,
+  IconoCopiaSeguridad,
+  IconoSincronizacion,
   IconoSol,
   IconoLuna,
 } from './Iconos';
@@ -114,6 +116,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <IconoGrupos className="w-4 h-4 shrink-0" />
             <span>Grupos</span>
+          </button>
+          <button
+            onClick={() => setPantallaActual('copia-seguridad')}
+            aria-current={pantallaActual === 'copia-seguridad' ? 'page' : undefined}
+            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
+              pantallaActual === 'copia-seguridad'
+                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
+                : 'hover:bg-white/10 text-purple-200'
+            }`}
+          >
+            <IconoCopiaSeguridad className="w-4 h-4 shrink-0" />
+            <span>Copia de seguridad</span>
+          </button>
+
+          <button
+            onClick={() => setPantallaActual('sincronizacion-libro')}
+            aria-current={pantallaActual === 'sincronizacion-libro' ? 'page' : undefined}
+            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
+              pantallaActual === 'sincronizacion-libro'
+                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
+                : 'hover:bg-white/10 text-purple-200'
+            }`}
+          >
+            <IconoSincronizacion className="w-4 h-4 shrink-0" />
+            <span>Sincronización</span>
           </button>
         </nav>
       </div>

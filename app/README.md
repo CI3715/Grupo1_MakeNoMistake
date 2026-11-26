@@ -550,3 +550,25 @@ Si `cargo fmt --check` muestra diferencias, `cargo fmt` las corrige solo. `cargo
 **La pantalla de ping muestra "No se pudo conectar con el servidor".** El servidor no
 está encendido o la dirección es otra. Levántalo según `servidor/README.md` y
 comprueba que `http://localhost:8000/ping` responde en el navegador.
+
+## Copia de seguridad y sincronización del libro: modo simulación (Entrega 8)
+
+Las pantallas «Copia de seguridad» y «Sincronización» hablan con comandos de Rust que se están
+integrando (cifrado real, `importar_copia`, destino y `sincronizar_libro`). Mientras tanto se
+pueden probar con respuestas simuladas, incluidos los cinco errores de la sección 2.7 de la
+especificación:
+
+```bash
+# desde app/ (solo desarrollo; los archivos .env* no se suben al repositorio)
+echo "NEXT_PUBLIC_SIMULAR_INTERCAMBIO=1" > .env.local
+npm run dev            # sirve para maquetar: con la bandera no hace falta la ventana de Tauri
+```
+
+Con la bandera en `1` las dos pantallas muestran un aviso «Modo simulación» con un selector del
+resultado simulado. No se escribe ni se lee ningún archivo, no se toca el libro y no hay red.
+Sin la bandera (o con otro valor) se usan los comandos reales. La bandera la fija Next al
+compilar: hay que reiniciar `npm run dev` después de cambiarla, y **no** debe estar en una
+compilación de entrega.
+
+Los nombres de archivo llevan prefijo para no confundirlos con la sincronización del servidor de
+la Entrega 7: `copia*` (copia de seguridad) y `sincronizacionLibro*` (destino Git o carpeta).
