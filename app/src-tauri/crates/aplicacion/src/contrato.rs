@@ -368,6 +368,26 @@ where
         movimientos_antes
     );
 
+    // 18. `guardar_lote` aplica todos los eventos a la vez: si uno falla no queda
+    //     ninguno, y repetir el lote no duplica nada (base de la fusión).
+    let mut repo = fabrica();
+    let buena = evento_de_prueba("lote-1", &datos_cuenta("c-lote", "Lote"));
+    let mala = evento_de_tipo("lote-2", "MonedaCreada", &datos_moneda("USD", 8));
+    assert!(
+        repo.guardar_lote(&[buena.clone(), mala]).is_err(),
+        "USD es de fábrica: el lote se rechaza completo"
+    );
+    assert!(
+        repo.listar().expect("listar después del fallo").is_empty(),
+        "un lote que falla no deja eventos a medias"
+    );
+    repo.guardar_lote(std::slice::from_ref(&buena))
+        .expect("guardar lote");
+    repo.guardar_lote(std::slice::from_ref(&buena))
+        .expect("repetir lote");
+    assert_eq!(repo.listar().expect("listar"), vec![buena]);
+    assert_eq!(repo.listar_cuentas().expect("listar cuentas").len(), 1);
+
     bateria_monedas_y_tasas(&fabrica);
 }
 

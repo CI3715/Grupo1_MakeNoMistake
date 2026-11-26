@@ -22,7 +22,7 @@ fn error_repo(e: crate::errores::ErrorAplicacion) -> ErrorRepositorio {
 /// `movimientos`, `monedas_propias`, `tasas` y moneda base) sincronizados igual
 /// que el adaptador de SQLite: al guardar un evento nuevo, las proyecciones se
 /// actualizan acto seguido.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RepositorioEnMemoria {
     eventos: Vec<EventoRegistrado>,
     cuentas: Vec<CuentaProyectada>,
@@ -177,6 +177,23 @@ impl RepositorioEventos for RepositorioEnMemoria {
         self.aplicar(evento)?;
         self.eventos.push(evento.clone());
         Ok(ResultadoGuardado::Guardado)
+    }
+
+    fn guardar_lote(&mut self, eventos: &[EventoRegistrado]) -> Result<(), ErrorRepositorio> {
+        // Copia completa para poder devolver el repositorio a su estado anterior
+        // si alguna proyección del lote falla a mitad de camino.
+        let original = self.clone();
+        for evento in eventos {
+            if self.eventos.iter().any(|e| e.id == evento.id) {
+                continue;
+            }
+            if let Err(error) = self.aplicar(evento) {
+                *self = original;
+                return Err(error);
+            }
+            self.eventos.push(evento.clone());
+        }
+        Ok(())
     }
 
     fn listar(&self) -> Result<Vec<EventoRegistrado>, ErrorRepositorio> {
