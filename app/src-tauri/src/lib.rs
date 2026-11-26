@@ -13,6 +13,7 @@ mod respaldo;
 mod sesion;
 mod sincronizacion;
 mod sincronizacion_cliente;
+mod sincronizacion_destino;
 mod sincronizacion_libro;
 mod social;
 mod social_cliente;
@@ -103,7 +104,12 @@ pub fn run() {
             tasas::crear_moneda,
             tasas::consultar_patrimonio,
             respaldo::exportar_copia,
-            respaldo::importar_copia
+            respaldo::importar_copia,
+            sincronizacion_destino::estado_sincronizacion_libro,
+            sincronizacion_destino::configurar_destino_sincronizacion,
+            sincronizacion_destino::actualizar_credenciales_destino,
+            sincronizacion_destino::quitar_destino_sincronizacion,
+            sincronizacion_destino::sincronizar_libro
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

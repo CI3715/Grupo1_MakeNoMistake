@@ -306,6 +306,11 @@ impl CasosDeUso {
         Ok(moneda_a_dto(moneda))
     }
 
+    /// Identificador de este dispositivo: la sincronización lo usa para su carpeta en el destino.
+    pub fn id_dispositivo(&self) -> String {
+        self.dispositivo.id_dispositivo()
+    }
+
     /// Todos los eventos del libro en orden de inserción, tal como están guardados.
     /// Solo lee: exportar no modifica el libro (RF-INT-01).
     pub fn eventos_del_libro(
