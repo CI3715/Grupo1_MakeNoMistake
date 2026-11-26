@@ -285,6 +285,33 @@ impl RepositorioEventos for RepositorioEventosSqlite {
         Ok(ResultadoGuardado::Guardado)
     }
 
+    fn guardar_lote(&mut self, eventos: &[EventoRegistrado]) -> Result<(), ErrorRepositorio> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
+
+        for evento in eventos {
+            let insertado = insertar_evento(
+                &tx,
+                &evento.id,
+                &evento.tipo,
+                &evento.momento_registro,
+                &evento.dispositivo_origen,
+                &evento.datos,
+            )
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
+            if insertado {
+                proyectar_evento(&tx, evento)?;
+            }
+        }
+
+        tx.commit().map_err(|e| ErrorRepositorio(e.to_string()))
+    }
+
     fn listar(&self) -> Result<Vec<EventoRegistrado>, ErrorRepositorio> {
         let conn = self
             .conn
