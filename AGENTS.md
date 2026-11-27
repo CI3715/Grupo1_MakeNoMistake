@@ -10,6 +10,7 @@ Guía para agentes de código (Claude Code, Codex, etc.) que trabajan en este re
 - `servidor/`: Python + FastAPI gestionado con `uv`. Hoy solo expone `GET /ping`.
 - `docs/adr/`: decisiones de arquitectura. Una ADR no se edita cuando cambia la decisión: se escribe otra que la sustituye.
 - `docs/persistencia-eventos-y-proyecciones.md`: diseño detallado del libro de eventos y las proyecciones.
+- `docs/formato-exportacion.md`: formato del libro exportado en texto (versión 1); `herramientas/reconstruir_saldos.py` reconstruye saldos sin la app y una prueba de `aplicacion` lo compara con el núcleo (necesita Python 3.9+ y `git` para las pruebas del adaptador Git).
 - `docs/deuda-tecnica.md`: deuda aceptada (p. ej. avisos conocidos de `npm audit` y `cargo audit`; no ejecutar `npm audit fix --force`).
 
 Regla de diseño principal: el servidor **nunca** recibe cuentas, saldos, movimientos ni categorías (INV-16). La aplicación funciona completa sin red ni servidor; ninguna operación del libro personal puede hacer HTTP.
@@ -83,6 +84,8 @@ Verificación completa (desde la raíz): `bash verificar-entrega3.sh` corre fmt,
 - `src/cuentas.rs` y `src/movimientos.rs` solo traducen DTO ↔ casos de uso; no contienen reglas de negocio. Los DTO están en `src/dto.rs` y los errores se devuelven como `ErroresDto` (lista de `{ campo, mensaje }` en español, sin trazas técnicas).
 - Los tipos TypeScript equivalentes están en `app/app/utils/tauriCommands.ts`; mantenlos sincronizados con `dto.rs`. Un comando nuevo también debe registrarse en `generate_handler!` en `src/lib.rs`.
 - `src/tasas.rs` (Entrega 4: tasas, moneda base, monedas propias, patrimonio) es **provisional**: responde con datos fijos en memoria. Los eventos y proyecciones ya existen y `CasosDeUso::crear_moneda` también, pero los comandos de ese archivo todavía no los usan.
+- Sincronización del libro (Entrega 8): el puerto `aplicacion::transporte` tiene adaptadores de carpeta (`transporte_carpeta.rs`) y Git (`transporte_git.rs`, usa el programa `git` y recibe las credenciales del almacén de secretos por variables de entorno). Los dos pasan `contrato_transporte::bateria_contrato_transporte`.
+- Prueba de extremo a extremo (Entrega 8, ESC-03 y ESC-04): `crates/infraestructura/tests/dos_instalaciones_extremo_a_extremo.rs` reproduce el flujo de la sección 2.8 con dos instalaciones (carpeta de datos y SQLite propios, cifrado real) contra una carpeta y un repositorio Git reales, en los dos órdenes de sincronización. `bash scripts/sync-test.sh` la ejecuta junto con los contratos del transporte (necesita `git`). Decisión del puerto: `docs/adr/ADR-018-puerto-transporte-sincronizacion.md`; verificación completa: `bash verificar-entrega8.sh`.
 - `src/ping.rs` y `src/sesion.rs` usan `reqwest`; la URL del servidor se toma de `CUENTAS_CLARAS_URL` (por defecto `http://localhost:8000`).
 
 ## Interfaz (Next.js)

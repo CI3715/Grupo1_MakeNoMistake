@@ -16,6 +16,7 @@ use dominio::{
 use crate::categorias::id_categoria_canonico;
 use crate::codec;
 use crate::errores::{ErrorAplicacion, ErrorValidacion};
+use crate::fusion::{self, InformeFusion};
 use crate::proyector::{
     self, TIPO_MONEDA_BASE_CAMBIADA, TIPO_MONEDA_CREADA, TIPO_TASA_ELIMINADA, TIPO_TASA_REGISTRADA,
 };
@@ -305,6 +306,11 @@ impl CasosDeUso {
         Ok(moneda_a_dto(moneda))
     }
 
+    /// Identificador de este dispositivo: la sincronización lo usa para su carpeta en el destino.
+    pub fn id_dispositivo(&self) -> String {
+        self.dispositivo.id_dispositivo()
+    }
+
     /// Todos los eventos del libro en orden de inserción, tal como están guardados.
     /// Solo lee: exportar no modifica el libro (RF-INT-01).
     pub fn eventos_del_libro(
@@ -324,6 +330,35 @@ impl CasosDeUso {
             .eventos_del_libro()
             .map_err(|_| crate::respaldo::ErrorRespaldo::LibroNoLegible)?;
         crate::respaldo::exportar_libro(&eventos, &self.reloj.ahora_utc(), frase, cifrador)
+    }
+
+    /// Importa una copia: valida y descifra el archivo completo antes de tocar el
+    /// libro y aplica los eventos con la fusión de la sección 2.1 (RF-INT-02, ESC-04).
+    /// El informe distingue los eventos nuevos, los que ya existían y los rechazados.
+    pub fn importar_copia(
+        &mut self,
+        bytes: &[u8],
+        frase: Option<&str>,
+        cifrador: &dyn crate::respaldo::Cifrador,
+    ) -> Result<InformeFusion, crate::respaldo::ErrorRespaldo> {
+        if frase.is_some_and(|f| f.chars().count() < crate::respaldo::LARGO_MINIMO_FRASE) {
+            return Err(crate::respaldo::ErrorRespaldo::FraseCorta);
+        }
+        let eventos = crate::respaldo::leer_libro(bytes, frase, cifrador)?;
+        self.fusionar_eventos(&eventos)
+            .map_err(|_| crate::respaldo::ErrorRespaldo::LibroNoLegible)
+    }
+
+    /// Une eventos entrantes con el libro local por identificador, sin borrar ni
+    /// modificar nada, y guarda los nuevos en una sola transacción (INV-13, INV-14).
+    pub fn fusionar_eventos(
+        &mut self,
+        entrantes: &[EventoRegistrado],
+    ) -> Result<InformeFusion, ErrorAplicacion> {
+        let locales = self.repositorio.listar()?;
+        let informe = fusion::fusionar(&locales, entrantes);
+        self.repositorio.guardar_lote(&informe.nuevos)?;
+        Ok(informe)
     }
 
     /// Reconstruye el listado de cuentas con su saldo actual derivado de todos sus
@@ -583,8 +618,11 @@ impl CasosDeUso {
 
     /// Aplica al libro la parte de un gasto de grupo que bajó del servidor (Entrega 7).
     ///
-    /// El id del evento del servidor es el id del evento local: si ya está aplicado no se
-    /// hace nada (INV-13, INV-15). La cuenta debe existir y ser de la moneda del grupo (INV-18).
+    /// El id del evento local se deriva del id del evento del servidor con un
+    /// espacio de nombres fijo, para que dos dispositivos que bajaron la misma
+    /// parte produzcan el mismo evento. La carga conserva el id del servidor, que
+    /// es lo que comprueba la idempotencia (INV-13, INV-15). La cuenta debe
+    /// existir y ser de la moneda del grupo (INV-18).
     pub fn aplicar_parte_de_grupo(
         &mut self,
         datos: DatosParteDeGrupo,
@@ -650,7 +688,7 @@ impl CasosDeUso {
             incluye_redondeo: datos.incluye_redondeo,
         };
         let evento = EventoRegistrado {
-            id: datos.evento_servidor_id,
+            id: crate::identificadores::id_evento_parte_de_grupo(&datos.evento_servidor_id),
             tipo: TIPO_GASTO_DE_GRUPO_APLICADO.to_string(),
             momento_registro: self.reloj.ahora_utc(),
             dispositivo_origen: self.dispositivo.id_dispositivo(),
@@ -940,10 +978,15 @@ impl CasosDeUso {
         })
     }
 
-    /// Recorre todos los eventos del repositorio garantizando idempotencia por `id` (INV-13)
-    /// y reconstruye el estado de cuentas, categorías, movimientos y ajustes.
+    /// Recorre todos los eventos del repositorio en orden determinista
+    /// (momento de registro, dispositivo e identificador), garantizando
+    /// idempotencia por `id` (INV-13) y reconstruyendo el estado de cuentas,
+    /// categorías, movimientos y ajustes. Así, dos dispositivos con el mismo
+    /// conjunto de eventos derivan los mismos saldos sin importar el orden en
+    /// que recibieron los eventos.
     fn proyectar_libro(&self) -> Result<EstadoLibro, ErrorAplicacion> {
-        let eventos = self.repositorio.listar()?;
+        let mut eventos = self.repositorio.listar()?;
+        crate::fusion::ordenar_eventos(&mut eventos);
         let mut vistos = HashSet::new();
         let mut monedas = Moneda::catalogo();
         let mut cuentas: Vec<CuentaEnLibro> = Vec::new();

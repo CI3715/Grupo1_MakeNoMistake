@@ -564,3 +564,53 @@ export const IconoFlechaAbajoDerecha: React.FC<IconoProps> = ({
     <polyline points="17 7 17 17 7 17" />
   </svg>
 );
+
+export const IconoCopiaSeguridad: React.FC<IconoProps> = ({
+  className = 'w-4 h-4',
+  size,
+  strokeWidth = 1.75,
+  'aria-hidden': ariaHidden = true,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={strokeWidth}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden={ariaHidden}
+  >
+    <rect x="3" y="4" width="18" height="5" rx="1.5" />
+    <path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9" />
+    <path d="M12 12v5" />
+    <polyline points="9.5 14.5 12 17 14.5 14.5" />
+  </svg>
+);
+
+export const IconoSincronizacion: React.FC<IconoProps> = ({
+  className = 'w-4 h-4',
+  size,
+  strokeWidth = 1.75,
+  'aria-hidden': ariaHidden = true,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={strokeWidth}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden={ariaHidden}
+  >
+    <path d="M20 11a8 8 0 0 0-14.3-4.5L4 8.5" />
+    <polyline points="4 4 4 8.5 8.5 8.5" />
+    <path d="M4 13a8 8 0 0 0 14.3 4.5L20 15.5" />
+    <polyline points="20 20 20 15.5 15.5 15.5" />
+  </svg>
+);

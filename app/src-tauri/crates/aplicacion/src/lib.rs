@@ -9,11 +9,14 @@ pub mod codec;
 pub mod contrato;
 pub mod contrato_transporte;
 pub mod errores;
+pub mod fusion;
+pub mod identificadores;
 pub mod memoria;
 pub mod proyector;
 pub mod puertos;
 pub mod respaldo;
 pub mod secretos;
+pub mod sincronizar_libro;
 pub mod transporte;
 pub mod transporte_memoria;
 pub mod unidades;
@@ -28,6 +31,10 @@ pub type NuevaMonedaPropia = NuevaMoneda;
 
 pub use casos_de_uso::{DatosParteDeGrupo, ParteDeGrupoEntrante, ResultadoAplicar};
 pub use errores::{ErrorAplicacion, ErrorValidacion};
+pub use fusion::{
+    EventoRechazado, InformeFusion, MotivoRechazo, clave_orden, fusionar, ordenar_eventos,
+};
+pub use identificadores::id_evento_parte_de_grupo;
 pub use memoria::{
     DispositivoFijo, GeneradorSecuencial, RelojFijo, RelojModificable, RepositorioEnMemoria,
 };
@@ -40,7 +47,8 @@ pub use puertos::{
     ResultadoGuardado, TasaProyectada,
 };
 pub use respaldo::{
-    Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, leer_libro, libro_a_texto,
+    Cifrador, EncabezadoExportacion, ErrorRespaldo, LARGO_MINIMO_FRASE, MARCA_FORMATO,
+    VERSION_FORMATO, exportar_libro, leer_encabezado, leer_libro, libro_a_texto, texto_a_libro,
 };
 pub use secretos::{
     AlmacenSecretos, AlmacenSecretosEnMemoria, CredencialesGit, ErrorSecretos,

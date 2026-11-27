@@ -24,6 +24,11 @@
 #                       Antes de exigirlas:  docker compose up -d  (en servidor/)
 #                       y definir CUENTAS_CLARAS_DB_URL_PRUEBAS.
 #
+# Requisitos de herramientas: cargo-audit instalado (`cargo install cargo-audit`),
+# una versión de uv que tenga `uv audit` y red la primera vez que se ejecuta
+# `uv run --with pyyaml` (después queda en caché). Si `uv audit` o `cargo audit`
+# fallan por «comando no encontrado», no es una vulnerabilidad: es la herramienta.
+#
 # Nota: `npm audit`, `cargo audit` y `uv audit` devuelven error si hay
 # vulnerabilidades conocidas; eso no es un fallo del script: es lo que va a
 # docs/deuda-tecnica.md.
@@ -40,7 +45,10 @@ EXIGIR_POSTGRES="${EXIGIR_POSTGRES:-1}"
 # Filtros por nombre de prueba (ver nota de arriba).
 FILTRO_IDEMPOTENCIA_APP="idempot"        # cargo: aplicar dos veces el mismo lote
 FILTRO_INTERRUPCION_APP="interrup"       # cargo: cierre a mitad de lote
-FILTRO_COLA_APP="cola"                   # cargo: cola con reintentos
+FILTRO_COLA_APP="cola"                   # cargo: cola con reintentos (ver nota)
+# Nota sobre "cola": hoy solo coinciden las pruebas de cola_envio.rs, que usan una cola
+# simulada definida en el propio archivo. Cuando se reescriban sobre registrar_con_cola /
+# vaciar_cola (src/sincronizacion.rs), el filtro sigue valiendo sin cambios.
 FILTRO_PROPIEDADES_APP="propiedad"       # cargo: pruebas de proptest
 FILTRO_IDEMPOTENCIA_SERVIDOR="idempotencia"   # pytest -k
 FILTRO_RLS_SERVIDOR="rls"                     # pytest -k
@@ -91,6 +99,18 @@ paso_pytest_filtro() { # paso_pytest_filtro "nombre" expresión_-k   (exige >= 1
   fi
 }
 
+# Todos los archivos de pruebas que necesitan PostgreSQL real (se omiten si falta
+# CUENTAS_CLARAS_DB_URL_PRUEBAS). Si se añade otro archivo así, se añade aquí.
+ARCHIVOS_POSTGRES=(
+  tests/test_integracion_postgres.py
+  tests/test_repositorio_usuarios.py
+  tests/test_repositorio_amistades.py
+  tests/test_repositorio_gastos.py
+  tests/test_repositorio_grupos.py
+  tests/test_cambios_postgres.py
+  tests/test_rls_postgres.py
+)
+
 paso_postgres_real() { # las pruebas de PostgreSQL no se omiten
   local nombre="pytest PostgreSQL real, sin omitidas" salida estado
   echo "=== $nombre  (servidor)" | tee -a "$LOG"
@@ -99,7 +119,7 @@ paso_postgres_real() { # las pruebas de PostgreSQL no se omiten
     RESUMEN+=("OMITIDO $nombre (EXIGIR_POSTGRES=$EXIGIR_POSTGRES)")
     return
   fi
-  salida="$(cd "$RAIZ/servidor" && uv run pytest -q -rs tests/test_integracion_postgres.py tests/test_repositorio_usuarios.py 2>&1)"
+  salida="$(cd "$RAIZ/servidor" && uv run pytest -q -rs "${ARCHIVOS_POSTGRES[@]}" 2>&1)"
   estado=$?
   echo "$salida" >> "$LOG"
   if [ "$estado" -eq 0 ] && ! echo "$salida" | grep -Eqi 'skipped'; then
@@ -138,11 +158,22 @@ paso "pytest vectores de sincronización"        servidor      uv run pytest -q 
 paso "pytest división de gastos"                servidor      uv run pytest -q tests/test_division_gastos.py
 paso "pytest datos privados no se filtran"      servidor      uv run pytest -q tests/test_datos_privados_no_se_filtran.py
 paso_pytest_filtro "servidor: clave de idempotencia" "$FILTRO_IDEMPOTENCIA_SERVIDOR"
-paso_pytest_filtro "servidor: RLS"                   "$FILTRO_RLS_SERVIDOR"
 paso_postgres_real
+if [ "$EXIGIR_POSTGRES" = "1" ]; then
+  paso_pytest_filtro "servidor: RLS"                 "$FILTRO_RLS_SERVIDOR"
+else
+  RESUMEN+=("OMITIDO servidor: RLS (EXIGIR_POSTGRES=$EXIGIR_POSTGRES)")
+fi
 paso "hay pruebas de propiedades (hypothesis)"  servidor      grep -rq "@given" tests
 paso "openapi.yaml coincide con /openapi.json"  servidor      uv run --with pyyaml python scripts/comparar_openapi.py
 paso "uv audit (servidor)"                      servidor      uv audit
+
+# --- Avisos (no hacen fallar el script) ---
+pendientes="$(grep -rIh "Pendiente:" "$RAIZ/servidor/tests" --include='*.py' 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$pendientes" -gt 0 ]; then
+  RESUMEN+=("AVISO   $pendientes pruebas del servidor marcadas «Pendiente:» (omitidas)")
+  echo "AVISO: $pendientes marcas «Pendiente:» en servidor/tests" >> "$LOG"
+fi
 
 # --- Documentación ---
 paso "todas las ADR están en el índice"         docs/adr      bash -c 'faltan=0; for f in ADR-*.md; do grep -q "$f" ADR.md || { echo "Falta en ADR.md: $f"; faltan=1; }; done; exit $faltan'

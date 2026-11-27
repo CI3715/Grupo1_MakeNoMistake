@@ -613,7 +613,15 @@ fn aplicacion_no_usa_coma_flotante() {
 const ARCHIVOS_CON_RED: [&str; 2] = ["ping.rs", "sesion.rs"];
 
 /// Archivos que deben existir y no pueden usar la red: el libro personal.
-const ARCHIVOS_SIN_RED: [&str; 4] = ["cuentas.rs", "movimientos.rs", "tasas.rs", "dto.rs"];
+const ARCHIVOS_SIN_RED: [&str; 5] = [
+    "cuentas.rs",
+    "movimientos.rs",
+    "tasas.rs",
+    "dto.rs",
+    // Entrega 8: copia de seguridad y sincronización del libro. Nada del libro personal
+    // viaja al servidor de Cuentas Claras (RNF-01, INV-16).
+    "respaldo.rs",
+];
 
 #[test]
 fn comandos_y_dto_no_usan_la_red() {

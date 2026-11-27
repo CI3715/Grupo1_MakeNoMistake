@@ -169,7 +169,7 @@ paths:
       parameters:
         - name: usuario
           in: query
-          required: false
+          required: true
           description: Nombre de usuario exacto, por ejemplo `ana.perez`.
           schema:
             type: string
