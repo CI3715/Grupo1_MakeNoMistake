@@ -43,7 +43,8 @@ pub use puertos::{
     ResultadoGuardado, TasaProyectada,
 };
 pub use respaldo::{
-    Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, leer_libro, libro_a_texto,
+    Cifrador, EncabezadoExportacion, ErrorRespaldo, LARGO_MINIMO_FRASE, MARCA_FORMATO,
+    VERSION_FORMATO, exportar_libro, leer_encabezado, leer_libro, libro_a_texto, texto_a_libro,
 };
 pub use secretos::{
     AlmacenSecretos, AlmacenSecretosEnMemoria, CredencialesGit, ErrorSecretos,

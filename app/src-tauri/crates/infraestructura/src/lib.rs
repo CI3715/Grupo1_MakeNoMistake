@@ -9,3 +9,4 @@ pub mod repositorios;
 pub mod secretos;
 pub mod sincronizacion;
 pub mod transporte_carpeta;
+pub mod transporte_git;
