@@ -41,7 +41,7 @@ export function ConmutadorDiseno({
   const estiloBotonInactivo =
     variante === 'traslucido'
       ? 'text-white/80 hover:bg-white/15 hover:text-white font-medium rounded-full'
-      : 'text-suave hover:text-texto hover:bg-superficie/60 font-medium rounded-full';
+      : 'text-texto/70 hover:text-texto hover:bg-superficie/60 font-semibold rounded-full';
 
   return (
     <div
@@ -49,7 +49,7 @@ export function ConmutadorDiseno({
       aria-label="Conmutar diseño de escritorio"
       className={`inline-flex items-center gap-1 ${estiloContenedor}`}
     >
-      <span className="hidden sm:inline-block px-2.5 text-[11px] font-bold uppercase tracking-wider text-suave opacity-80">
+      <span className="hidden sm:inline-block px-2.5 text-[11px] font-bold uppercase tracking-wider text-texto/80">
         Diseño:
       </span>
       {DISENOS_ESCRITORIO.map((d) => {

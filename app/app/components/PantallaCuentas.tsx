@@ -460,12 +460,12 @@ export function PantallaCuentas({
               Registra movimientos de forma inmutable en el libro local de eventos de tu dispositivo.
             </p>
 
-            {/* Botones de acción rápida minimalistas (sólido y outline) */}
+            {/* Botones de acción rápida minimalistas con alto contraste (sólido y outline) */}
             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-borde">
               <button
                 type="button"
                 onClick={() => abrirModalMovimientoConTipo('gasto')}
-                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full bg-texto px-3 py-2 text-xs font-bold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98]"
+                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full bg-texto px-3.5 py-2 text-xs font-bold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98]"
               >
                 <IconoGasto width={14} height={14} />
                 <span>Nuevo Gasto</span>
@@ -473,7 +473,7 @@ export function PantallaCuentas({
               <button
                 type="button"
                 onClick={() => abrirModalMovimientoConTipo('ingreso')}
-                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full border-2 border-borde-fuerte bg-transparent px-3 py-2 text-xs font-bold text-texto transition hover:border-texto hover:bg-superficie-2 active:scale-[0.98]"
+                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full border-2 border-texto bg-superficie px-3.5 py-2 text-xs font-bold text-texto shadow-xs transition hover:bg-texto hover:text-fondo active:scale-[0.98]"
               >
                 <IconoIngreso width={14} height={14} />
                 <span>Nuevo Ingreso</span>

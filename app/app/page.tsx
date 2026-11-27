@@ -258,8 +258,8 @@ export default function Home() {
               </h1>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <span className="hidden md:inline-flex items-center gap-2 rounded-full border border-borde bg-superficie-2 px-3.5 py-1 text-xs font-semibold text-suave">
-                <IconoCalendario className="h-3.5 w-3.5" />
+              <span className="hidden md:inline-flex items-center gap-2 rounded-full border border-borde bg-superficie-2 px-3.5 py-1 text-xs font-semibold text-texto">
+                <IconoCalendario className="h-3.5 w-3.5 text-suave" />
                 <span>
                   {new Date().toLocaleDateString('es-ES', {
                     day: 'numeric',

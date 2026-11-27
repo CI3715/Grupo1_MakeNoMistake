@@ -83,7 +83,7 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir }) =
                   ) : estaCorregido ? (
                     <span
                       title={ayuda}
-                      className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-aviso"
+                      className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-bold text-aviso-texto"
                     >
                       Corregido
                     </span>
@@ -179,7 +179,7 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir }) =
                     ) : estaCorregido ? (
                       <span
                         title={ayuda}
-                        className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-aviso"
+                        className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-bold text-aviso-texto"
                       >
                         Corregido
                       </span>
