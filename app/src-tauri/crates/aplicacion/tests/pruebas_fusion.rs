@@ -3,10 +3,10 @@
 //! Cubre idempotencia, orden indistinto, conflicto por id repetido, lotes antiguos
 //! que no borran eventos y el caso de las partes de grupo de la Entrega 7.
 
-use aplicacion::casos_de_uso::TIPO_GASTO_DE_GRUPO_APLICADO;
 use aplicacion::{
-    Cifrador, DispositivoFijo, ErrorRespaldo, EventoRegistrado, GeneradorSecuencial, InformeFusion,
-    RelojFijo, RepositorioEnMemoria, exportar_libro,
+    Cifrador, DatosParteDeGrupo, DispositivoFijo, ErrorRespaldo, EventoRegistrado,
+    GeneradorSecuencial, InformeFusion, RelojFijo, RepositorioEnMemoria, exportar_libro,
+    id_evento_parte_de_grupo,
 };
 
 struct CifradorFalso;
@@ -198,46 +198,117 @@ fn un_lote_antiguo_no_elimina_eventos_locales() {
     assert_eq!(casos.eventos_del_libro().expect("libro").len(), 2);
 }
 
+fn libro_con_cuenta(dispositivo: &str, momento: &str) -> aplicacion::CasosDeUso {
+    let mut casos = aplicacion::CasosDeUso::nuevo(
+        Box::new(RepositorioEnMemoria::nuevo()),
+        Box::new(RelojFijo::nuevo(momento)),
+        Box::new(GeneradorSecuencial::nuevo()),
+        Box::new(DispositivoFijo::nuevo(dispositivo)),
+    );
+    casos
+        .fusionar_eventos(&[cuenta(
+            "c1",
+            "Efectivo",
+            "2026-11-24T09:00:00Z",
+            dispositivo,
+        )])
+        .expect("cuenta inicial");
+    casos
+}
+
+fn parte_de_grupo() -> DatosParteDeGrupo {
+    DatosParteDeGrupo {
+        evento_servidor_id: "e-100".to_string(),
+        grupo_id: "g1".to_string(),
+        gasto_id: "gasto-1".to_string(),
+        cuenta_id: "c1".to_string(),
+        monto: "5.00".to_string(),
+        moneda: "USD".to_string(),
+        fecha: "2026-11-24".to_string(),
+        concepto: "Viaje · Hotel".to_string(),
+        incluye_redondeo: false,
+    }
+}
+
 #[test]
 fn la_misma_parte_de_grupo_en_dos_dispositivos_se_deja_una_sola_vez() {
-    let mut casos = casos();
-    casos
-        .fusionar_eventos(&[cuenta("c1", "Efectivo", "2026-11-24T09:00:00Z", "laptop")])
-        .expect("cuenta");
+    let mut laptop = libro_con_cuenta("laptop", "2026-11-24T10:00:00Z");
+    let mut telefono = libro_con_cuenta("teléfono", "2026-11-24T15:00:00Z");
+    let datos = parte_de_grupo();
 
-    const DATOS_PARTE: &str = r#"{"id_evento_servidor":"parte-1","id_grupo":"g1","id_gasto":"gasto-1","id_cuenta":"c1","monto":"5.00","moneda":"USD","fecha":"2026-11-24","concepto":"almuerzo","incluye_redondeo":false}"#;
-    let en_laptop = evento(
-        "parte-1",
-        TIPO_GASTO_DE_GRUPO_APLICADO,
-        "2026-11-24T10:00:00Z",
-        "laptop",
-        DATOS_PARTE,
+    let en_laptop = laptop
+        .preparar_parte_de_grupo(datos.clone())
+        .expect("preparar en la laptop")
+        .expect("la parte aún no estaba aplicada");
+    let en_telefono = telefono
+        .preparar_parte_de_grupo(datos.clone())
+        .expect("preparar en el teléfono")
+        .expect("la parte aún no estaba aplicada");
+
+    // El id local se deriva del id del servidor; el momento y el dispositivo son
+    // propios de cada bajada y no alteran la identidad del evento.
+    assert_eq!(en_laptop.id, id_evento_parte_de_grupo("e-100"));
+    assert_eq!(en_telefono.id, en_laptop.id);
+    assert_eq!(en_telefono.tipo, en_laptop.tipo);
+    assert_eq!(en_telefono.datos, en_laptop.datos);
+    assert_ne!(en_telefono.momento_registro, en_laptop.momento_registro);
+    assert_ne!(en_telefono.dispositivo_origen, en_laptop.dispositivo_origen);
+
+    // La idempotencia de la bajada sigue comprobándose por el id del servidor,
+    // que viaja en la carga: repetirla no crea otro evento.
+    assert_eq!(
+        laptop
+            .aplicar_parte_de_grupo(datos.clone())
+            .expect("aplicar en la laptop"),
+        aplicacion::ResultadoAplicar::Aplicada
     );
-    let en_telefono = evento(
-        "parte-1",
-        TIPO_GASTO_DE_GRUPO_APLICADO,
-        "2026-11-24T15:00:00Z",
-        "teléfono",
-        DATOS_PARTE,
+    assert_eq!(
+        laptop
+            .aplicar_parte_de_grupo(datos.clone())
+            .expect("repetir la bajada en la laptop"),
+        aplicacion::ResultadoAplicar::YaAplicada
+    );
+    assert!(
+        laptop
+            .preparar_parte_de_grupo(datos.clone())
+            .expect("preparar de nuevo")
+            .is_none()
     );
 
-    casos
+    // Cada dispositivo aplicó su propia copia; al fusionarlas queda una sola.
+    assert_eq!(
+        telefono
+            .aplicar_parte_de_grupo(datos)
+            .expect("aplicar en el teléfono"),
+        aplicacion::ResultadoAplicar::Aplicada
+    );
+    let informe = telefono
         .fusionar_eventos(&[en_laptop])
-        .expect("parte en la laptop");
-    let informe = casos
-        .fusionar_eventos(&[en_telefono])
-        .expect("misma parte desde el teléfono");
+        .expect("misma parte desde la laptop");
 
     assert!(informe.nuevos.is_empty());
     assert_eq!(informe.ya_existian, 1);
     assert!(informe.rechazados.is_empty());
+    assert_eq!(telefono.eventos_del_libro().expect("libro").len(), 2);
     assert_eq!(
-        casos
+        telefono
             .detalle_cuenta("c1")
             .expect("detalle de la cuenta")
             .movimientos
             .len(),
         1
+    );
+    assert_eq!(
+        laptop
+            .listar_cuentas()
+            .expect("cuentas de la laptop")
+            .cuentas[0]
+            .saldo_actual,
+        telefono
+            .listar_cuentas()
+            .expect("cuentas del teléfono")
+            .cuentas[0]
+            .saldo_actual
     );
 }
 

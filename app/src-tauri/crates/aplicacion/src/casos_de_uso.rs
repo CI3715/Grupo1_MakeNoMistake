@@ -618,8 +618,11 @@ impl CasosDeUso {
 
     /// Aplica al libro la parte de un gasto de grupo que bajó del servidor (Entrega 7).
     ///
-    /// El id del evento del servidor es el id del evento local: si ya está aplicado no se
-    /// hace nada (INV-13, INV-15). La cuenta debe existir y ser de la moneda del grupo (INV-18).
+    /// El id del evento local se deriva del id del evento del servidor con un
+    /// espacio de nombres fijo, para que dos dispositivos que bajaron la misma
+    /// parte produzcan el mismo evento. La carga conserva el id del servidor, que
+    /// es lo que comprueba la idempotencia (INV-13, INV-15). La cuenta debe
+    /// existir y ser de la moneda del grupo (INV-18).
     pub fn aplicar_parte_de_grupo(
         &mut self,
         datos: DatosParteDeGrupo,
@@ -685,7 +688,7 @@ impl CasosDeUso {
             incluye_redondeo: datos.incluye_redondeo,
         };
         let evento = EventoRegistrado {
-            id: datos.evento_servidor_id,
+            id: crate::identificadores::id_evento_parte_de_grupo(&datos.evento_servidor_id),
             tipo: TIPO_GASTO_DE_GRUPO_APLICADO.to_string(),
             momento_registro: self.reloj.ahora_utc(),
             dispositivo_origen: self.dispositivo.id_dispositivo(),
@@ -975,10 +978,15 @@ impl CasosDeUso {
         })
     }
 
-    /// Recorre todos los eventos del repositorio garantizando idempotencia por `id` (INV-13)
-    /// y reconstruye el estado de cuentas, categorías, movimientos y ajustes.
+    /// Recorre todos los eventos del repositorio en orden determinista
+    /// (momento de registro, dispositivo e identificador), garantizando
+    /// idempotencia por `id` (INV-13) y reconstruyendo el estado de cuentas,
+    /// categorías, movimientos y ajustes. Así, dos dispositivos con el mismo
+    /// conjunto de eventos derivan los mismos saldos sin importar el orden en
+    /// que recibieron los eventos.
     fn proyectar_libro(&self) -> Result<EstadoLibro, ErrorAplicacion> {
-        let eventos = self.repositorio.listar()?;
+        let mut eventos = self.repositorio.listar()?;
+        crate::fusion::ordenar_eventos(&mut eventos);
         let mut vistos = HashSet::new();
         let mut monedas = Moneda::catalogo();
         let mut cuentas: Vec<CuentaEnLibro> = Vec::new();

@@ -56,8 +56,8 @@ pub struct InformeFusion {
 
 /// Clave de orden determinista: momento de registro, dispositivo e identificador.
 ///
-/// La reutilizará la proyección de saldos (Tarea 3) para que dos dispositivos con
-/// el mismo conjunto de eventos muestren los mismos saldos sin importar el orden
+/// La usan la fusión y la proyección de saldos para que dos dispositivos con el
+/// mismo conjunto de eventos muestren los mismos saldos sin importar el orden
 /// en que recibieron los eventos.
 pub fn clave_orden(evento: &EventoRegistrado) -> (String, String, String) {
     (
@@ -65,6 +65,14 @@ pub fn clave_orden(evento: &EventoRegistrado) -> (String, String, String) {
         evento.dispositivo_origen.clone(),
         evento.id.clone(),
     )
+}
+
+/// Ordena los eventos por la clave canónica, sin tocar su contenido.
+///
+/// Es la única definición del orden en que se recorren los eventos para derivar
+/// el libro: lo mismo da que hayan llegado en un orden u otro.
+pub fn ordenar_eventos(eventos: &mut [EventoRegistrado]) {
+    eventos.sort_by_key(clave_orden);
 }
 
 /// Compara el contenido del evento, no su procedencia.
@@ -126,7 +134,7 @@ pub fn fusionar(locales: &[EventoRegistrado], entrantes: &[EventoRegistrado]) ->
         }
     }
 
-    informe.nuevos.sort_by_key(clave_orden);
+    ordenar_eventos(&mut informe.nuevos);
     informe
 }
 
@@ -264,5 +272,24 @@ mod pruebas {
 
         assert_eq!(informe.ya_existian, 1);
         assert!(informe.rechazados.is_empty());
+    }
+
+    #[test]
+    fn ordenar_eventos_usa_momento_dispositivo_e_id() {
+        let mut eventos = vec![
+            evento("b", "2026-11-24T10:00:00Z", "teléfono", DATOS_UNO),
+            evento("a", "2026-11-24T10:00:00Z", "laptop", DATOS_DOS),
+            evento("c", "2026-11-24T09:00:00Z", "laptop", DATOS_UNO),
+            evento("a", "2026-11-24T10:00:00Z", "laptop", DATOS_UNO),
+        ];
+
+        ordenar_eventos(&mut eventos);
+
+        let claves: Vec<_> = eventos.iter().map(clave_orden).collect();
+        let mut esperadas = claves.clone();
+        esperadas.sort();
+        assert_eq!(claves, esperadas);
+        assert_eq!(eventos[0].id, "c");
+        assert_eq!(eventos[1].dispositivo_origen, "laptop");
     }
 }
