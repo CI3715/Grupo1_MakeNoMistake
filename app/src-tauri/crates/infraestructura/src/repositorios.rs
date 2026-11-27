@@ -1,11 +1,60 @@
 use crate::db::{self, insertar_evento};
-use aplicacion::proyector::{proyectar_categoria, proyectar_cuenta, proyectar_movimiento};
-use aplicacion::puertos::{
-    CategoriaProyectada, CuentaProyectada, ErrorRepositorio, EventoRegistrado,
-    MovimientoProyectado, RepositorioEventos, ResultadoGuardado,
+use aplicacion::proyector::{
+    self, catalogo_completo, decimales_de, moneda_base_cambiada, proyectar_categoria,
+    proyectar_cuenta, proyectar_moneda, proyectar_movimiento, proyectar_tasa, tasa_eliminada,
 };
+use aplicacion::puertos::{
+    CategoriaProyectada, CuentaProyectada, ErrorRepositorio, EventoRegistrado, MonedaProyectada,
+    MovimientoProyectado, RepositorioEventos, ResultadoGuardado, TasaProyectada,
+};
+use aplicacion::unidades;
+use dominio::Moneda;
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// Convierte cualquier error (SQLite o de la capa de aplicación) en error de repositorio.
+fn error_repo(e: impl ToString) -> ErrorRepositorio {
+    ErrorRepositorio(e.to_string())
+}
+
+/// Monedas propias proyectadas, tal como las devuelve el puerto.
+fn monedas_propias(conn: &Connection) -> Result<Vec<MonedaProyectada>, ErrorRepositorio> {
+    Ok(db::listar_monedas_propias(conn)
+        .map_err(error_repo)?
+        .into_iter()
+        .map(|r| MonedaProyectada {
+            codigo: r.codigo,
+            nombre: r.nombre,
+            simbolo: r.simbolo,
+            decimales: r.decimales as u32,
+        })
+        .collect())
+}
+
+/// Catálogo completo (fábrica más monedas propias) leído de la proyección.
+fn catalogo(conn: &Connection) -> Result<Vec<Moneda>, ErrorRepositorio> {
+    Ok(catalogo_completo(&monedas_propias(conn)?))
+}
+
+/// Decimales de la moneda de una cuenta: la escala de todos sus montos.
+fn decimales_de_cuenta(
+    conn: &Connection,
+    cuenta_id: &str,
+    catalogo: &[Moneda],
+) -> Result<u32, ErrorRepositorio> {
+    let moneda = db::moneda_de_cuenta(conn, cuenta_id)
+        .map_err(error_repo)?
+        .ok_or_else(|| {
+            ErrorRepositorio(format!("la cuenta {cuenta_id} no existe en la proyección"))
+        })?;
+    decimales_de(&moneda, catalogo).map_err(error_repo)
+}
+
+/// Convierte un monto en texto a unidades mínimas de una moneda con `decimales`.
+fn a_unidades(texto: &str, decimales: u32) -> Result<i64, ErrorRepositorio> {
+    unidades::a_unidades(texto, decimales).map_err(error_repo)
+}
 
 /// Implementación persistente de [`RepositorioEventos`] con SQLite.
 ///
@@ -32,26 +81,44 @@ impl RepositorioEventosSqlite {
 /// Aplica a las proyecciones el efecto de un único evento.
 ///
 /// Es la contraparte persistente de la proyección: la usan tanto `guardar`
-/// (proyección incremental) como `reconstruir` (proyección completa).
-fn proyectar_evento(conn: &Connection, evento: &EventoRegistrado) -> Result<(), ErrorRepositorio> {
-    if let Some(cuenta) = proyectar_cuenta(evento).map_err(|e| ErrorRepositorio(e.to_string()))? {
+/// (proyección incremental) como `reconstruir` (proyección completa). Los
+/// montos se guardan como enteros en unidades mínimas de la moneda de su cuenta
+/// (`monto × 10^decimales`); las tasas, con escala fija de 8 decimales.
+pub(crate) fn proyectar_evento(
+    conn: &Connection,
+    evento: &EventoRegistrado,
+) -> Result<(), ErrorRepositorio> {
+    if let Some(moneda) = proyectar_moneda(evento).map_err(error_repo)? {
+        let fila = db::MonedaPropiaRow {
+            codigo: moneda.codigo,
+            nombre: moneda.nombre,
+            simbolo: moneda.simbolo,
+            decimales: i64::from(moneda.decimales),
+            evento_origen: evento.id.clone(),
+            actualizado_en: evento.momento_registro.clone(),
+        };
+        db::insertar_moneda_propia(conn, &fila).map_err(error_repo)?;
+    }
+
+    let catalogo = catalogo(conn)?;
+
+    if let Some(cuenta) = proyectar_cuenta(evento, &catalogo).map_err(error_repo)? {
+        let decimales = decimales_de(&cuenta.moneda, &catalogo).map_err(error_repo)?;
         let fila = db::CuentaRow {
             id: cuenta.id,
             nombre: cuenta.nombre,
             tipo: cuenta.tipo,
             moneda: cuenta.moneda,
-            saldo_inicial: cuenta.saldo_inicial,
-            saldo_actual: cuenta.saldo_actual,
+            saldo_inicial: a_unidades(&cuenta.saldo_inicial, decimales)?,
+            saldo_actual: a_unidades(&cuenta.saldo_actual, decimales)?,
             estado: cuenta.estado,
             evento_origen: evento.id.clone(),
             actualizado_en: evento.momento_registro.clone(),
         };
-        db::insertar_cuenta(conn, &fila).map_err(|e| ErrorRepositorio(e.to_string()))?;
+        db::insertar_cuenta(conn, &fila).map_err(error_repo)?;
     }
 
-    if let Some(categoria) =
-        proyectar_categoria(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
-    {
+    if let Some(categoria) = proyectar_categoria(evento).map_err(error_repo)? {
         let fila = db::CategoriaRow {
             id: categoria.id,
             nombre: categoria.nombre,
@@ -61,23 +128,25 @@ fn proyectar_evento(conn: &Connection, evento: &EventoRegistrado) -> Result<(), 
             evento_origen: evento.id.clone(),
             actualizado_en: evento.momento_registro.clone(),
         };
-        db::insertar_categoria(conn, &fila).map_err(|e| ErrorRepositorio(e.to_string()))?;
+        db::insertar_categoria(conn, &fila).map_err(error_repo)?;
     }
 
-    if let Some(movimiento) =
-        proyectar_movimiento(evento).map_err(|e| ErrorRepositorio(e.to_string()))?
-    {
+    if let Some(movimiento) = proyectar_movimiento(evento).map_err(error_repo)? {
+        let decimales = decimales_de_cuenta(conn, &movimiento.cuenta_id, &catalogo)?;
         if let Some(original) = movimiento.reemplaza_a.as_deref() {
             db::marcar_movimiento_corregido(conn, original, &evento.id, &evento.momento_registro)
-                .map_err(|e| ErrorRepositorio(e.to_string()))?;
+                .map_err(error_repo)?;
         }
         let cuenta_id = movimiento.cuenta_id.clone();
+        let (dia, mes) = crate::db::fecha_a_dia_mes_pub(&movimiento.fecha);
         let fila = db::MovimientoRow {
             id: movimiento.id,
             cuenta_id: movimiento.cuenta_id,
             tipo: movimiento.tipo,
-            monto: movimiento.monto,
+            monto: a_unidades(&movimiento.monto, decimales)?,
             fecha: movimiento.fecha,
+            dia,
+            mes,
             categoria_id: movimiento.categoria_id,
             nota: movimiento.nota,
             estado: movimiento.estado,
@@ -86,15 +155,48 @@ fn proyectar_evento(conn: &Connection, evento: &EventoRegistrado) -> Result<(), 
             evento_origen: evento.id.clone(),
             actualizado_en: evento.momento_registro.clone(),
         };
-        db::insertar_movimiento(conn, &fila).map_err(|e| ErrorRepositorio(e.to_string()))?;
+        db::insertar_movimiento(conn, &fila).map_err(error_repo)?;
         recalcular_saldo(conn, &cuenta_id)?;
+    }
+
+    if let Some(tasa) = proyectar_tasa(evento, &catalogo).map_err(error_repo)? {
+        let fila = db::TasaRow {
+            id: tasa.id,
+            moneda_origen: tasa.moneda_origen,
+            moneda_destino: tasa.moneda_destino,
+            valor: unidades::tasa_a_entero(&tasa.valor).map_err(error_repo)?,
+            fecha: tasa.fecha,
+            fuente: tasa.fuente,
+            estado: tasa.estado,
+            eliminada_por_evento: None,
+            evento_origen: evento.id.clone(),
+            actualizado_en: evento.momento_registro.clone(),
+        };
+        db::insertar_tasa(conn, &fila).map_err(error_repo)?;
+    }
+
+    if let Some(tasa_id) = tasa_eliminada(evento).map_err(error_repo)? {
+        let cambiadas =
+            db::marcar_tasa_eliminada(conn, &tasa_id, &evento.id, &evento.momento_registro)
+                .map_err(error_repo)?;
+        if cambiadas == 0 {
+            return Err(ErrorRepositorio(format!(
+                "la tasa {tasa_id} no existe o ya fue eliminada"
+            )));
+        }
+    }
+
+    if let Some(moneda) = moneda_base_cambiada(evento, &catalogo).map_err(error_repo)? {
+        db::fijar_moneda_base(conn, &moneda, &evento.id, &evento.momento_registro)
+            .map_err(error_repo)?;
     }
 
     Ok(())
 }
 
-/// Reconstruye las tres proyecciones (`cuentas`, `categorias` y `movimientos`)
-/// desde el libro de eventos, en una sola transacción.
+/// Reconstruye todas las proyecciones (`cuentas`, `categorias`, `movimientos`,
+/// `monedas_propias`, `tasas` y `moneda_base`) desde el libro de eventos, en una
+/// sola transacción.
 ///
 /// Se usa al abrir la base para materializar las proyecciones nuevas de una base
 /// de la Entrega 2 sin perder nada, y también desde
@@ -108,9 +210,12 @@ pub fn reconstruir_proyecciones(conn: &Connection) -> Result<(), ErrorRepositori
     // aquí hay que retirarlos para reconstruirlas por completo. Se crean de
     // nuevo al final, dentro de la misma transacción.
     db::desproteger_proyecciones(&tx).map_err(|e| ErrorRepositorio(e.to_string()))?;
-    db::borrar_movimientos(&tx).map_err(|e| ErrorRepositorio(e.to_string()))?;
-    db::borrar_categorias(&tx).map_err(|e| ErrorRepositorio(e.to_string()))?;
-    db::borrar_cuentas(&tx).map_err(|e| ErrorRepositorio(e.to_string()))?;
+    db::borrar_movimientos(&tx).map_err(error_repo)?;
+    db::borrar_categorias(&tx).map_err(error_repo)?;
+    db::borrar_cuentas(&tx).map_err(error_repo)?;
+    db::borrar_tasas(&tx).map_err(error_repo)?;
+    db::borrar_moneda_base(&tx).map_err(error_repo)?;
+    db::borrar_monedas_propias(&tx).map_err(error_repo)?;
 
     let eventos = db::listar_eventos(&tx).map_err(|e| ErrorRepositorio(e.to_string()))?;
     for row in &eventos {
@@ -132,17 +237,16 @@ pub fn reconstruir_proyecciones(conn: &Connection) -> Result<(), ErrorRepositori
 /// Recalcula `saldo_actual` de una cuenta a partir de su saldo inicial y sus
 /// movimientos vigentes, sin tocar `saldo_inicial` (D-11).
 fn recalcular_saldo(conn: &Connection, cuenta_id: &str) -> Result<(), ErrorRepositorio> {
-    let Some((saldo_inicial, moneda)) =
-        db::saldo_inicial_y_moneda(conn, cuenta_id).map_err(|e| ErrorRepositorio(e.to_string()))?
+    let Some((saldo_inicial, _moneda)) =
+        db::saldo_inicial_y_moneda(conn, cuenta_id).map_err(error_repo)?
     else {
         return Ok(());
     };
-    let vigentes =
-        db::movimientos_vigentes(conn, cuenta_id).map_err(|e| ErrorRepositorio(e.to_string()))?;
-    let saldo = aplicacion::proyector::calcular_saldo_actual(&saldo_inicial, &moneda, &vigentes)
-        .map_err(|e| ErrorRepositorio(e.to_string()))?;
-    db::actualizar_saldo_cuenta(conn, cuenta_id, &saldo)
-        .map_err(|e| ErrorRepositorio(e.to_string()))?;
+    // Todos los montos de la cuenta están en la misma escala: la suma es entera.
+    let vigentes = db::movimientos_vigentes(conn, cuenta_id).map_err(error_repo)?;
+    let saldo =
+        proyector::calcular_saldo_actual_unidades(saldo_inicial, &vigentes).map_err(error_repo)?;
+    db::actualizar_saldo_cuenta(conn, cuenta_id, saldo).map_err(error_repo)?;
     Ok(())
 }
 
@@ -181,6 +285,33 @@ impl RepositorioEventos for RepositorioEventosSqlite {
         Ok(ResultadoGuardado::Guardado)
     }
 
+    fn guardar_lote(&mut self, eventos: &[EventoRegistrado]) -> Result<(), ErrorRepositorio> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
+
+        for evento in eventos {
+            let insertado = insertar_evento(
+                &tx,
+                &evento.id,
+                &evento.tipo,
+                &evento.momento_registro,
+                &evento.dispositivo_origen,
+                &evento.datos,
+            )
+            .map_err(|e| ErrorRepositorio(e.to_string()))?;
+            if insertado {
+                proyectar_evento(&tx, evento)?;
+            }
+        }
+
+        tx.commit().map_err(|e| ErrorRepositorio(e.to_string()))
+    }
+
     fn listar(&self) -> Result<Vec<EventoRegistrado>, ErrorRepositorio> {
         let conn = self
             .conn
@@ -206,21 +337,23 @@ impl RepositorioEventos for RepositorioEventosSqlite {
             .conn
             .lock()
             .map_err(|e| ErrorRepositorio(e.to_string()))?;
-        match db::listar_cuentas(&conn) {
-            Ok(rows) => Ok(rows
-                .into_iter()
-                .map(|r| CuentaProyectada {
+        let catalogo = catalogo(&conn)?;
+        db::listar_cuentas(&conn)
+            .map_err(error_repo)?
+            .into_iter()
+            .map(|r| {
+                let decimales = decimales_de(&r.moneda, &catalogo).map_err(error_repo)?;
+                Ok(CuentaProyectada {
                     id: r.id,
                     nombre: r.nombre,
                     tipo: r.tipo,
                     moneda: r.moneda,
-                    saldo_inicial: r.saldo_inicial,
-                    saldo_actual: r.saldo_actual,
+                    saldo_inicial: unidades::desde_unidades(r.saldo_inicial, decimales),
+                    saldo_actual: unidades::desde_unidades(r.saldo_actual, decimales),
                     estado: r.estado,
                 })
-                .collect()),
-            Err(e) => Err(ErrorRepositorio(e.to_string())),
-        }
+            })
+            .collect()
     }
 
     fn listar_categorias(&self) -> Result<Vec<CategoriaProyectada>, ErrorRepositorio> {
@@ -248,14 +381,25 @@ impl RepositorioEventos for RepositorioEventosSqlite {
             .conn
             .lock()
             .map_err(|e| ErrorRepositorio(e.to_string()))?;
-        match db::listar_movimientos(&conn) {
-            Ok(rows) => Ok(rows
-                .into_iter()
-                .map(|r| MovimientoProyectado {
+        // Escala de cada cuenta: los decimales de su moneda.
+        let catalogo = catalogo(&conn)?;
+        let mut escalas: HashMap<String, u32> = HashMap::new();
+        for cuenta in db::listar_cuentas(&conn).map_err(error_repo)? {
+            let decimales = decimales_de(&cuenta.moneda, &catalogo).map_err(error_repo)?;
+            escalas.insert(cuenta.id, decimales);
+        }
+        db::listar_movimientos(&conn)
+            .map_err(error_repo)?
+            .into_iter()
+            .map(|r| {
+                let decimales = *escalas.get(&r.cuenta_id).ok_or_else(|| {
+                    ErrorRepositorio(format!("la cuenta {} no existe", r.cuenta_id))
+                })?;
+                Ok(MovimientoProyectado {
                     id: r.id,
                     cuenta_id: r.cuenta_id,
                     tipo: r.tipo,
-                    monto: r.monto,
+                    monto: unidades::desde_unidades(r.monto, decimales),
                     fecha: r.fecha,
                     categoria_id: r.categoria_id,
                     nota: r.nota,
@@ -263,9 +407,35 @@ impl RepositorioEventos for RepositorioEventosSqlite {
                     reemplaza_a: r.reemplaza_a,
                     corregido_por_evento: r.corregido_por_evento,
                 })
-                .collect()),
-            Err(e) => Err(ErrorRepositorio(e.to_string())),
-        }
+            })
+            .collect()
+    }
+
+    fn listar_monedas_propias(&self) -> Result<Vec<MonedaProyectada>, ErrorRepositorio> {
+        let conn = self.conn.lock().map_err(error_repo)?;
+        monedas_propias(&conn)
+    }
+
+    fn listar_tasas(&self) -> Result<Vec<TasaProyectada>, ErrorRepositorio> {
+        let conn = self.conn.lock().map_err(error_repo)?;
+        Ok(db::listar_tasas(&conn)
+            .map_err(error_repo)?
+            .into_iter()
+            .map(|r| TasaProyectada {
+                id: r.id,
+                moneda_origen: r.moneda_origen,
+                moneda_destino: r.moneda_destino,
+                valor: unidades::tasa_desde_entero(r.valor),
+                fecha: r.fecha,
+                fuente: r.fuente,
+                estado: r.estado,
+            })
+            .collect())
+    }
+
+    fn moneda_base(&self) -> Result<Option<String>, ErrorRepositorio> {
+        let conn = self.conn.lock().map_err(error_repo)?;
+        db::leer_moneda_base(&conn).map_err(error_repo)
     }
 
     fn reconstruir(&mut self) -> Result<(), ErrorRepositorio> {
@@ -469,5 +639,306 @@ mod pruebas {
             repo.listar_movimientos().unwrap().is_empty(),
             "la Entrega 2 no tenía movimientos"
         );
+    }
+
+    /// Repositorio SQLite con el esquema, la siembra canónica y las proyecciones
+    /// reconstruidas, listo para recibir eventos.
+    fn repositorio_con_fabrica() -> RepositorioEventosSqlite {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        crate::db::inicializar(&conn).unwrap();
+        crate::db::sembrar_categorias_fabrica(&conn).unwrap();
+        reconstruir_proyecciones(&conn).unwrap();
+        RepositorioEventosSqlite::nuevo(conn)
+    }
+
+    #[test]
+    fn siembra_y_reconstruccion_no_duplica_categorias() {
+        let repo = repositorio_con_fabrica();
+        let categorias = repo.listar_categorias().unwrap();
+
+        assert_eq!(categorias.len(), 11, "no debe haber categorías duplicadas");
+        let mut claves = std::collections::HashSet::new();
+        for categoria in &categorias {
+            assert!(
+                claves.insert((categoria.tipo.clone(), categoria.nombre.to_lowercase())),
+                "categoría duplicada: {} ({})",
+                categoria.nombre,
+                categoria.tipo
+            );
+        }
+        assert!(
+            categorias.iter().any(|c| c.id == "gasto:alimentacion"),
+            "debe existir el ID canónico de Alimentación"
+        );
+        assert!(
+            categorias.iter().all(|c| c.es_fabrica),
+            "las 11 categorías sembradas son de fábrica"
+        );
+    }
+
+    #[test]
+    fn movimiento_con_id_de_dominio_no_viola_la_fk() {
+        let mut repo = repositorio_con_fabrica();
+        guardar_evento(
+            &mut repo,
+            "e-cuenta",
+            "CuentaCreada",
+            r#"{"id":"c1","nombre":"Cartera","tipo":"efectivo","moneda":"USD","saldo_inicial":"100.00"}"#,
+        );
+        guardar_evento(
+            &mut repo,
+            "e-mov",
+            "MovimientoRegistrado",
+            r#"{"id":"m1","cuenta_id":"c1","tipo":"egreso","monto":"25.00","fecha":"2026-10-19","categoria_id":"gasto:alimentacion"}"#,
+        );
+
+        let movimientos = repo.listar_movimientos().unwrap();
+        assert_eq!(movimientos.len(), 1);
+        assert_eq!(movimientos[0].categoria_id, "gasto:alimentacion");
+        assert_eq!(
+            repo.listar_cuentas().unwrap()[0].saldo_actual,
+            "75.00",
+            "el movimiento debe afectar el saldo"
+        );
+    }
+
+    #[test]
+    fn reconstruir_traduce_los_ids_historicos_de_categoria() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        crate::db::inicializar(&conn).unwrap();
+
+        // Simula el libro de una base anterior: eventos con IDs cat-fabrica-*.
+        for categoria in dominio::categorias_de_fabrica() {
+            let legado = aplicacion::categorias::id_categoria_legado(&categoria);
+            let tipo = match categoria.tipo {
+                dominio::TipoMovimiento::Gasto => "egreso",
+                dominio::TipoMovimiento::Ingreso => "ingreso",
+            };
+            let datos = format!(
+                r#"{{"id":"{legado}","nombre":"{}","tipo":"{tipo}","es_fabrica":true}}"#,
+                categoria.nombre
+            );
+            crate::db::insertar_evento(
+                &conn,
+                &legado,
+                "CategoriaCreada",
+                "2026-01-01T00:00:00Z",
+                "fabrica",
+                &datos,
+            )
+            .unwrap();
+        }
+        crate::db::insertar_evento(
+            &conn,
+            "e-cuenta",
+            "CuentaCreada",
+            "2026-10-14T12:00:00Z",
+            "d1",
+            r#"{"id":"c1","nombre":"Cartera","tipo":"efectivo","moneda":"USD","saldo_inicial":"100.00"}"#,
+        )
+        .unwrap();
+        crate::db::insertar_evento(
+            &conn,
+            "e-mov",
+            "MovimientoRegistrado",
+            "2026-10-19T12:00:00Z",
+            "d1",
+            r#"{"id":"m1","cuenta_id":"c1","tipo":"egreso","monto":"10.00","fecha":"2026-10-19","categoria_id":"cat-fabrica-egreso-alimentacion"}"#,
+        )
+        .unwrap();
+
+        reconstruir_proyecciones(&conn).unwrap();
+        let repo = RepositorioEventosSqlite::nuevo(conn);
+
+        let categorias = repo.listar_categorias().unwrap();
+        assert_eq!(categorias.len(), 11);
+        assert!(categorias.iter().any(|c| c.id == "gasto:alimentacion"));
+        assert!(
+            !categorias.iter().any(|c| c.id.starts_with("cat-fabrica-")),
+            "la proyección no debe conservar IDs históricos"
+        );
+
+        let movimientos = repo.listar_movimientos().unwrap();
+        assert_eq!(movimientos.len(), 1);
+        assert_eq!(
+            movimientos[0].categoria_id, "gasto:alimentacion",
+            "el movimiento histórico debe apuntar al ID canónico"
+        );
+    }
+
+    #[test]
+    fn flujo_completo_con_sqlite_usa_categorias_canonicas() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ruta = std::env::temp_dir().join(format!("cuentas_claras_categorias_{nanos}.db"));
+
+        {
+            let bd = crate::db::BaseDatos::persistente(&ruta).unwrap();
+            let repo = RepositorioEventosSqlite::with_conn(bd.conexion());
+            let mut app = aplicacion::CasosDeUso::nuevo(
+                Box::new(repo),
+                Box::new(aplicacion::RelojFijo::nuevo("2026-10-19T12:00:00Z")),
+                Box::new(aplicacion::GeneradorSecuencial::nuevo()),
+                Box::new(aplicacion::DispositivoFijo::nuevo("disp-1")),
+            );
+
+            let categorias = app.listar_categorias().unwrap();
+            assert_eq!(categorias.len(), 11);
+            assert!(
+                categorias
+                    .iter()
+                    .any(|c| c.id == "gasto:alimentacion" && c.de_fabrica)
+            );
+
+            let cuenta = app
+                .crear_cuenta(aplicacion::NuevaCuenta {
+                    nombre: "Cartera".to_string(),
+                    tipo: "efectivo".to_string(),
+                    moneda: "USD".to_string(),
+                    saldo_inicial: "100.00".to_string(),
+                })
+                .unwrap();
+            app.registrar_movimiento(aplicacion::NuevoMovimiento {
+                cuenta_id: cuenta.id.clone(),
+                tipo: "gasto".to_string(),
+                monto: "25.00".to_string(),
+                fecha: "2026-10-19".to_string(),
+                categoria_id: "gasto:alimentacion".to_string(),
+                nota: None,
+            })
+            .unwrap();
+
+            let detalle = app.detalle_cuenta(&cuenta.id).unwrap();
+            assert_eq!(detalle.movimientos.len(), 1);
+            assert_eq!(detalle.cuenta.saldo_actual, "75.00");
+        }
+
+        // Reabrir la base demuestra que la proyección persistida quedó con el ID canónico.
+        {
+            let bd = crate::db::BaseDatos::persistente(&ruta).unwrap();
+            let conn = bd.conexion();
+            let conn = conn.lock().unwrap();
+            let total: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM movimientos WHERE categoria_id = 'gasto:alimentacion'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(total, 1);
+        }
+
+        let _ = std::fs::remove_file(&ruta);
+        let _ = std::fs::remove_file(ruta.with_extension("db-wal"));
+        let _ = std::fs::remove_file(ruta.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn monedas_tasas_y_base_se_guardan_como_enteros_y_sobreviven_al_reabrir() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ruta = std::env::temp_dir().join(format!("cuentas_claras_tasas_{nanos}.db"));
+
+        let antes = {
+            let bd = crate::db::BaseDatos::persistente(&ruta).unwrap();
+            let mut repo = RepositorioEventosSqlite::with_conn(bd.conexion());
+            guardar_evento(
+                &mut repo,
+                "e-btc",
+                "MonedaCreada",
+                r#"{"codigo":"BTC","nombre":"Bitcoin","simbolo":"₿","decimales":8}"#,
+            );
+            guardar_evento(
+                &mut repo,
+                "e-cuenta",
+                "CuentaCreada",
+                r#"{"id":"c1","nombre":"Fría","tipo":"billetera_digital","moneda":"BTC","saldo_inicial":"0.00012345"}"#,
+            );
+            guardar_evento(
+                &mut repo,
+                "e-mov",
+                "MovimientoRegistrado",
+                r#"{"id":"m1","cuenta_id":"c1","tipo":"ingreso","monto":"0.00000005","fecha":"2026-10-20","categoria_id":"ingreso:regalos"}"#,
+            );
+            guardar_evento(
+                &mut repo,
+                "e-t1",
+                "TasaRegistrada",
+                r#"{"id":"t1","moneda_origen":"USD","moneda_destino":"VES","valor":"887.00","fecha":"2026-10-20","fuente":"BCV"}"#,
+            );
+            guardar_evento(
+                &mut repo,
+                "e-t2",
+                "TasaRegistrada",
+                r#"{"id":"t2","moneda_origen":"BTC","moneda_destino":"USD","valor":"65000.12345678","fecha":"2026-10-20","fuente":"exchange"}"#,
+            );
+            guardar_evento(&mut repo, "e-del", "TasaEliminada", r#"{"tasa_id":"t1"}"#);
+            guardar_evento(
+                &mut repo,
+                "e-base",
+                "MonedaBaseCambiada",
+                r#"{"moneda":"VES"}"#,
+            );
+
+            // En el archivo los montos son enteros en unidades mínimas de su moneda.
+            let conn = bd.conexion();
+            let conn = conn.lock().unwrap();
+            let (inicial, actual): (i64, i64) = conn
+                .query_row(
+                    "SELECT saldo_inicial, saldo_actual FROM cuentas WHERE id = 'c1'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!((inicial, actual), (12_345, 12_350), "BTC: escala 10^8");
+            let monto: i64 = conn
+                .query_row("SELECT monto FROM movimientos WHERE id = 'm1'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(monto, 5);
+            let valor: i64 = conn
+                .query_row("SELECT valor FROM tasas WHERE id = 't2'", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(valor, 6_500_012_345_678, "tasa: escala fija 10^8");
+            drop(conn);
+
+            (
+                repo.listar_cuentas().unwrap(),
+                repo.listar_monedas_propias().unwrap(),
+                repo.listar_tasas().unwrap(),
+                repo.moneda_base().unwrap(),
+            )
+        };
+        assert_eq!(antes.0[0].saldo_actual, "0.00012350");
+        assert_eq!(antes.2[0].estado, "eliminada");
+        assert_eq!(antes.2[1].valor, "65000.12345678");
+        assert_eq!(antes.3.as_deref(), Some("VES"));
+
+        // Al reabrir, las proyecciones se reconstruyen desde los eventos y
+        // quedan exactamente iguales.
+        {
+            let bd = crate::db::BaseDatos::persistente(&ruta).unwrap();
+            let repo = RepositorioEventosSqlite::with_conn(bd.conexion());
+            assert_eq!(
+                (
+                    repo.listar_cuentas().unwrap(),
+                    repo.listar_monedas_propias().unwrap(),
+                    repo.listar_tasas().unwrap(),
+                    repo.moneda_base().unwrap(),
+                ),
+                antes
+            );
+        }
+
+        let _ = std::fs::remove_file(&ruta);
+        let _ = std::fs::remove_file(ruta.with_extension("db-wal"));
+        let _ = std::fs::remove_file(ruta.with_extension("db-shm"));
     }
 }

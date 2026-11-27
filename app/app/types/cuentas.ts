@@ -1,5 +1,6 @@
-export type TipoCuenta = 'efectivo' | 'banco' | 'billetera_digital';
-export type TipoMovimiento = 'gasto' | 'ingreso';
+export type TipoMoneda = 'USD' | 'VES' | 'EUR' | 'USDT';
+export type TipoMovimiento = 'ingreso' | 'gasto';
+export type TipoCuenta = 'efectivo' | 'banco' | 'billetera_digital' | 'tarjeta';
 
 export interface Moneda {
   codigo: string;
@@ -28,7 +29,7 @@ export interface ListaCuentas {
 
 export interface NuevaCuenta {
   nombre: string;
-  tipo: TipoCuenta;
+  tipo: TipoCuenta | string;
   moneda: string;
   saldo_inicial: string;
 }
@@ -48,18 +49,18 @@ export interface Categoria {
 export interface Movimiento {
   id: string;
   cuenta_id: string;
-  tipo: string;
+  tipo: TipoMovimiento;
   monto: string;
-  monto_con_signo: string;
-  monto_vigente?: string;
+  monto_formateado: string;
   fecha: string;
   categoria_id: string;
   categoria_nombre: string;
-  nota: string;
-  estado: string; // 'normal' | 'corregido' | 'ajuste'
-  corrige_a?: string;
-  ajustes?: string[];
-  monto_correcto?: string;
+  nota?: string;
+  es_corregido?: boolean;
+  es_ajuste?: boolean;
+  movimiento_referenciado_id?: string;
+  /** Viene de un gasto de grupo: no se corrige desde el libro, se corrige en el grupo. */
+  es_gasto_de_grupo?: boolean;
 }
 
 export interface ComposicionSaldo {
@@ -69,13 +70,28 @@ export interface ComposicionSaldo {
   total_ajustes: string;
 }
 
+export interface ComposicionSaldoData extends ComposicionSaldo {
+  saldo_actual: string;
+}
+
 export interface DetalleCuentaData {
   cuenta: Cuenta;
   composicion: ComposicionSaldo;
   movimientos: Movimiento[];
 }
 
-export interface PrevisualizacionMovimiento {
-  saldo_resultante: string;
-  deja_saldo_negativo: boolean;
+export interface CuentaItem {
+  id: string;
+  nombre: string;
+  tipo: string;
+  moneda: TipoMoneda;
+  saldo_actual: string;
+}
+
+export interface ValidacionMovimientoError {
+  monto?: string;
+  categoria?: string;
+  fecha?: string;
+  cuenta?: string;
+  general?: string;
 }

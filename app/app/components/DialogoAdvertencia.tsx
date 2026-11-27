@@ -1,28 +1,32 @@
+'use client';
+
 import React from 'react';
 import { IconoAdvertencia } from './Iconos';
-import { formatearMontoLocal } from '../utils/formato';
 
 interface Props {
-  saldoNegativo: string;
-  simbolo: string;
+  visible: boolean;
+  montoResultante: string;
   onConfirmar: () => void;
   onCancelar: () => void;
+  modoOscuro?: boolean;
 }
 
 export const DialogoAdvertencia: React.FC<Props> = ({
-  saldoNegativo,
-  simbolo,
+  visible,
+  montoResultante,
   onConfirmar,
   onCancelar,
 }) => {
+  if (!visible) return null;
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="titulo-advertencia"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in"
     >
-      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-aviso-borde bg-superficie p-6 shadow-2xl">
+      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-aviso-borde bg-superficie p-6 text-texto shadow-2xl">
         <div className="flex items-start gap-4">
           <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-aviso-suave text-aviso">
             <IconoAdvertencia width={24} height={24} />
@@ -32,14 +36,11 @@ export const DialogoAdvertencia: React.FC<Props> = ({
               Advertencia de Saldo Negativo
             </h3>
             <p className="mt-2 text-xs leading-relaxed text-suave">
-              Este movimiento dejará el saldo de tu cuenta en negativo:{' '}
-              <strong className="text-peligro font-bold tabular-nums">
-                {formatearMontoLocal(saldoNegativo, simbolo)}
+              Este gasto dejará la cuenta con un saldo negativo de{' '}
+              <strong className="font-mono font-bold tabular-nums text-peligro">
+                {montoResultante}
               </strong>
-              .
-            </p>
-            <p className="mt-1 text-xs text-suave">
-              ¿Deseas registrar la operación de todos modos?
+              . ¿Desea continuar de todos modos?
             </p>
           </div>
         </div>
@@ -48,19 +49,20 @@ export const DialogoAdvertencia: React.FC<Props> = ({
           <button
             type="button"
             onClick={onCancelar}
-            className="rounded-xl border border-borde px-4 py-2 text-xs font-semibold text-suave transition hover:bg-superficie-2 hover:text-texto"
+            className="cursor-pointer rounded-xl border border-borde px-4 py-2 text-xs font-semibold text-suave transition hover:bg-superficie-2 hover:text-texto"
           >
-            Cancelar operación
+            Cancelar
           </button>
           <button
             type="button"
             onClick={onConfirmar}
-            className="rounded-xl bg-aviso px-5 py-2 text-xs font-bold text-slate-950 shadow-sm transition hover:brightness-110 active:scale-[0.98]"
+            className="cursor-pointer rounded-xl bg-aviso px-5 py-2 text-xs font-bold text-slate-950 shadow-sm transition hover:brightness-110 active:scale-[0.98]"
           >
-            Continuar y registrar
+            Confirmar Gasto
           </button>
         </div>
       </div>
     </div>
   );
 };
+

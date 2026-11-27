@@ -1,0 +1,1490 @@
+{
+  "version": 1,
+  "descripcion": "Vectores de división exacta y balances de la Entrega 6. Los leen las pruebas del servidor y las de la app, de modo que ambos cálculos queden fijados con los mismos números (RNF-08, INV-07, INV-08, ESC-10).",
+  "formato": {
+    "montos": "Texto con punto decimal y dos decimales («33.34»); nunca número JSON.",
+    "valor": "Porcentaje («50», «33.33») o monto («40.00») según la regla; vacío en partes_iguales.",
+    "partes": "Siempre en orden alfabético de nombre de usuario; el residuo se reparte de a un céntimo en ese orden.",
+    "error": "Cuando existe «error», dividir debe fallar con esos errores y en ese orden, sin partes. «mensaje_exacto» indica si debe coincidir el mensaje; si es false basta con el campo.",
+    "balances": "Ordenados alfabéticamente. balance = pago − le_corresponde; negativo significa que debe. Un miembro sin gastos aparece con 0.00."
+  },
+  "divisiones": [
+    {
+      "id": "enunciado-100-partes-iguales",
+      "descripcion": "Enunciado 2.4: 100,00 entre tres; el céntimo va a ana.",
+      "monto": "100.00",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "33.34",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "33.33",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "33.33",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.01"
+      }
+    },
+    {
+      "id": "enunciado-10-porcentajes",
+      "descripcion": "Enunciado 2.4: 10,00 con 33,33 / 33,33 / 33,34 por ciento; truncadas 3,33 y residuo 0,01.",
+      "monto": "10.00",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "beto",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "carla",
+          "valor": "33.34"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "3.34",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "3.33",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "3.33",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.01"
+      }
+    },
+    {
+      "id": "enunciado-120-montos-fijos",
+      "descripcion": "Enunciado 2.4: 120,00 por montos fijos que ya suman el total; sin redondeo.",
+      "monto": "120.00",
+      "regla": "montos_fijos",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50.00"
+        },
+        {
+          "usuario": "beto",
+          "valor": "40.00"
+        },
+        {
+          "usuario": "carla",
+          "valor": "30.00"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "50.00",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "beto",
+            "monto": "40.00",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "30.00",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.00"
+      }
+    },
+    {
+      "id": "un-solo-participante-iguales",
+      "descripcion": "Un solo participante paga todo.",
+      "monto": "77.77",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "77.77",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.00"
+      }
+    },
+    {
+      "id": "un-solo-participante-porcentajes",
+      "descripcion": "Un solo participante con 100 por ciento.",
+      "monto": "19.99",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "100"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "19.99",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.00"
+      }
+    },
+    {
+      "id": "un-solo-participante-montos",
+      "descripcion": "Un solo participante con el monto completo.",
+      "monto": "0.01",
+      "regla": "montos_fijos",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "0.01"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "0.01",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.00"
+      }
+    },
+    {
+      "id": "residuo-de-cuatro-centimos",
+      "descripcion": "100,00 entre siete (dados en desorden): sobran 4 céntimos para los primeros cuatro por orden alfabético.",
+      "monto": "100.00",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "gina",
+          "valor": ""
+        },
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "felipe",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "dario",
+          "valor": ""
+        },
+        {
+          "usuario": "eva",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "14.29",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "14.29",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "carla",
+            "monto": "14.29",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "dario",
+            "monto": "14.29",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "eva",
+            "monto": "14.28",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "felipe",
+            "monto": "14.28",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "gina",
+            "monto": "14.28",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.04"
+      }
+    },
+    {
+      "id": "residuo-mayor-que-la-parte",
+      "descripcion": "0,02 entre tres: las partes truncadas son 0,00 y el residuo se reparte entre ana y beto.",
+      "monto": "0.02",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "0.01",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "0.01",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "carla",
+            "monto": "0.00",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.02"
+      }
+    },
+    {
+      "id": "residuo-un-centimo-entre-tres",
+      "descripcion": "0,01 entre tres: solo ana recibe algo.",
+      "monto": "0.01",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "carla",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "ana",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "0.01",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "0.00",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "0.00",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.01"
+      }
+    },
+    {
+      "id": "excluir-a-alguien-no-lo-marca",
+      "descripcion": "Partes iguales entre dos de los tres miembros.",
+      "monto": "90.00",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "beto",
+            "monto": "45.00",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "45.00",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.00"
+      }
+    },
+    {
+      "id": "porcentajes-con-decimales",
+      "descripcion": "Porcentajes con dos decimales: 50,50 y 49,50.",
+      "monto": "0.03",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50.50"
+        },
+        {
+          "usuario": "beto",
+          "valor": "49.50"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "0.02",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "0.01",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.01"
+      }
+    },
+    {
+      "id": "porcentajes-residuo-varios",
+      "descripcion": "1000,01 con 33,33 / 33,33 / 33,34.",
+      "monto": "1000.01",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "beto",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "carla",
+          "valor": "33.34"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "333.31",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "333.30",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "333.40",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.01"
+      }
+    },
+    {
+      "id": "monto-maximo-cuatro-participantes",
+      "descripcion": "Monto máximo 9.999.999.999,99 entre cuatro: residuo de 3 céntimos.",
+      "monto": "9999999999.99",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        },
+        {
+          "usuario": "dario",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "2500000000.00",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "2500000000.00",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "carla",
+            "monto": "2500000000.00",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "dario",
+            "monto": "2499999999.99",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.03"
+      }
+    },
+    {
+      "id": "monto-maximo-exacto-entre-tres",
+      "descripcion": "Monto máximo entre tres: división exacta, sin residuo.",
+      "monto": "9999999999.99",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "beto",
+          "valor": ""
+        },
+        {
+          "usuario": "carla",
+          "valor": ""
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "3333333333.33",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "beto",
+            "monto": "3333333333.33",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "3333333333.33",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.00"
+      }
+    },
+    {
+      "id": "monto-grande-porcentajes",
+      "descripcion": "Monto máximo por porcentajes 33,33 / 33,33 / 33,34.",
+      "monto": "9999999999.99",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "beto",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "carla",
+          "valor": "33.34"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "3333000000.00",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "beto",
+            "monto": "3333000000.00",
+            "incluye_redondeo": true
+          },
+          {
+            "usuario": "carla",
+            "monto": "3333999999.99",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.02"
+      }
+    },
+    {
+      "id": "monto-grande-montos-fijos",
+      "descripcion": "Monto grande por montos fijos exactos.",
+      "monto": "5000000000.00",
+      "regla": "montos_fijos",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "2500000000.00"
+        },
+        {
+          "usuario": "beto",
+          "valor": "1500000000.00"
+        },
+        {
+          "usuario": "carla",
+          "valor": "1000000000.00"
+        }
+      ],
+      "esperado": {
+        "partes": [
+          {
+            "usuario": "ana",
+            "monto": "2500000000.00",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "beto",
+            "monto": "1500000000.00",
+            "incluye_redondeo": false
+          },
+          {
+            "usuario": "carla",
+            "monto": "1000000000.00",
+            "incluye_redondeo": false
+          }
+        ],
+        "residuo": "0.00"
+      }
+    },
+    {
+      "id": "error-porcentajes-faltan-5",
+      "descripcion": "Enunciado: los porcentajes suman 95, faltan 5.",
+      "monto": "100.00",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50"
+        },
+        {
+          "usuario": "beto",
+          "valor": "25"
+        },
+        {
+          "usuario": "carla",
+          "valor": "20"
+        }
+      ],
+      "error": {
+        "no_cuadra": true,
+        "mensaje_exacto": true,
+        "errores": [
+          {
+            "campo": "porcentajes",
+            "mensaje": "Los porcentajes suman 95; faltan 5."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-porcentajes-sobran-5",
+      "descripcion": "Los porcentajes suman 105.",
+      "monto": "100.00",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50"
+        },
+        {
+          "usuario": "beto",
+          "valor": "30"
+        },
+        {
+          "usuario": "carla",
+          "valor": "25"
+        }
+      ],
+      "error": {
+        "no_cuadra": true,
+        "mensaje_exacto": true,
+        "errores": [
+          {
+            "campo": "porcentajes",
+            "mensaje": "Los porcentajes suman 105; sobran 5."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-porcentajes-faltan-centesima",
+      "descripcion": "33,33 por tres suma 99,99: falta 0,01.",
+      "monto": "100.00",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "beto",
+          "valor": "33.33"
+        },
+        {
+          "usuario": "carla",
+          "valor": "33.33"
+        }
+      ],
+      "error": {
+        "no_cuadra": true,
+        "mensaje_exacto": true,
+        "errores": [
+          {
+            "campo": "porcentajes",
+            "mensaje": "Los porcentajes suman 99,99; faltan 0,01."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-porcentajes-faltan-medio",
+      "descripcion": "99,5: falta 0,5.",
+      "monto": "100.00",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50"
+        },
+        {
+          "usuario": "beto",
+          "valor": "49.5"
+        }
+      ],
+      "error": {
+        "no_cuadra": true,
+        "mensaje_exacto": true,
+        "errores": [
+          {
+            "campo": "porcentajes",
+            "mensaje": "Los porcentajes suman 99,5; faltan 0,5."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-montos-faltan-2",
+      "descripcion": "Enunciado: los montos suman 118,00, faltan 2,00.",
+      "monto": "120.00",
+      "regla": "montos_fijos",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50.00"
+        },
+        {
+          "usuario": "beto",
+          "valor": "40.00"
+        },
+        {
+          "usuario": "carla",
+          "valor": "28.00"
+        }
+      ],
+      "error": {
+        "no_cuadra": true,
+        "mensaje_exacto": true,
+        "errores": [
+          {
+            "campo": "montos",
+            "mensaje": "Los montos suman 118,00; faltan 2,00."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-montos-sobran",
+      "descripcion": "Los montos suman 125,50 de 120,00: sobran 5,50.",
+      "monto": "120.00",
+      "regla": "montos_fijos",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "55.50"
+        },
+        {
+          "usuario": "beto",
+          "valor": "40.00"
+        },
+        {
+          "usuario": "carla",
+          "valor": "30.00"
+        }
+      ],
+      "error": {
+        "no_cuadra": true,
+        "mensaje_exacto": true,
+        "errores": [
+          {
+            "campo": "montos",
+            "mensaje": "Los montos suman 125,50; sobran 5,50."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-monto-cero",
+      "descripcion": "Monto cero.",
+      "monto": "0.00",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        }
+      ],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "monto",
+            "mensaje": "El monto debe ser mayor que 0 y tener hasta dos decimales."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-monto-tres-decimales",
+      "descripcion": "Monto con tres decimales.",
+      "monto": "10.001",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        }
+      ],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "monto",
+            "mensaje": "El monto debe ser mayor que 0 y tener hasta dos decimales."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-monto-demasiado-grande",
+      "descripcion": "Un céntimo por encima del máximo.",
+      "monto": "10000000000.00",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        }
+      ],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "monto",
+            "mensaje": "El monto es demasiado grande."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-sin-participantes",
+      "descripcion": "Sin participantes.",
+      "monto": "10.00",
+      "regla": "partes_iguales",
+      "participantes": [],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "participantes",
+            "mensaje": "Elige al menos un participante."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-participante-repetido",
+      "descripcion": "Participante repetido.",
+      "monto": "10.00",
+      "regla": "partes_iguales",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        },
+        {
+          "usuario": "ana",
+          "valor": ""
+        }
+      ],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "participantes",
+            "mensaje": "ana está repetido entre los participantes."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-regla-desconocida",
+      "descripcion": "Regla que no existe.",
+      "monto": "10.00",
+      "regla": "al_azar",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": ""
+        }
+      ],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "regla",
+            "mensaje": "Elige una regla de división válida."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-porcentaje-invalido",
+      "descripcion": "Un porcentaje con tres decimales.",
+      "monto": "10.00",
+      "regla": "porcentajes",
+      "participantes": [
+        {
+          "usuario": "ana",
+          "valor": "50"
+        },
+        {
+          "usuario": "beto",
+          "valor": "50.001"
+        }
+      ],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "porcentajes",
+            "mensaje": "El porcentaje de beto debe ser mayor que 0 y tener hasta dos decimales."
+          }
+        ]
+      }
+    },
+    {
+      "id": "error-varios-a-la-vez",
+      "descripcion": "Monto inválido y sin participantes: se informan ambos.",
+      "monto": "-5",
+      "regla": "partes_iguales",
+      "participantes": [],
+      "error": {
+        "no_cuadra": false,
+        "mensaje_exacto": false,
+        "errores": [
+          {
+            "campo": "monto",
+            "mensaje": "El monto debe ser mayor que 0 y tener hasta dos decimales."
+          },
+          {
+            "campo": "participantes",
+            "mensaje": "Elige al menos un participante."
+          }
+        ]
+      }
+    }
+  ],
+  "balances": [
+    {
+      "id": "enunciado-2-5",
+      "descripcion": "Enunciado 2.5: ana paga 100,00 en partes iguales y beto 60,00 por porcentajes 50/25/25.",
+      "miembros": [
+        "ana",
+        "beto",
+        "carla"
+      ],
+      "gastos": [
+        {
+          "pagador": "ana",
+          "monto": "100.00",
+          "regla": "partes_iguales",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": ""
+            },
+            {
+              "usuario": "beto",
+              "valor": ""
+            },
+            {
+              "usuario": "carla",
+              "valor": ""
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "33.34",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "beto",
+              "monto": "33.33",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "carla",
+              "monto": "33.33",
+              "incluye_redondeo": false
+            }
+          ]
+        },
+        {
+          "pagador": "beto",
+          "monto": "60.00",
+          "regla": "porcentajes",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": "50"
+            },
+            {
+              "usuario": "beto",
+              "valor": "25"
+            },
+            {
+              "usuario": "carla",
+              "valor": "25"
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "30.00",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "beto",
+              "monto": "15.00",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "carla",
+              "monto": "15.00",
+              "incluye_redondeo": false
+            }
+          ]
+        }
+      ],
+      "esperado": {
+        "balances": [
+          {
+            "usuario": "ana",
+            "pago": "100.00",
+            "le_corresponde": "63.34",
+            "balance": "36.66"
+          },
+          {
+            "usuario": "beto",
+            "pago": "60.00",
+            "le_corresponde": "48.33",
+            "balance": "11.67"
+          },
+          {
+            "usuario": "carla",
+            "pago": "0.00",
+            "le_corresponde": "48.33",
+            "balance": "-48.33"
+          }
+        ],
+        "suma": "0.00"
+      }
+    },
+    {
+      "id": "un-gasto-con-residuo",
+      "descripcion": "Un solo gasto de 100,00 entre tres: el balance respeta el céntimo de ana.",
+      "miembros": [
+        "ana",
+        "beto",
+        "carla"
+      ],
+      "gastos": [
+        {
+          "pagador": "ana",
+          "monto": "100.00",
+          "regla": "partes_iguales",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": ""
+            },
+            {
+              "usuario": "beto",
+              "valor": ""
+            },
+            {
+              "usuario": "carla",
+              "valor": ""
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "33.34",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "beto",
+              "monto": "33.33",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "carla",
+              "monto": "33.33",
+              "incluye_redondeo": false
+            }
+          ]
+        }
+      ],
+      "esperado": {
+        "balances": [
+          {
+            "usuario": "ana",
+            "pago": "100.00",
+            "le_corresponde": "33.34",
+            "balance": "66.66"
+          },
+          {
+            "usuario": "beto",
+            "pago": "0.00",
+            "le_corresponde": "33.33",
+            "balance": "-33.33"
+          },
+          {
+            "usuario": "carla",
+            "pago": "0.00",
+            "le_corresponde": "33.33",
+            "balance": "-33.33"
+          }
+        ],
+        "suma": "0.00"
+      }
+    },
+    {
+      "id": "pagador-excluido-y-miembro-sin-gastos",
+      "descripcion": "ana paga 90,00 sin participar; dario es miembro y no participa en nada.",
+      "miembros": [
+        "ana",
+        "beto",
+        "carla",
+        "dario"
+      ],
+      "gastos": [
+        {
+          "pagador": "ana",
+          "monto": "90.00",
+          "regla": "partes_iguales",
+          "participantes": [
+            {
+              "usuario": "beto",
+              "valor": ""
+            },
+            {
+              "usuario": "carla",
+              "valor": ""
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "beto",
+              "monto": "45.00",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "carla",
+              "monto": "45.00",
+              "incluye_redondeo": false
+            }
+          ]
+        }
+      ],
+      "esperado": {
+        "balances": [
+          {
+            "usuario": "ana",
+            "pago": "90.00",
+            "le_corresponde": "0.00",
+            "balance": "90.00"
+          },
+          {
+            "usuario": "beto",
+            "pago": "0.00",
+            "le_corresponde": "45.00",
+            "balance": "-45.00"
+          },
+          {
+            "usuario": "carla",
+            "pago": "0.00",
+            "le_corresponde": "45.00",
+            "balance": "-45.00"
+          },
+          {
+            "usuario": "dario",
+            "pago": "0.00",
+            "le_corresponde": "0.00",
+            "balance": "0.00"
+          }
+        ],
+        "suma": "0.00"
+      }
+    },
+    {
+      "id": "montos-fijos-y-residuos-mezclados",
+      "descripcion": "Tres gastos de reglas distintas con residuos; los balances siguen sumando cero.",
+      "miembros": [
+        "ana",
+        "beto",
+        "carla"
+      ],
+      "gastos": [
+        {
+          "pagador": "carla",
+          "monto": "10.00",
+          "regla": "porcentajes",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": "33.33"
+            },
+            {
+              "usuario": "beto",
+              "valor": "33.33"
+            },
+            {
+              "usuario": "carla",
+              "valor": "33.34"
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "3.34",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "beto",
+              "monto": "3.33",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "carla",
+              "monto": "3.33",
+              "incluye_redondeo": false
+            }
+          ]
+        },
+        {
+          "pagador": "beto",
+          "monto": "120.00",
+          "regla": "montos_fijos",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": "50.00"
+            },
+            {
+              "usuario": "beto",
+              "valor": "40.00"
+            },
+            {
+              "usuario": "carla",
+              "valor": "30.00"
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "50.00",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "beto",
+              "monto": "40.00",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "carla",
+              "monto": "30.00",
+              "incluye_redondeo": false
+            }
+          ]
+        },
+        {
+          "pagador": "ana",
+          "monto": "0.01",
+          "regla": "partes_iguales",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": ""
+            },
+            {
+              "usuario": "beto",
+              "valor": ""
+            },
+            {
+              "usuario": "carla",
+              "valor": ""
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "0.01",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "beto",
+              "monto": "0.00",
+              "incluye_redondeo": false
+            },
+            {
+              "usuario": "carla",
+              "monto": "0.00",
+              "incluye_redondeo": false
+            }
+          ]
+        }
+      ],
+      "esperado": {
+        "balances": [
+          {
+            "usuario": "ana",
+            "pago": "0.01",
+            "le_corresponde": "53.35",
+            "balance": "-53.34"
+          },
+          {
+            "usuario": "beto",
+            "pago": "120.00",
+            "le_corresponde": "43.33",
+            "balance": "76.67"
+          },
+          {
+            "usuario": "carla",
+            "pago": "10.00",
+            "le_corresponde": "33.33",
+            "balance": "-23.33"
+          }
+        ],
+        "suma": "0.00"
+      }
+    },
+    {
+      "id": "monto-maximo",
+      "descripcion": "Dos gastos al monto máximo: sin pérdida de céntimos.",
+      "miembros": [
+        "ana",
+        "beto",
+        "carla",
+        "dario"
+      ],
+      "gastos": [
+        {
+          "pagador": "dario",
+          "monto": "9999999999.99",
+          "regla": "partes_iguales",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": ""
+            },
+            {
+              "usuario": "beto",
+              "valor": ""
+            },
+            {
+              "usuario": "carla",
+              "valor": ""
+            },
+            {
+              "usuario": "dario",
+              "valor": ""
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "2500000000.00",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "beto",
+              "monto": "2500000000.00",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "carla",
+              "monto": "2500000000.00",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "dario",
+              "monto": "2499999999.99",
+              "incluye_redondeo": false
+            }
+          ]
+        },
+        {
+          "pagador": "ana",
+          "monto": "9999999999.99",
+          "regla": "porcentajes",
+          "participantes": [
+            {
+              "usuario": "ana",
+              "valor": "33.33"
+            },
+            {
+              "usuario": "beto",
+              "valor": "33.33"
+            },
+            {
+              "usuario": "carla",
+              "valor": "33.34"
+            }
+          ],
+          "partes": [
+            {
+              "usuario": "ana",
+              "monto": "3333000000.00",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "beto",
+              "monto": "3333000000.00",
+              "incluye_redondeo": true
+            },
+            {
+              "usuario": "carla",
+              "monto": "3333999999.99",
+              "incluye_redondeo": false
+            }
+          ]
+        }
+      ],
+      "esperado": {
+        "balances": [
+          {
+            "usuario": "ana",
+            "pago": "9999999999.99",
+            "le_corresponde": "5833000000.00",
+            "balance": "4166999999.99"
+          },
+          {
+            "usuario": "beto",
+            "pago": "0.00",
+            "le_corresponde": "5833000000.00",
+            "balance": "-5833000000.00"
+          },
+          {
+            "usuario": "carla",
+            "pago": "0.00",
+            "le_corresponde": "5833999999.99",
+            "balance": "-5833999999.99"
+          },
+          {
+            "usuario": "dario",
+            "pago": "9999999999.99",
+            "le_corresponde": "2499999999.99",
+            "balance": "7500000000.00"
+          }
+        ],
+        "suma": "0.00"
+      }
+    }
+  ]
+}

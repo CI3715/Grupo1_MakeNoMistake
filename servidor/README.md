@@ -1,12 +1,19 @@
 # Servidor - Cuentas Claras
 
-Backend de Cuentas Claras, hecho con Python y FastAPI. En la Entrega 1
-expone un único endpoint, `GET /ping`, para verificar la comunicación
-con la aplicación cliente.
+Backend de Cuentas Claras, hecho con Python y FastAPI. Responde al ping
+(Entrega 1) y, desde la Entrega 5, identifica a las personas: registro,
+inicio de sesión con token firmado y perfil propio.
+
+El servidor **nunca** recibe ni guarda cuentas, movimientos, saldos,
+tasas ni categorías (INV-16): solo identidad. Las decisiones de la sesión
+están en [ADR-010](../docs/adr/ADR-010-sesion-con-token-firmado.md).
 
 ## Prerrequisitos
 
 - [uv](https://docs.astral.sh/uv/) 0.12 o superior
+- PostgreSQL 17. Puedes usar el clúster local incluido (necesita los binarios
+  de PostgreSQL), Docker Compose o Supabase; las tres formas están en «Las
+  tres formas de configurar PostgreSQL»
 - Git
 
 `uv` se encarga de instalar y gestionar la versión de Python que
@@ -46,9 +53,22 @@ Todos los comandos se ejecutan desde la carpeta `servidor/`.
    No es necesario activar el entorno virtual: los comandos de `uv`
    (por ejemplo `uv run`) lo usan automáticamente.
 
+## Configuración
+
+El servidor se configura con variables de entorno, normalmente en
+`servidor/.env`. Las obligatorias son `CUENTAS_CLARAS_DB_URL` (PostgreSQL) y
+`CUENTAS_CLARAS_SECRETO_JWT`; la lista completa y cómo crear el `.env` están
+en «Base de datos y configuración», más abajo.
+
+`JWT_SECRET` y `JWT_MINUTOS`, los nombres anteriores, se siguen aceptando para
+firmar el token y, si están definidos, tienen prioridad sobre
+`CUENTAS_CLARAS_SECRETO_JWT` y `CUENTAS_CLARAS_MINUTOS_TOKEN`. Aun así,
+`CUENTAS_CLARAS_SECRETO_JWT` es obligatoria para arrancar.
+
 ## Ejecutar en modo desarrollo
 
 ```bash
+   bash scripts/base_datos_local.sh iniciar   # si usas el clúster local
    uv run uvicorn main:app --reload --port 8000
 ```
 
@@ -58,8 +78,392 @@ Para detenerlo, presiona `Ctrl + C`.
 
 > El puerto es 8000 (y no 3000) para no chocar con Next.js, que usa el
 > 3000 por defecto en desarrollo.
+>
+> La primera vez necesitas configurar PostgreSQL y el archivo `.env`; lo
+> explica la sección «Base de datos y configuración» más abajo.
 
-## Endpoint
+## Base de datos y configuración
+
+El servidor usa PostgreSQL 17 y crea el esquema completo al arrancar:
+`usuarios`, `amistades`, `grupos`, `miembros`, `gastos`, `partes_gasto`,
+`cambios`, `posiciones_usuario` y `claves_idempotencia`. Todas las tablas de
+`public` llevan RLS. Toda la configuración se lee de variables de entorno; el
+archivo `servidor/.env` no se sube a Git.
+
+### Dónde se colocan las variables
+
+El archivo debe estar en **`servidor/.env`**, junto a `main.py`, porque
+`configuracion.py` carga exactamente esa ruta. No sirve ponerlo en la raíz del
+repositorio ni dentro de `app/`: el servidor no lo leería.
+
+1. Copia la plantilla y ajusta los valores:
+
+```bash
+   cp .env.example .env
+   chmod 600 .env
+```
+
+2. Consigue un PostgreSQL y apunta `CUENTAS_CLARAS_DB_URL` a él. Las tres
+   formas —Docker Compose, Supabase y PostgreSQL propio— están en «Las tres
+   formas de configurar PostgreSQL», más abajo.
+
+3. Arranca el servidor:
+
+```bash
+   uv run uvicorn main:app --reload --port 8000
+```
+
+### Las tres formas de configurar PostgreSQL
+
+El servidor solo necesita `CUENTAS_CLARAS_DB_URL`; lo demás es cómo consigues
+ese PostgreSQL. Las tres opciones están en `.env.example`: elige una y deja las
+otras comentadas.
+
+| Opción | Para qué sirve | Qué necesitas |
+|---|---|---|
+| **Docker Compose** | Desarrollo y pruebas | Docker con Compose |
+| **Supabase** | Trabajo compartido y demostración | Cuenta del equipo en Supabase |
+| **PostgreSQL propio** | Desarrollo sin Docker | PostgreSQL 17 instalado, o el clúster local incluido |
+
+#### Opción A: Docker Compose (desarrollo y pruebas)
+
+`docker-compose.yml` levanta PostgreSQL 17 en `127.0.0.1:55432` con las bases
+`cuentas_claras` y `cuentas_claras_pruebas`. El usuario y la clave salen de
+`CUENTAS_CLARAS_DB_USUARIO` y `CUENTAS_CLARAS_DB_CLAVE` de `.env`, así que no
+están escritos en el archivo.
+
+```bash
+docker compose up -d
+docker compose ps
+uv run pytest
+```
+
+Para detenerlo conservando los datos, y para empezar de cero:
+
+```bash
+docker compose down
+docker compose down -v
+```
+
+La base de pruebas se crea sola la primera vez que se inicializa el volumen
+(`scripts/base_pruebas.sql`). Si el clúster local del script está corriendo en
+el mismo puerto, deténlo antes con `bash scripts/base_datos_local.sh detener`.
+
+#### Opción B: Supabase (trabajo compartido y demostración)
+
+Supabase da un PostgreSQL accesible por red para que el equipo pruebe con una
+base común y para la demostración. El servidor no usa nada más de Supabase: ni
+su autenticación ni sus librerías; la sesión sigue siendo el token propio
+(ADR-010).
+
+1. Crea el proyecto en `supabase.com/dashboard` y guarda la contraseña de la
+   base en el gestor de contraseñas del equipo.
+2. Abre **Connect** (o **Project Settings → Database → Connection string**) y
+   copia la cadena del **Session pooler**:
+   - host `aws-<n>-<region>.pooler.supabase.com`, puerto `5432`,
+     usuario `postgres.<referencia>`, base `postgres`;
+   - **no** uses *Direct connection* (solo IPv6) ni el *Transaction pooler*
+     (puerto 6543: no admite los *prepared statements* que usa `psycopg`).
+3. Añade `sslmode=require`. Si la clave tiene caracteres especiales (`@`, `:`,
+   `/`, `#`, `[`, `]`…), codifícala:
+
+   ```bash
+   python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" 'la-clave'
+   ```
+
+4. Deja la cadena **solo** en `servidor/.env`, en `CUENTAS_CLARAS_DB_URL`.
+   `CUENTAS_CLARAS_DB_URL_PRUEBAS` sigue apuntando a local: las pruebas hacen
+   `TRUNCATE` y nunca deben tocar Supabase.
+
+   ```env
+   CUENTAS_CLARAS_DB_URL=postgresql://postgres.<referencia>:<clave-codificada>@aws-<n>-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+   ```
+
+5. Arranca y comprueba el flujo completo:
+
+   ```bash
+   uv run uvicorn main:app --reload --port 8000
+
+   curl -s localhost:8000/ping
+
+   curl -s -X POST localhost:8000/usuarios -H 'Content-Type: application/json' \
+     -d '{"nombre_usuario":"prueba","nombre_visible":"Prueba","correo":"prueba@example.com","contrasena":"Password123!"}'
+
+   curl -s -X POST localhost:8000/sesiones -H 'Content-Type: application/json' \
+     -d '{"correo":"prueba@example.com","contrasena":"Password123!"}'
+   ```
+
+   Debe responder `200` en `/ping`, `201` en el registro y `200` con un
+   `token` en el inicio de sesión. El esquema se crea solo al arrancar;
+   compruébalo con:
+
+   ```bash
+   set -a; source .env; set +a
+   psql "$CUENTAS_CLARAS_DB_URL" -c '\dt'
+   ```
+
+Detalles que suelen fallar:
+
+- **No dejes los corchetes** del marcador `[YOUR-PASSWORD]`: la contraseña va
+  sin corchetes.
+- **Cada variable en su propia línea.** Si pegas dos URLs seguidas, la base
+  termina llamándose `/postgresCUENTAS_CLARAS_DB_URL_PRUEBAS=...`.
+- La base final es **`postgres`**, no el nombre del proyecto, y el usuario
+  lleva la referencia: `postgres.<referencia>`.
+- La cadena y la contraseña se comparten por un canal privado, nunca por el
+  repositorio, un issue o el chat del equipo.
+
+> El servidor no usa la `anon key` ni la autenticación de Supabase. La única
+> credencial es la contraseña de la base: trátala como un secreto. Las tablas
+> llevan además RLS y no conceden permisos a `anon` ni `authenticated`.
+
+El plan gratuito pausa el proyecto tras una semana sin actividad: ábrelo en el
+panel antes de una demostración.
+
+#### Opción C: PostgreSQL propio o clúster local
+
+Con un PostgreSQL 17 ya instalado, apunta `CUENTAS_CLARAS_DB_URL` a él (por
+defecto en el puerto 5432). Si no tienes ninguno, el clúster incluido crea la
+base de desarrollo y la de pruebas en el puerto 55432, sin Docker ni permisos
+de superusuario:
+
+```bash
+bash scripts/base_datos_local.sh iniciar
+bash scripts/base_datos_local.sh estado
+bash scripts/base_datos_local.sh detener
+```
+
+### RLS en todas las tablas
+
+Al arrancar, el esquema activa `ROW LEVEL SECURITY` en todas las tablas de
+`public`, incluidas las que añadan las entregas siguientes. Si los roles
+`anon` y `authenticated` existen (en Supabase), les revoca todos los permisos;
+en el compose no existen y no se hace nada. El servidor entra con el rol
+dueño de las tablas, así que RLS no cambia su comportamiento.
+
+La prueba lo comprueba contra PostgreSQL real: recorre todas las tablas de
+`public` y falla si alguna no tiene RLS. En local:
+
+```bash
+uv run pytest -q tests/test_rls_postgres.py
+```
+
+Para pasarla contra Supabase sin exponer el resto de la suite a los
+`TRUNCATE` de las pruebas de repositorio, apunta solo esa variable:
+
+```bash
+set -a; source .env; set +a
+CUENTAS_CLARAS_DB_URL_PRUEBAS="$CUENTAS_CLARAS_DB_URL" \
+  uv run pytest -q tests/test_rls_postgres.py
+```
+
+La prueba no borra datos: aplica el esquema, que es idempotente, y lee los
+catálogos de PostgreSQL.
+
+### Secretos y archivos que no se versionan
+
+`servidor/.env` está en `.gitignore` y nunca se versiona; el repositorio solo
+incluye `.env.example` con marcadores. El volumen de Docker Compose es un
+volumen con nombre (`cuentas-claras-postgres-datos`), no una carpeta del
+repositorio, y el clúster local vive en `.postgres/`, también ignorado.
+
+Antes de abrir un pull request, revisa que ninguna credencial haya quedado en
+el código ni en el historial:
+
+```bash
+# Cadenas de Supabase y otras pistas, solo en archivos versionados
+git grep -n -E 'pooler\.supabase\.com|supabase\.co|postgres\.[a-z0-9]+' -- .
+
+# Repite por cada valor real de .env, sin escribirlo en la terminal compartida
+git log -S'<valor-real>' --oneline -- .
+
+# .env y el volumen no deben aparecer
+git ls-files | grep -E '(^|/)\.env$|postgres-datos'
+```
+
+Si una clave llegó a subirse, se restablece en el panel de Supabase y se
+considera comprometida. El servidor se niega a arrancar sin
+`CUENTAS_CLARAS_DB_URL` o sin un `CUENTAS_CLARAS_SECRETO_JWT` de al menos 32
+caracteres, con un mensaje claro.
+
+### Variables de entorno
+
+| Variable | Obligatoria | Valor por defecto | Para qué sirve |
+|---|---|---|---|
+| `CUENTAS_CLARAS_DB_URL` | Sí | — | Cadena de conexión a PostgreSQL (`postgresql://usuario:clave@host:puerto/base`). |
+| `CUENTAS_CLARAS_SECRETO_JWT` | Sí | — | Secreto para firmar los JWT. Mínimo 32 caracteres. |
+| `CUENTAS_CLARAS_MINUTOS_TOKEN` | No | `60` | Vigencia del token en minutos. |
+| `CUENTAS_CLARAS_DB_URL_PRUEBAS` | No | — | Base para las pruebas de integración del repositorio. Si falta, se omiten. |
+| `CUENTAS_CLARAS_DB_USUARIO` | Solo script local | — | Usuario con el que el script crea el rol del clúster local. |
+| `CUENTAS_CLARAS_DB_CLAVE` | Solo script local | — | Clave de ese usuario. |
+
+#### `CUENTAS_CLARAS_DB_URL` (obligatoria)
+
+Indica a qué PostgreSQL se conecta el servidor. Formato:
+
+```text
+postgresql://usuario:clave@host:puerto/base
+```
+
+Con el clúster local incluido:
+
+```env
+CUENTAS_CLARAS_DB_URL=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras
+```
+
+Si usas un PostgreSQL propio en el puerto habitual, cambia el puerto a `5432`
+y el resto de datos de conexión. Si esta variable falta o está vacía, el
+servidor no arranca.
+
+#### `CUENTAS_CLARAS_DB_USUARIO` y `CUENTAS_CLARAS_DB_CLAVE` (solo script local)
+
+El servidor no las lee. Las usa `scripts/base_datos_local.sh` para crear el
+rol y las bases del clúster local. Deben coincidir con el usuario y la clave
+de `CUENTAS_CLARAS_DB_URL`.
+
+El script las busca primero en el entorno y, si no están, en `servidor/.env`.
+Si faltan, se detiene con un mensaje claro en lugar de usar credenciales
+hardcodeadas.
+
+#### `CUENTAS_CLARAS_SECRETO_JWT` (obligatoria)
+
+Secreto con el que se firman y verifican los tokens de sesión. No es la
+contraseña de una persona usuaria: es una clave privada del servidor.
+
+- Mínimo **32 caracteres**.
+- Debe ser distinto en desarrollo y en un despliegue real.
+- No se comparte ni se sube a Git.
+
+Genera uno con:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+#### `CUENTAS_CLARAS_MINUTOS_TOKEN` (opcional)
+
+Vigencia de los tokens en minutos. Se expresa como número entero positivo. Si
+se omite, vale `60`:
+
+```env
+CUENTAS_CLARAS_MINUTOS_TOKEN=60
+```
+
+#### `CUENTAS_CLARAS_DB_URL_PRUEBAS` (opcional, solo pruebas)
+
+Base que usan las pruebas de integración del repositorio. Apunta a una base
+separada, porque las pruebas vacían la tabla `usuarios`:
+
+```env
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras_pruebas
+```
+
+Si no la defines, `uv run pytest` sigue funcionando y las pruebas de
+integración se omiten.
+
+### Ejemplo de `.env` local
+
+```env
+CUENTAS_CLARAS_DB_URL=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras_pruebas
+CUENTAS_CLARAS_DB_USUARIO=usuario
+CUENTAS_CLARAS_DB_CLAVE=clave
+CUENTAS_CLARAS_SECRETO_JWT=<secreto-generado-de-al-menos-32-caracteres>
+CUENTAS_CLARAS_MINUTOS_TOKEN=60
+```
+
+### Cómo arrancar el servidor con estas variables
+
+No hace falta exportar nada si usas `servidor/.env`: `configuracion.py` lo
+carga automáticamente al iniciar. El orden es:
+
+```bash
+cd servidor
+cp .env.example .env      # solo la primera vez; después edita .env
+chmod 600 .env
+bash scripts/base_datos_local.sh iniciar
+uv run uvicorn main:app --reload --port 8000
+```
+
+El script del clúster local lee `CUENTAS_CLARAS_DB_USUARIO` y
+`CUENTAS_CLARAS_DB_CLAVE` de `.env` o del entorno, y crea el rol con esas
+credenciales. Deben coincidir con las de `CUENTAS_CLARAS_DB_URL`; si faltan,
+el script se detiene con un mensaje claro.
+
+Las variables exportadas en la terminal tienen prioridad sobre `.env`, porque
+`load_dotenv` no sobrescribe las que ya existen. Por ejemplo, para ejecutar
+solo las pruebas contra otra base:
+
+```bash
+CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://... uv run pytest
+```
+
+En un despliegue no se usa `.env`: se configuran las mismas variables en el
+panel del proveedor o en el entorno del proceso. La cadena de conexión cambia
+a la del PostgreSQL de producción (por ejemplo, Supabase o un PostgreSQL
+gestionado) y el secreto debe ser propio de ese entorno.
+
+> Si falta `CUENTAS_CLARAS_DB_URL` o el secreto es corto, el servidor no
+> arranca. Es intencional: el error aparece al iniciar y no en la primera
+> petición.
+
+## Endpoints
+
+| Ruta | Qué hace | Respuestas |
+|---|---|---|
+| `GET /ping` | Comprueba que el servidor está activo | 200 |
+| `POST /usuarios` | Registro | 201, 400, 409 |
+| `POST /sesiones` | Inicio de sesión: entrega el token | 200, 400, 401 |
+| `GET /usuarios/yo` | Perfil propio (con `Authorization: Bearer <token>`) | 200, 401 |
+| `GET /usuarios?usuario=<exacto>` | Búsqueda exacta: solo nombre de usuario y nombre visible | 200, 400, 401, 404 |
+| `POST /amistades` | Enviar invitación de amistad | 201, 400, 401, 404, 409 |
+| `GET /amistades` | Amigos e invitaciones pendientes, enviadas y recibidas | 200, 401 |
+| `POST /amistades/{id}/respuesta` | Aceptar o rechazar (solo el destinatario) | 200, 400, 401, 403, 404, 409 |
+| `DELETE /amistades/{id}` | Eliminar la amistad (cualquiera de los dos) | 204, 401, 404 |
+| `GET /grupos/{id}` | Miembros, gastos y balances del grupo (solo miembros aceptados) | 200, 401, 404 |
+| `POST /grupos/{id}/gastos` | Registra un gasto: el servidor lo divide y lo guarda con sus partes. Acepta `Idempotency-Key` | 201, 200, 400, 401, 404, 409 |
+| `GET /cambios?desde=<cursor>` | Eventos propios de gastos de grupo posteriores al cursor | 200, 400, 401 |
+
+El contrato completo está en [`openapi.yaml`](openapi.yaml). Resumen:
+
+- **Registro**: `nombre_usuario` de 3 a 30 caracteres (minúsculas,
+  dígitos, punto y guion bajo), `nombre_visible` no vacío (máximo 50),
+  `correo` válido (se guarda en minúsculas) y `contrasena` de 10 o más
+  caracteres. Los errores informan todos los campos a la vez:
+  `{"errores": [{"campo": ..., "mensaje": ...}]}`. La contraseña se guarda
+  como hash argon2id y nunca aparece en ninguna respuesta.
+- **Errores**: nunca se responde 422. Un campo con tipo incorrecto o un
+  cuerpo que no es JSON también da 400 por campo, sin repetir el valor
+  enviado.
+- **Inicio de sesión**: devuelve `{"token", "tipo": "Bearer", "vence_en"}`.
+  Si el correo no existe o la contraseña no coincide, la respuesta es la
+  misma: 401 con `{"mensaje": "Correo o contraseña incorrectos."}`.
+- **Perfil**: sin token, con token alterado, vencido o firmado con otro
+  secreto, responde 401 con `{"mensaje": "Sesión no válida o vencida."}`.
+
+- **Gastos de grupo** (Entrega 6, [ADR-013](../docs/adr/ADR-013-division-balances-y-autorizacion-de-grupo.md)):
+  el cuerpo lleva `concepto`, `monto` (texto, `"100.00"`), `fecha`
+  (`AAAA-MM-DD`), `pagador`, `regla` (`partes_iguales`, `porcentajes` o
+  `montos_fijos`) y `participantes` (`[{"usuario", "valor"}]`). El servidor
+  trunca cada parte a céntimos y reparte el residuo de a un céntimo en orden
+  alfabético: 100,00 entre ana, beto y carla da 33,34 (con redondeo), 33,33 y
+  33,33. Si los porcentajes o los montos no cuadran, responde 400 con la
+  diferencia exacta: «Los porcentajes suman 95; faltan 5.».
+- **Balances**: `GET /grupos/{id}` devuelve `balance = pago − le_corresponde`
+  por miembro; la suma es siempre `0.00`.
+- **404 uniforme**: grupo inexistente, identificador mal formado, persona
+  ajena e invitado sin aceptar reciben el mismo `404`
+  `{"mensaje": "Grupo no encontrado."}`.
+
+Ejemplo completo con `curl`:
+
+```bash
+curl -X POST localhost:8000/usuarios -H "Content-Type: application/json" \
+  -d '{"nombre_usuario":"ana.perez","nombre_visible":"Ana","correo":"ana@example.com","contrasena":"una-clave-larga-123"}'
+curl -X POST localhost:8000/sesiones -H "Content-Type: application/json" \
+  -d '{"correo":"ana@example.com","contrasena":"una-clave-larga-123"}'
+curl localhost:8000/usuarios/yo -H "Authorization: Bearer <token>"
+```
 
 ### `GET /ping`
 
@@ -87,6 +491,97 @@ curl http://localhost:8000/ping
 
 En PowerShell, usa `curl.exe` en lugar de `curl`. También se puede
 abrir `http://localhost:8000/ping` directamente en el navegador.
+
+### Endpoints del contrato de la Entrega 5
+
+El contrato completo está en [`openapi.yaml`](openapi.yaml). Además de `/ping`,
+define estos endpoints para la identidad de las personas usuarias:
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `POST /usuarios` | Registro. Crea la persona usuaria y devuelve sus datos sin contraseña ni hash. | `201`; `400` si los datos no son válidos; `409` si el correo o el nombre de usuario ya existen. |
+| `POST /sesiones` | Inicio de sesión. Con credenciales válidas entrega un JWT (`Authorization: Bearer <token>`). | `200`; `400` si falta correo o contraseña; `401` si las credenciales no son correctas. |
+| `GET /usuarios/yo` | Perfil de la persona autenticada. Requiere el token en la cabecera `Authorization`. | `200`; `401` si el token falta, es inválido o está vencido. |
+
+La vigencia del token la fija `CUENTAS_CLARAS_MINUTOS_TOKEN` y el secreto con
+el que se firma es `CUENTAS_CLARAS_SECRETO_JWT`.
+
+Forma de los errores:
+
+- `400` y `409`: `{"errores": [{"campo": "...", "mensaje": "..."}]}`.
+- `401`: `{"mensaje": "..."}`.
+- Los mensajes nunca repiten el valor enviado ni incluyen la contraseña.
+
+### Endpoints de amistades (Entrega 6)
+
+Todos requieren `Authorization: Bearer <token>`; sin token, con token inválido
+o vencido responden `401`.
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `GET /usuarios?usuario=<exacto>` | Busca por nombre de usuario exacto. Devuelve solo `nombre_usuario` y `nombre_visible`, nunca el correo. No hay búsqueda parcial, por prefijo ni listados. | `200`; `400` si falta el parámetro; `404` si no hay coincidencia exacta. |
+| `POST /amistades` | Envía una invitación pendiente a `{"usuario": "<nombre>"}`. La amistad no existe hasta que la acepten (INV-10). | `201`; `400` si se invita a uno mismo o falta el usuario; `404` si no existe; `409` si ya hay una invitación pendiente en cualquier sentido o ya son amigos. |
+| `GET /amistades` | Lista los amigos aceptados y las invitaciones pendientes, enviadas y recibidas, desde la sesión actual. | `200` con un arreglo. |
+| `POST /amistades/{id}/respuesta` | Solo el destinatario acepta (`true`) o rechaza (`false`) la invitación. | `200`; `403` si no es el destinatario; `404` si no existe; `409` si ya fue respondida. |
+| `DELETE /amistades/{id}` | Cualquiera de los dos elimina la amistad. No borra grupos ni gastos ya compartidos (RF-SOC-06). | `204`; `404` si no existe o quien pide no participa. |
+
+### Endpoints del registro de cambios (Entrega 7)
+
+Todos requieren `Authorization: Bearer <token>`; sin token, con token inválido
+o vencido responden `401`.
+
+| Método y ruta | Qué hace | Respuestas principales |
+|---|---|---|
+| `GET /cambios?desde=<cursor>` | Devuelve los eventos del usuario autenticado posteriores al cursor, en orden de posición y como máximo 100. Incluye `cursor` (posición del último evento, o el mismo `desde` si no hay nada) y `hay_mas`. Sin `desde` se empieza en 0. Nunca devuelve eventos de otras personas. | `200`; `400` si el cursor no es un entero no negativo; `401` sin token. |
+| `POST /grupos/{id}/gastos` con `Idempotency-Key` | Registra el gasto una sola vez aunque el cliente reintente. La clave es opcional, de 8 a 128 caracteres ASCII visibles y su alcance es por usuario. Se guarda con la huella SHA-256 del cuerpo canónico. | `201` clave nueva; `200` misma clave y mismo cuerpo, con el gasto ya registrado; `409` misma clave y otro cuerpo; `400`, `401` y `404` como en la Entrega 6. |
+
+Un evento `gasto_de_grupo` lleva solo lo necesario para el movimiento personal:
+`id`, `posicion`, `grupo` (id y nombre), `gasto` (id y concepto), `fecha`,
+`moneda`, `monto` (texto con dos decimales), `incluye_redondeo` y `tipo`. No
+lleva cuentas, saldos ni movimientos: eso sigue viviendo solo en el libro local
+(INV-16).
+
+Ejemplo con `curl`:
+
+```bash
+TOKEN="<token-de-sesion>"
+GRUPO="<id-del-grupo>"
+
+curl "localhost:8000/cambios?desde=0" -H "Authorization: Bearer $TOKEN"
+
+curl -X POST "localhost:8000/grupos/$GRUPO/gastos" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: cena-0b7d4e21" \
+  -H "Content-Type: application/json" \
+  -d '{"concepto":"Cena","monto":"60.00","fecha":"2026-03-15","pagador":"beto","regla":"porcentajes","participantes":[{"usuario":"ana","valor":"50"},{"usuario":"beto","valor":"25"},{"usuario":"carla","valor":"25"}]}'
+```
+
+Repetir el mismo `POST` con la misma clave y el mismo cuerpo responde `200`
+con el gasto original; con otro cuerpo responde `409`.
+
+## HTTP en local y HTTPS en despliegue (RNF-06)
+
+En desarrollo se usa **HTTP** porque el servidor escucha únicamente en la
+máquina local (`http://localhost:8000`) y el tráfico no sale de ella:
+
+```bash
+uv run uvicorn main:app --reload --port 8000
+```
+
+**Cualquier despliegue exige HTTPS** (RNF-06), incluido un entorno de pruebas
+accesible por red. El correo, la contraseña y el token de sesión nunca deben
+viajar por HTTP sin cifrar.
+
+- La aplicación cliente debe apuntar a una URL `https://...`, no a
+  `http://...`.
+- `uvicorn` por sí solo no termina TLS. En producción se coloca detrás de un
+  proxy con certificado (Caddy, Nginx) o se usa el TLS que ofrece la plataforma
+  de despliegue.
+- No se permite contenido mixto: si la interfaz se sirve por HTTPS, todas las
+  llamadas al servidor también deben ser HTTPS.
+- El certificado debe ser válido y estar vigente; una redirección permanente
+  de HTTP a HTTPS en el borde es la forma habitual de cerrar la entrada sin
+  cifrar.
 
 ## Documentación interactiva
 
@@ -141,9 +636,41 @@ uv audit
 
 ### Qué verifican las pruebas
 
-Las pruebas están en `tests/test_main.py` y usan el `TestClient` de
-FastAPI, así que no hace falta levantar el servidor. Para `/ping`
-comprueban que:
+Las pruebas usan el `TestClient` de FastAPI, así que no hace falta
+levantar el servidor. `tests/conftest.py` pone un secreto de prueba y da a
+cada prueba un almacén de usuarios en memoria nuevo
+(`tests/repositorio_en_memoria.py`), que imita al repositorio de PostgreSQL.
+Así las pruebas de las rutas corren sin base de datos.
+
+- `test_reglas.py`: reglas de registro, sin HTTP ni base.
+- `test_seguridad.py`: hash argon2id (sal única) y token (alterado,
+  vencido, otro secreto, `alg: none`, sin secreto configurado).
+- `test_registro.py`: `POST /usuarios` (201, 400 y 409 por campo; nunca
+  repite la contraseña; nunca 422).
+- `test_sesion.py`: `POST /sesiones` (mensaje idéntico, hash falso si el
+  correo no existe) y `GET /usuarios/yo` (todos los casos de 401).
+- `test_amistades.py`: búsqueda exacta sin correo, invitaciones en ambos
+  sentidos, solo el destinatario responde, listado, rechazo, baja por
+  cualquiera de los dos y 401 sin token en las cinco rutas.
+- `test_vectores_division.py`: `docs/vectores-division.json` es coherente y
+  `division.dividir` y `division.calcular_balances` dan exactamente sus
+  números (los mismos que comprueba la app en Rust).
+- `test_gastos_grupo.py`: `POST /grupos/{id}/gastos` y `GET /grupos/{id}`
+  (división, mensajes de «faltan»/«sobran», errores por campo, 404 uniforme,
+  balances del ejemplo 2.5 y el flujo completo como usuario nuevo).
+- `test_autorizacion.py`: la decisión de pertenencia, sin HTTP.
+- `test_reglas_cambios.py` y `test_reglas_idempotencia.py`: reglas puras de la
+  Entrega 7 (evento por participante, posición siguiente, cursor, huella
+  SHA-256 y decisión 201/200/409), sin base ni HTTP.
+- `test_cambios_http.py`, `test_idempotencia_http.py` y
+  `test_flujo_entrega7.py`: `GET /cambios`, el encabezado `Idempotency-Key` y
+  el flujo completo de la sección 2.8 sobre el almacén en memoria.
+- `test_cambios_postgres.py`: el registro de cambios contra PostgreSQL real:
+  un evento por parte en la misma transacción, posiciones por usuario sin
+  saltos, lotes de 100, aislamiento entre usuarios y que `UPDATE`/`DELETE`
+  sobre `cambios` están prohibidos.
+
+Para `/ping` (`test_main.py`) comprueban que:
 
 - responde `200 OK` y con contenido JSON;
 - contiene exactamente los campos `estado`, `mensaje`, `version` y
@@ -153,6 +680,43 @@ comprueban que:
   corresponde a la hora actual;
 - `POST /ping` es rechazado con `405` (el endpoint es de solo lectura);
 - `/docs` y `/openapi.json` están disponibles y documentan `/ping`.
+
+Además, `tests/test_configuracion.py` comprueba que el servidor rechaza una
+configuración incompleta o inválida, y `tests/test_repositorio_usuarios.py`
+prueba el repositorio contra PostgreSQL: correo en minúsculas, búsqueda sin
+distinguir mayúsculas, duplicados por campo y creación idempotente del esquema.
+`tests/test_repositorio_amistades.py`, `test_repositorio_grupos.py` y
+`test_repositorio_gastos.py` prueban directamente los repositorios de la
+Entrega 6: unicidad de la pareja en los dos sentidos, invitaciones de grupo,
+gasto y partes en una sola transacción, montos `NUMERIC(14, 2)` sin `float`,
+errores por campo/regla y que eliminar una amistad no borra grupos ni gastos.
+`tests/test_integracion_postgres.py` arranca la app conectada a PostgreSQL y
+recorre registro, inicio de sesión, perfil y el flujo de grupo con los gastos
+del ejemplo 2.5 (montos `NUMERIC`, regla canónica y nada guardado si el gasto
+falla): fecha en UTC aunque la base use
+otra zona horaria, 409 con todos los campos repetidos, duplicado detectado por
+la restricción `UNIQUE` y que la base solo tenga las tablas permitidas
+(INV-16). También recorre el flujo completo de la Entrega 7 contra PostgreSQL
+(cambios, cursor, reintentos con la misma clave y 409), comprueba que la misma
+clave de dos usuarios no choca y que usuarios, grupos, gastos y cambios siguen
+ahí tras reiniciar el servidor. Todas las pruebas de PostgreSQL se omiten si no
+defines `CUENTAS_CLARAS_DB_URL_PRUEBAS`, para que `uv run pytest` funcione en
+un clon limpio sin base de datos.
+
+Con Docker Compose, arranca la base y ejecuta la suite; las variables se leen
+de `.env`:
+
+```bash
+   docker compose up -d
+   uv run pytest
+```
+
+Con el clúster local, ejecútalas así:
+
+```bash
+   bash scripts/base_datos_local.sh iniciar
+   CUENTAS_CLARAS_DB_URL_PRUEBAS=postgresql://usuario:clave@127.0.0.1:55432/cuentas_claras_pruebas uv run pytest
+```
 
 ### Configuración
 
@@ -164,18 +728,63 @@ de desarrollo en el grupo `dev` de `[dependency-groups]`, también en
 [ADR-003](../docs/adr/ADR-003-herramientas-de-calidad-servidor.md).
 
 ## Estructura
-
 ```
 servidor/
-├── main.py                # Aplicación FastAPI y endpoint /ping
+├── main.py                            # Aplicación FastAPI, rutas y manejo de errores
+├── configuracion.py                   # Lectura y validación de variables de entorno
+├── base_datos.py                      # Conexión a PostgreSQL y creación del esquema
+├── esquema.py                         # DDL de las tablas e índices (idempotente)
+├── repositorio_usuarios.py            # Consultas de la tabla usuarios
+├── repositorio_amistades.py           # Amistades: invitación, respuesta y baja (Entrega 6)
+├── repositorio_grupos.py              # Grupos y miembros: invitar, aceptar, rechazar (Entrega 6)
+├── repositorio_gastos.py              # Gastos, partes y claves de idempotencia (Entregas 6 y 7)
+├── repositorio_cambios.py             # Registro de cambios y posiciones por usuario (Entrega 7)
+├── cambios.py                         # Reglas puras del registro de cambios (Entrega 7)
+├── idempotencia.py                    # Clave, huella SHA-256 y decisión 201/200/409 (Entrega 7)
+├── division.py                        # División exacta y balances (funciones puras, Entrega 6)
+├── autorizacion.py                    # Miembro aceptado o el mismo 404 (Entrega 6)
+├── reglas.py                          # Reglas de registro (funciones puras)
+├── contrasenas.py                     # Hash argon2id y hash falso
+├── token_sesion.py                    # Creación y verificación del JWT
+├── scripts/
+│   ├── base_datos_local.sh            # Clúster PostgreSQL local para desarrollo
+│   └── base_pruebas.sql               # Crea cuentas_claras_pruebas en Docker Compose
 ├── tests/
-│   └── test_main.py       # Pruebas automatizadas de /ping
-├── pyproject.toml         # Dependencias y configuración de pytest, ruff y mypy
-├── uv.lock                # Versiones fijadas de todas las dependencias
-├── .python-version        # Versión de Python que usa uv
+│   ├── conftest.py                    # Fixtures: secreto de prueba y almacén en memoria
+│   ├── repositorio_en_memoria.py      # Almacén de usuarios falso para las rutas
+│   ├── test_main.py                   # /ping y documentación
+│   ├── test_configuracion.py          # Variables de entorno
+│   ├── test_repositorio_usuarios.py   # PostgreSQL (se omiten sin CUENTAS_CLARAS_DB_URL_PRUEBAS)
+│   ├── test_repositorio_amistades.py  # Amistades contra PostgreSQL (ídem)
+│   ├── test_repositorio_grupos.py     # Grupos y miembros contra PostgreSQL (ídem)
+│   ├── test_repositorio_gastos.py     # Gastos, partes y NUMERIC contra PostgreSQL (ídem)
+│   ├── apoyo_compartido.py            # Utilidades de las pruebas de las Entregas 6 y 7
+│   ├── flujo_entrega7.py              # Flujo 2.8 por HTTP (memoria y PostgreSQL)
+│   ├── test_integracion_postgres.py   # Rutas contra PostgreSQL, incluido el reinicio (ídem)
+│   ├── test_cambios_postgres.py       # Cambios, posiciones y lotes contra PostgreSQL (ídem)
+│   ├── test_reglas.py                 # Reglas de registro
+│   ├── test_reglas_cambios.py         # Reglas puras del registro de cambios
+│   ├── test_reglas_idempotencia.py    # Reglas puras de la clave de idempotencia
+│   ├── test_cambios_http.py           # GET /cambios sobre el almacén en memoria
+│   ├── test_idempotencia_http.py      # Idempotency-Key sobre el almacén en memoria
+│   ├── test_flujo_entrega7.py         # Flujo 2.8 completo sobre el almacén en memoria
+│   ├── test_seguridad.py              # Hash, token, arranque e INV-16
+│   ├── test_registro.py               # Registro de usuarios
+│   ├── test_sesion.py                 # Inicio de sesión y JWT
+│   ├── flujo_http.py                  # Pasos del flujo social por HTTP (memoria y PostgreSQL)
+│   ├── test_vectores_division.py      # División y balances contra docs/vectores-division.json
+│   ├── test_gastos_grupo.py           # Gastos, detalle del grupo y flujo completo
+│   └── test_autorizacion.py           # Pertenencia y 404 uniforme
+├── .env                               # Configuración local (no se versiona)
+├── .env.example                       # Plantilla de configuración
+├── docker-compose.yml                 # PostgreSQL 17 para desarrollo y pruebas
+├── .postgres/                         # Clúster PostgreSQL local generado (no se versiona)
+├── openapi.yaml                       # Contrato de la API
+├── pyproject.toml                     # Dependencias y configuración de pytest, ruff y mypy
+├── uv.lock                            # Versiones fijadas de todas las dependencias
+├── .python-version                    # Versión de Python que usa uv
 └── README.md
 ```
-
 ## Problemas comunes
 
 - **`uvicorn` no se reconoce como comando:** usa siempre

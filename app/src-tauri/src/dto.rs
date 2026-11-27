@@ -6,6 +6,7 @@ pub struct MonedaDto {
     pub nombre: String,
     pub simbolo: String,
     pub decimales: u8,
+    pub de_fabrica: bool,
 }
 
 #[derive(Serialize)]
@@ -50,7 +51,6 @@ pub struct ErroresDto {
 
 impl ErroresDto {
     /// Respuesta de los comandos de la Entrega 3 que aún no están conectados.
-    #[allow(dead_code)] // los comandos ya no la usan
     #[allow(dead_code)] // los comandos ya no la usan
     pub fn no_implementado() -> Self {
         ErroresDto {
@@ -151,6 +151,8 @@ pub struct MovimientoDto {
     pub corrige_a: Option<String>,
     pub ajustes: Vec<String>,
     pub monto_correcto: Option<String>,
+    /// true si el movimiento viene de un gasto de grupo (no se corrige desde el libro).
+    pub gasto_de_grupo: bool,
 }
 
 /// Cómo se compone el saldo: saldo actual = saldo inicial + ingresos − gastos ± ajustes.
@@ -189,6 +191,7 @@ impl From<aplicacion::MonedaDto> for MonedaDto {
             nombre: m.nombre,
             simbolo: m.simbolo,
             decimales: m.decimales,
+            de_fabrica: m.de_fabrica,
         }
     }
 }
@@ -270,20 +273,13 @@ impl From<aplicacion::CategoriaListada> for CategoriaDto {
 /// los positivos viajan sin «+», así que solo se quita ese carácter (no se calcula nada).
 impl From<aplicacion::MovimientoListado> for MovimientoDto {
     fn from(m: aplicacion::MovimientoListado) -> Self {
-        // Mientras el núcleo no entregue el valor vigente, solo se conoce con
-        // certeza cuando el movimiento no tiene ajustes: es su propio monto.
-        let monto_vigente = if m.estado == "vigente" {
-            Some(m.monto.clone())
-        } else {
-            None
-        };
         MovimientoDto {
             id: m.id,
             cuenta_id: m.cuenta_id,
             tipo: m.tipo,
             monto: m.monto,
             monto_con_signo: m.monto_con_signo.trim_start_matches('+').to_string(),
-            monto_vigente,
+            monto_vigente: m.monto_vigente,
             fecha: m.fecha,
             categoria_id: m.categoria.id,
             categoria_nombre: m.categoria.nombre,
@@ -292,6 +288,7 @@ impl From<aplicacion::MovimientoListado> for MovimientoDto {
             corrige_a: m.corrige_a,
             ajustes: m.ajustes,
             monto_correcto: None,
+            gasto_de_grupo: m.gasto_de_grupo,
         }
     }
 }
@@ -371,6 +368,134 @@ impl From<NuevaCategoriaDto> for aplicacion::NuevaCategoria {
     }
 }
 
+// ---------- Entrega 4: tasas de cambio, moneda base y patrimonio ----------
+//
+// Convenciones (las mismas de las entregas anteriores):
+// - Montos y tasas viajan como texto con punto decimal ("887.00"); la interfaz solo
+//   les da formato. Una tasa admite hasta 8 decimales.
+// - Las fechas viajan como texto AAAA-MM-DD.
+// - Los errores usan `ErroresDto` con el campo que falla (`moneda_origen`,
+//   `moneda_destino`, `valor`, `fecha`, `fuente`, `moneda`, `codigo`, `nombre`,
+//   `simbolo`, `decimales`).
+// - Los campos de entrada tienen valor por defecto para que un dato ausente se
+//   rechace con un mensaje por campo y no con un error técnico.
+
+/// Datos para registrar una tasa: 1 `moneda_origen` = `valor` `moneda_destino`.
+#[derive(Deserialize)]
+pub struct NuevaTasaDto {
+    #[serde(default)]
+    pub moneda_origen: String,
+    #[serde(default)]
+    pub moneda_destino: String,
+    #[serde(default)]
+    pub valor: String,
+    #[serde(default)]
+    pub fecha: String,
+    #[serde(default)]
+    pub fuente: String,
+}
+
+/// Una tasa registrada.
+#[derive(Serialize, Clone)]
+pub struct TasaDto {
+    pub id: String,
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: String,
+    pub fecha: String,
+    pub fuente: String,
+}
+
+/// Historial de un par de monedas, de la tasa más reciente a la más antigua.
+#[derive(Serialize)]
+pub struct HistorialParDto {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub tasas: Vec<TasaDto>,
+}
+
+/// Moneda base elegida.
+#[derive(Deserialize)]
+pub struct CambioMonedaBaseDto {
+    #[serde(default)]
+    pub moneda: String,
+}
+
+/// Respuesta al cambiar la moneda base.
+#[derive(Serialize)]
+pub struct MonedaBaseDto {
+    pub moneda: String,
+}
+
+/// Datos de una moneda propia. `decimales` viaja como texto (de 0 a 8).
+#[derive(Deserialize)]
+pub struct NuevaMonedaDto {
+    #[serde(default)]
+    pub codigo: String,
+    #[serde(default)]
+    pub nombre: String,
+    #[serde(default)]
+    pub simbolo: String,
+    #[serde(default)]
+    pub decimales: String,
+}
+
+/// Fecha de consulta del patrimonio (AAAA-MM-DD); vacía significa hoy.
+#[derive(Deserialize)]
+pub struct ConsultaPatrimonioDto {
+    #[serde(default)]
+    pub fecha: String,
+}
+
+/// Saldo de una cuenta en su moneda y, si hay tasa, en la moneda base.
+#[derive(Serialize)]
+pub struct SaldoCuentaDto {
+    pub id: String,
+    pub nombre: String,
+    pub moneda: String,
+    pub saldo: String,
+    pub en_moneda_base: Option<String>,
+}
+
+/// Subtotal de una moneda (nunca se suman monedas distintas sin una tasa).
+#[derive(Serialize)]
+pub struct SubtotalMonedaDto {
+    pub moneda: String,
+    pub total: String,
+}
+
+/// Tasa que se usó en el total. `inversa` es verdadero si se usó 1 ÷ valor de la
+/// tasa de sentido contrario (la tasa mostrada es la registrada).
+#[derive(Serialize)]
+pub struct TasaUsadaDto {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+    pub valor: String,
+    pub fecha: String,
+    pub fuente: String,
+    pub inversa: bool,
+}
+
+/// Par de monedas cuya tasa falta para consolidar.
+#[derive(Serialize)]
+pub struct ParFaltanteDto {
+    pub moneda_origen: String,
+    pub moneda_destino: String,
+}
+
+/// Patrimonio a una fecha. Si falta alguna tasa, `total` es `None` y `faltantes`
+/// nombra cada par; nunca se muestra un total incorrecto.
+#[derive(Serialize)]
+pub struct PatrimonioDto {
+    pub moneda_base: String,
+    pub fecha_consulta: String,
+    pub cuentas: Vec<SaldoCuentaDto>,
+    pub subtotales: Vec<SubtotalMonedaDto>,
+    pub total: Option<String>,
+    pub tasas_usadas: Vec<TasaUsadaDto>,
+    pub faltantes: Vec<ParFaltanteDto>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,6 +533,7 @@ mod tests {
             corrige_a: None,
             ajustes: vec!["m2".into()],
             monto_correcto: None,
+            gasto_de_grupo: false,
         }
     }
 
@@ -424,6 +550,7 @@ mod tests {
                 "cuenta_id",
                 "estado",
                 "fecha",
+                "gasto_de_grupo",
                 "id",
                 "monto",
                 "monto_con_signo",
@@ -435,6 +562,92 @@ mod tests {
         );
         assert_eq!(v["corrige_a"], Value::Null);
         assert_eq!(v["monto_con_signo"], "-500.00");
+    }
+
+    #[test]
+    fn movimiento_corregido_conserva_el_monto_vigente() {
+        let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
+            id: "m1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "100.00".into(),
+            monto_con_signo: "-100.00".into(),
+            monto_vigente: Some("80.00".into()),
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "corregido".into(),
+            corrige_a: None,
+            ajustes: vec!["a1".into()],
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(dto.monto, "100.00", "el monto original no se altera");
+        assert_eq!(
+            dto.monto_vigente.as_deref(),
+            Some("80.00"),
+            "un movimiento corregido debe viajar con su valor vigente"
+        );
+    }
+
+    #[test]
+    fn movimiento_vigente_expone_su_propio_monto() {
+        let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
+            id: "m1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "100.00".into(),
+            monto_con_signo: "-100.00".into(),
+            monto_vigente: Some("100.00".into()),
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "vigente".into(),
+            corrige_a: None,
+            ajustes: Vec::new(),
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(dto.monto_vigente.as_deref(), Some("100.00"));
+    }
+
+    #[test]
+    fn ajuste_no_expone_monto_vigente() {
+        let listado = aplicacion::MovimientoListado {
+            gasto_de_grupo: false,
+            id: "a1".into(),
+            cuenta_id: "c1".into(),
+            tipo: "gasto".into(),
+            monto: "20.00".into(),
+            monto_con_signo: "-20.00".into(),
+            monto_vigente: None,
+            fecha: "2026-10-19".into(),
+            categoria: aplicacion::CategoriaResumen {
+                id: "gasto:alimentacion".into(),
+                nombre: "Alimentación".into(),
+            },
+            nota: String::new(),
+            estado: "ajuste".into(),
+            corrige_a: Some("m1".into()),
+            ajustes: Vec::new(),
+        };
+
+        let dto = MovimientoDto::from(listado);
+
+        assert_eq!(
+            dto.monto_vigente, None,
+            "un ajuste no tiene un valor vigente propio"
+        );
     }
 
     #[test]
@@ -505,4 +718,60 @@ mod tests {
             "Esta función todavía no está disponible."
         );
     }
+}
+
+// ---------- Entrega 5: registro e inicio de sesión ----------
+//
+// - Las estructuras con contraseña NO derivan `Debug`: así ningún `{:?}`,
+//   `dbg!` ni log puede imprimirla (RNF-05).
+// - El token nunca llega a la interfaz: se queda en Rust y en el almacén de
+//   secretos. La interfaz solo recibe el estado de la sesión.
+
+/// Formulario de registro (y cuerpo de POST /usuarios).
+#[derive(Deserialize, Serialize)]
+pub struct RegistroDto {
+    #[serde(default)]
+    pub nombre_usuario: String,
+    #[serde(default)]
+    pub nombre_visible: String,
+    #[serde(default)]
+    pub correo: String,
+    #[serde(default)]
+    pub contrasena: String,
+}
+
+/// Formulario de inicio de sesión (y cuerpo de POST /sesiones).
+#[derive(Deserialize, Serialize)]
+pub struct IniciarSesionDto {
+    #[serde(default)]
+    pub correo: String,
+    #[serde(default)]
+    pub contrasena: String,
+}
+
+/// Estado de la sesión del dispositivo.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EstadoSesion {
+    SinSesion,
+    Vigente,
+    Vencida,
+}
+
+/// Lo único de la sesión que ve la interfaz (nunca el token).
+#[derive(Serialize, Debug, Clone)]
+pub struct SesionDto {
+    pub estado: EstadoSesion,
+    pub nombre_visible: Option<String>,
+    pub vence_en: Option<String>,
+}
+
+/// Usuario que devuelven el registro y el perfil (nunca lleva contraseña ni hash).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsuarioDto {
+    pub id: String,
+    pub nombre_usuario: String,
+    pub nombre_visible: String,
+    pub correo: String,
+    pub fecha_alta: String,
 }

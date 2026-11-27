@@ -64,7 +64,7 @@ traducción a filas de proyección en `aplicacion::proyector`. Ambos adaptadores
 
 ```json
 {
-  "id": "cat-fabrica-egreso-alimentacion",
+  "id": "gasto:alimentacion",
   "nombre": "Alimentación",
   "tipo": "egreso",
   "es_fabrica": true
@@ -74,6 +74,11 @@ traducción a filas de proyección en `aplicacion::proyector`. Ambos adaptadores
 - `tipo` ∈ `{"ingreso", "egreso"}` (validado).
 - `es_fabrica` es opcional; si no está presente se asume `false` (categoría
   creada por quien usa la aplicación).
+- El `id` canónico de una categoría de fábrica lo define el dominio
+  (`gasto:alimentacion`, `ingreso:salario`, ...), no la persistencia.
+  Las bases creadas antes de este cambio guardaron IDs
+  `cat-fabrica-<tipo>-<slug>`; `aplicacion::categorias` los traduce al
+  proyectar (ver 2.9), sin reescribir el libro de eventos.
 
 #### `MovimientoRegistrado`
 
@@ -84,7 +89,7 @@ traducción a filas de proyección en `aplicacion::proyector`. Ambos adaptadores
   "tipo": "ingreso",
   "monto": "40.00",
   "fecha": "2026-10-14",
-  "categoria_id": "cat-fabrica-ingreso-salario",
+  "categoria_id": "ingreso:salario",
   "nota": "pago quincenal"
 }
 ```
@@ -105,7 +110,7 @@ traducción a filas de proyección en `aplicacion::proyector`. Ambos adaptadores
   "tipo": "ingreso",
   "monto": "5.00",
   "fecha": "2026-10-14",
-  "categoria_id": "cat-fabrica-ingreso-salario"
+  "categoria_id": "ingreso:salario"
 }
 ```
 
@@ -275,16 +280,20 @@ vectores y vuelve a aplicar los mismos eventos con la misma función `aplicar`.
 Una base de la Entrega 2 tiene `eventos` (con `CuentaCreada`), `cuentas` y
 `configuracion`, pero **no** `categorias` ni `movimientos`.
 
-Al abrir (`app/src-tauri/src/lib.rs`):
+Al abrir (`app/src-tauri/src/lib.rs`), todo ocurre dentro de
+`BaseDatos::persistente` antes de cablear los casos de uso:
 
-1. `BaseDatos::persistente` → `abrir` (WAL + `foreign_keys = ON`).
+1. `abrir` → WAL + `foreign_keys = ON`.
 2. `db::inicializar` → crea con `IF NOT EXISTS` las tablas que falten
    (`categorias`, `movimientos`), índices, triggers y la vista; no toca las
    existentes.
-3. `db::sembrar_categorias_fabrica` → inserta los 11 eventos `CategoriaCreada`
-   con sus IDs deterministas; es idempotente (`INSERT OR IGNORE`).
-4. `repositorio.reconstruir()` → reconstruye `cuentas`, `categorias` y
-   `movimientos` desde `eventos`.
+3. `db::sembrar_categorias_fabrica` → inserta los eventos `CategoriaCreada` que
+   falten, con los IDs canónicos del dominio. Es idempotente por
+   `(tipo, lower(nombre))`, así que una base que ya tiene el catálogo con IDs
+   históricos no recibe duplicados.
+4. `repositorios::reconstruir_proyecciones` → reconstruye `cuentas`,
+   `categorias` y `movimientos` desde `eventos`, traduciendo los IDs históricos
+   a los canónicos.
 
 Las cuentas de la Entrega 2 **no se pierden**: se descartan las filas de la
 proyección y se regeneran desde sus propios eventos `CuentaCreada`
@@ -292,20 +301,37 @@ proyección y se regeneran desde sus propios eventos `CuentaCreada`
 
 La reconstrucción se ejecuta en **cada apertura**, así que cualquier
 desincronización de la caché se corrige sola y el libro de eventos nunca se
-modifica. Es el mecanismo que da confianza de "abrir sin pérdida".
+modifica. Es el mecanismo que da confianza de "abrir sin pérdida" y, a la vez,
+la migración de las bases que guardaron los IDs históricos.
 
-### 2.9 Categorías de fábrica
+### 2.9 Categorías de fábrica e identidad canónica
 
 - 7 de egreso: Alimentación, Transporte, Servicios, Salud, Educación,
   Entretenimiento, Otros gastos.
 - 4 de ingreso: Salario, Ventas, Regalos, Otros ingresos.
-- Se siembran como **eventos** (no solo como filas) con IDs deterministas
-  `cat-fabrica-<tipo>-<slug>` para que `reconstruir` reproduzca exactamente el
-  mismo catálogo.
-- Idempotentes: se pueden insertar en cada arranque sin duplicar.
+- La identidad la define el dominio (`dominio::categorias_de_fabrica`):
+  `gasto:alimentacion`, `gasto:transporte`, ..., `ingreso:otros`.
+- Se siembran como **eventos** (no solo como filas) para que `reconstruir`
+  reproduzca exactamente el mismo catálogo.
+- La siembra es idempotente por la clave lógica `(tipo, lower(nombre))`, no por
+  ID: si la categoría ya existe en el libro con un ID histórico, no se duplica.
+- `aplicacion::categorias` centraliza la traducción:
+  - `id_categoria_legado` reproduce el ID histórico (`cat-fabrica-<tipo>-<slug>`)
+    a partir de una categoría del dominio.
+  - `id_categoria_canonico` convierte cualquier ID histórico en su ID canónico y
+    deja intactos los IDs de dominio y los de categorías de usuario.
+
+  La traducción se aplica en `aplicacion::proyector` (al proyectar categorías y
+  movimientos), en `casos_de_uso::proyectar_libro` y en
+  `casos_de_uso::resolver_id_categoria`. Así un movimiento histórico que apunta
+  a `cat-fabrica-egreso-alimentacion` sigue siendo válido y se lee como
+  `gasto:alimentacion`, sin modificar el evento original.
+- Un `MovimientoRegistrado` cuyo `categoria_id` es un ID canónico del dominio
+  nunca viola la FK: la proyección contiene esas filas y la reconstrucción las
+  regenera.
 - No se pueden borrar; se desactivan.
-- `BaseDatos::persistente` las siembra; `db::inicializar` solo crea el esquema
-  para no alterar los tests de contrato que trabajan en memoria.
+- `BaseDatos::persistente` las siembra y reconstruye; `db::inicializar` solo crea
+  el esquema para no alterar los tests de contrato que trabajan en memoria.
 
 ---
 
@@ -319,7 +345,7 @@ modifica. Es el mecanismo que da confianza de "abrir sin pérdida".
 | Correcciones nunca borran | trigger `movimientos_no_delete` + índice único parcial en `reemplaza_a` + trigger `movimientos_corregido_no_vuelve` |
 | Atomicidad evento + proyecciones | una sola transacción en `guardar` y en `reconstruir_proyecciones` |
 | Paridad de adaptadores | misma lógica en `aplicacion::proyector` + misma batería de contrato en ambos |
-| Apertura sin pérdida | `reconstruir()` en cada apertura; test `abrir_una_base_de_entrega_2_reconstruye_sin_perder_cuentas` |
+| Apertura sin pérdida | `reconstruir_proyecciones` en cada apertura; test `abrir_una_base_de_entrega_2_reconstruye_sin_perder_cuentas` |
 
 ---
 
@@ -329,16 +355,16 @@ Estado: **implementado y verde.**
 
 | suite | qué comprueba | total |
 |---|---|---|
-| `aplicacion` (unit + contrato) | batería de contrato de `RepositorioEventos` (10 secciones: orden, idempotencia, tipos desconocidos, categorías, movimientos, saldo D-11, corrección, reconstrucción) y casos de uso | 14 |
-| `infraestructura::db` | esquema, unicidades, FKs/CHECKs, inmutabilidad, corrección, vista, siembra idempotente, persistencia en archivo | 22 |
-| `infraestructura::repositorios` | contrato de SQLite, reconstrucción de las tres proyecciones, corrección + saldo, saldo inicial separado, **apertura de base Entrega 2** | 5 |
+| `aplicacion` (unit + integración) | batería de contrato de `RepositorioEventos` (orden, idempotencia, tipos desconocidos, categorías, movimientos, saldo D-11, corrección, reconstrucción), casos de uso y traducción de IDs históricos | 19 |
+| `infraestructura::db` | esquema, unicidades, FKs/CHECKs, inmutabilidad, corrección, vista, siembra idempotente, IDs canónicos y persistencia en archivo | 25 |
+| `infraestructura::repositorios` | contrato de SQLite, reconstrucción de las tres proyecciones, corrección + saldo, saldo inicial separado, **apertura de base Entrega 2**, **sin duplicar categorías**, **movimiento con ID de dominio** y **traducción de IDs históricos** | 9 |
 | resto del workspace | dominio, servidor, arquitectura | verde |
 
 Comandos de verificación (desde `app/src-tauri`):
 
 ```bash
 cargo test --workspace
-cargo clippy --workspace --all-targets   # sin warnings
+cargo clippy --workspace --all-targets -- -D warnings
 rustfmt --edition 2024 <archivos tocados>
 ```
 
@@ -351,8 +377,8 @@ rustfmt --edition 2024 <archivos tocados>
   frontend. `CuentaListada` tampoco expone `saldo_inicial` todavía.
 - **Vista UI** del saldo inicial / composición del saldo (`vista_composicion_saldo`
   ya está disponible en la base).
-- **Reconstrucción manual** desde la interfaz (el botón / comando): el hook de
-  apertura ya llama a `reconstruir()`.
+- **Reconstrucción manual** desde la interfaz (el botón / comando): la apertura
+  ya reconstruye dentro de `BaseDatos::persistente`.
 - **Fecha y montos**: la validación de "fecha futura" pertenece a la capa de
   dominio/casos de uso, no a la persistencia.
 
@@ -362,11 +388,14 @@ rustfmt --edition 2024 <archivos tocados>
 
 | archivo | cambios |
 |---|---|
-| `crates/infraestructura/src/db.rs` | tablas `categorias`/`movimientos`, índices, triggers, vista, `proteger/desproteger_proyecciones`, CRUD de proyecciones, `sembrar_categorias_fabrica`, siembra en `persistente` |
-| `crates/infraestructura/src/repositorios.rs` | `proyectar_evento`, `recalcular_saldo`, `reconstruir_proyecciones`, `listar_categorias`/`listar_movimientos`, tests |
+| `crates/infraestructura/src/db.rs` | tablas `categorias`/`movimientos`, índices, triggers, vista, `proteger/desproteger_proyecciones`, CRUD de proyecciones, `sembrar_categorias_fabrica` con IDs canónicos e idempotencia lógica, siembra y reconstrucción en `persistente` |
+| `crates/infraestructura/src/repositorios.rs` | `proyectar_evento`, `recalcular_saldo`, `reconstruir_proyecciones`, `listar_categorias`/`listar_movimientos`, tests de regresión |
+| `crates/aplicacion/src/categorias.rs` | `id_categoria_legado`, `id_categoria_canonico` y pruebas de los 11 IDs históricos |
 | `crates/aplicacion/src/puertos.rs` | `CuentaProyectada.saldo_inicial`, `CategoriaProyectada`, `MovimientoProyectado`, métodos `listar_categorias`/`listar_movimientos` |
 | `crates/aplicacion/src/codec.rs` | `deserializar_categoria`, `deserializar_movimiento` |
-| `crates/aplicacion/src/proyector.rs` | `proyectar_categoria`, `proyectar_movimiento`, `calcular_saldo_actual`, constantes de tipo |
-| `crates/aplicacion/src/memoria.rs` | proyecciones de categorías/movimientos y `reconstruir` |
-| `crates/aplicacion/src/contrato.rs` | batería extendida (10 secciones) |
-| `app/src-tauri/src/lib.rs` | `repositorio.reconstruir()` al abrir |
+| `crates/aplicacion/src/proyector.rs` | `proyectar_categoria`, `proyectar_movimiento`, `calcular_saldo_actual`, constantes de tipo; canonicalización de IDs de categoría |
+| `crates/aplicacion/src/memoria.rs` | proyecciones de categorías/movimientos, validación de FK, deduplicación y `reconstruir` |
+| `crates/aplicacion/src/casos_de_uso.rs` | `proyectar_libro` con deduplicación por ID canónico y `resolver_id_categoria` con traducción de legados |
+| `crates/aplicacion/src/contrato.rs` | batería extendida del contrato de repositorio |
+| `app/src-tauri/src/lib.rs` | apertura con `BaseDatos::persistente` (siembra + reconstrucción) |
+| `app/app/page.tsx` | sin filtros `!c.de_fabrica`: se muestran todas las categorías con su ID canónico |

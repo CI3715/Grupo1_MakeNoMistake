@@ -1,11 +1,30 @@
+#[cfg(test)]
+mod autonomia;
+mod cambio_libro;
 mod cuentas;
 mod dto;
+mod dto_sincronizacion;
+mod dto_social;
+mod libros;
 mod movimientos;
 mod ping;
+mod previsualizacion;
+mod respaldo;
+mod sesion;
+mod sincronizacion;
+mod sincronizacion_cliente;
+mod sincronizacion_destino;
+mod sincronizacion_libro;
+mod social;
+mod social_cliente;
+mod social_envio;
+mod social_fijo;
+mod social_real;
+mod tasas;
 
 use std::sync::{Arc, Mutex};
 
-use aplicacion::{CasosDeUso, RepositorioEventos as _};
+use aplicacion::CasosDeUso;
 use infraestructura::db::BaseDatos;
 use infraestructura::dispositivo::DispositivoOrigenSqlite;
 use infraestructura::id_gen::GeneradorUuid;
@@ -42,8 +61,33 @@ fn crear_casos_de_uso() -> CasosDeUso {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             ping::ping_servidor,
+            sesion::registrar_usuario,
+            sesion::iniciar_sesion,
+            sesion::obtener_perfil,
+            sesion::cerrar_sesion,
+            sesion::estado_sesion,
+            social::buscar_usuario,
+            social::invitar_amigo,
+            social::responder_amistad,
+            social::listar_amistades,
+            social::eliminar_amistad,
+            social::crear_grupo,
+            social::listar_grupos,
+            social::invitar_al_grupo,
+            social::responder_invitacion_grupo,
+            social::registrar_gasto_grupo,
+            social::ver_grupo,
+            social::previsualizar_division,
+            sincronizacion::sincronizar,
+            sincronizacion::estado_sincronizacion,
+            sincronizacion::registrar_gasto_grupo_con_cola,
+            sincronizacion::cuentas_para_grupo,
+            sincronizacion::elegir_cuenta_grupo,
+            sincronizacion::listar_partes_pendientes,
+            sincronizacion::reiniciar_cursor,
             cuentas::listar_monedas,
             cuentas::listar_cuentas,
             cuentas::crear_cuenta,
@@ -52,7 +96,20 @@ pub fn run() {
             movimientos::previsualizar_movimiento,
             movimientos::listar_categorias,
             movimientos::crear_categoria,
-            movimientos::detalle_cuenta
+            movimientos::detalle_cuenta,
+            tasas::registrar_tasa,
+            tasas::eliminar_tasa,
+            tasas::listar_tasas,
+            tasas::cambiar_moneda_base,
+            tasas::crear_moneda,
+            tasas::consultar_patrimonio,
+            respaldo::exportar_copia,
+            respaldo::importar_copia,
+            sincronizacion_destino::estado_sincronizacion_libro,
+            sincronizacion_destino::configurar_destino_sincronizacion,
+            sincronizacion_destino::actualizar_credenciales_destino,
+            sincronizacion_destino::quitar_destino_sincronizacion,
+            sincronizacion_destino::sincronizar_libro
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -76,15 +133,10 @@ pub fn run() {
             // conexión: repositorio de eventos y proyección, reloj, identificadores
             // y el identificador persistente de este dispositivo.
             let conexion = base_datos.conexion();
-            let mut repositorio = RepositorioEventosSqlite::with_conn(Arc::clone(&conexion));
+            let repositorio = RepositorioEventosSqlite::with_conn(Arc::clone(&conexion));
 
-            // Reconstruye las proyecciones desde el libro de eventos al abrir.
-            // Así una base de la Entrega 2 (que no tenía las proyecciones de
-            // categorías y movimientos) se abre sin perder cuentas, y cualquier
-            // desincronización de la caché se corrige sola. El libro de eventos
-            // nunca se toca.
-            repositorio.reconstruir()?;
-            log::info!("Proyecciones reconstruidas desde el libro de eventos");
+            // `BaseDatos::persistente` ya reconstruyó las proyecciones desde el
+            // libro de eventos; no hace falta repetirlo aquí.
 
             let dispositivo = DispositivoOrigenSqlite::nuevo(Arc::clone(&conexion))?;
             let casos = CasosDeUso::nuevo(
@@ -96,7 +148,8 @@ pub fn run() {
 
             let estado: EstadoCasosDeUso = Arc::new(Mutex::new(casos));
             app.manage(estado);
-            app.manage(base_datos);
+            app.manage(cambio_libro::LibroActual::nuevo(ruta, base_datos));
+            cambio_libro::alinear_con_sesion(app.handle())?;
 
             Ok(())
         })

@@ -1,330 +1,342 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
-// Activa la simulación interactiva con mockIPC si corre en el navegador puro
-import './utils/mock-dev';
-
-import {
-  listarMonedasCommand,
-  listarCuentasCommand,
-  crearCuentaCommand,
-  detalleCuentaCommand,
-  listarCategoriasCommand,
-  crearCategoriaCommand,
-  registrarMovimientoCommand,
-  previsualizarMovimientoCommand,
-  corregirMovimientoCommand,
-} from './utils/tauriCommands';
-
-import {
-  Moneda,
-  ListaCuentas as DatosLista,
-  Cuenta,
-  NuevaCuenta,
-  ErrorCampo,
-  Categoria,
-  DetalleCuentaData,
-  TipoMovimiento,
-} from './types/cuentas';
-
-import { MisCuentas } from './components/MisCuentas';
-import { DetalleCuenta } from './components/DetalleCuenta';
+import React, { Fragment, useState } from 'react';
+import { PantallaCuentas } from './components/PantallaCuentas';
+import { PantallaTasas } from './components/PantallaTasas';
+import { PantallaPatrimonio } from './components/PantallaPatrimonio';
+import { PantallaSesion } from './components/sesion/PantallaSesion';
+import { PantallaSocial } from './components/social/PantallaSocial';
+import { PantallaCopiaSeguridad } from './components/copia/PantallaCopiaSeguridad';
+import { PantallaSincronizacionLibro } from './components/sincronizacionLibro/PantallaSincronizacionLibro';
+import { BienvenidaPrimerAcceso } from './components/sesion/BienvenidaPrimerAcceso';
+import { AvisoSesionVencida } from './components/sesion/AvisoSesionVencida';
 import { SelectorApariencia } from './components/SelectorApariencia';
-import { IconoLogo } from './components/Iconos';
+import {
+  IconoAmigos,
+  IconoBilletera,
+  IconoCopiaSeguridad,
+  IconoDetalleCuenta,
+  IconoLogo,
+  IconoPatrimonio,
+  IconoRecibo,
+  IconoSincronizacion,
+  IconoTasasCambio,
+  IconoUsuario,
+} from './components/Iconos';
+import { useModoOscuro } from './utils/apariencia';
+import { useSesion } from './utils/useSesion';
+import { useSincronizacion } from './utils/useSincronizacion';
+import { useSincronizacionLibro } from './utils/useSincronizacionLibro';
 
-const MENSAJE_INESPERADO = 'Ocurrió un problema inesperado. Intenta de nuevo.';
-const MENSAJE_CARGA = 'No se pudieron cargar tus cuentas. Cierra y vuelve a abrir la aplicación.';
-
-function aErrores(e: unknown): ErrorCampo[] {
-  if (e && typeof e === 'object' && 'errores' in e) {
-    const errores = (e as { errores: unknown }).errores;
-    if (Array.isArray(errores) && errores.length > 0) {
-      return errores as ErrorCampo[];
-    }
-  }
-  return [{ campo: null, mensaje: typeof e === 'string' ? e : MENSAJE_INESPERADO }];
-}
+const ENCABEZADOS: Record<string, { titulo: string; subtitulo: string }> = {
+  'mis-cuentas': {
+    titulo: 'Mis cuentas',
+    subtitulo: 'Todas tus cuentas y saldos guardados localmente en este dispositivo.',
+  },
+  'detalle-cuenta': {
+    titulo: 'Detalle de cuenta',
+    subtitulo: 'Libro de movimientos, composición de saldo y categorías.',
+  },
+  tasas: {
+    titulo: 'Tasas de cambio',
+    subtitulo: 'Equivalencias entre monedas con su fecha y fuente correspondiente.',
+  },
+  patrimonio: {
+    titulo: 'Resumen de patrimonio',
+    subtitulo: 'Estado de activos, monedas personalizadas y total consolidado.',
+  },
+  amigos: {
+    titulo: 'Amigos',
+    subtitulo: 'Tu lista de amigos e invitaciones para compartir gastos.',
+  },
+  grupos: {
+    titulo: 'Grupos',
+    subtitulo: 'Gastos compartidos, divisiones, saldos y sincronización con el servidor.',
+  },
+  'copia-seguridad': {
+    titulo: 'Copia de seguridad',
+    subtitulo: 'Exporta o importa tu libro completo con cifrado Argon2id + AES-256-GCM.',
+  },
+  'sincronizacion-libro': {
+    titulo: 'Sincronización entre dispositivos',
+    subtitulo:
+      'Mantén tu libro al día entre tus dispositivos mediante carpeta compartida o repositorio Git.',
+  },
+  'inicio-sesion': {
+    titulo: 'Iniciar sesión',
+    subtitulo: 'Conéctate cuando quieras usar amigos y grupos. Tu libro sigue siendo local.',
+  },
+  registro: {
+    titulo: 'Crear usuario',
+    subtitulo: 'Crea una identidad para compartir gastos sin exponer tus cuentas personales.',
+  },
+  perfil: {
+    titulo: 'Mi perfil',
+    subtitulo:
+      'Tu identidad en el servidor. Tus cuentas y movimientos nunca salen de tu dispositivo.',
+  },
+};
 
 export default function Home() {
-  const [pantallaActual, setPantallaActual] = useState<'mis-cuentas' | 'detalle-cuenta'>('mis-cuentas');
-  const [cuentaActivaId, setCuentaActivaId] = useState<string>('');
+  const [pantallaActual, setPantallaActual] = useState<string>('mis-cuentas');
+  const modoOscuro = useModoOscuro();
+  const control = useSesion();
+  const sincronizacion = useSincronizacion({
+    sesionEstado: control.sesion.estado,
+    claveLibro: control.claveLibro,
+  });
+  // Sincronización del libro entre dispositivos propios (Entrega 8). Es distinta de la
+  // anterior (gastos de grupo con el servidor). Cuando llegan eventos de otro dispositivo o se
+  // importa una copia, las pantallas personales vuelven a leer el libro.
+  const refrescarLibro = sincronizacion.refrescar;
+  const sincronizacionLibro = useSincronizacionLibro({
+    claveLibro: control.claveLibro,
+    alCambiarLibro: () => void refrescarLibro(),
+  });
 
-  const [monedas, setMonedas] = useState<Moneda[]>([]);
-  const [lista, setLista] = useState<DatosLista>({ cuentas: [], subtotales: [] });
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [detalleCuenta, setDetalleCuenta] = useState<DetalleCuentaData | null>(null);
+  // Mapeamos el estado principal al tipo exacto esperado por PantallaCuentas
+  const vistaSubpantalla: 'mis-cuentas' | 'detalle-cuenta' =
+    pantallaActual === 'detalle-cuenta' ? 'detalle-cuenta' : 'mis-cuentas';
 
-  const [cargando, setCargando] = useState(true);
-  const [errorCarga, setErrorCarga] = useState<string | null>(null);
-
-  const [mostrarFormularioCuenta, setMostrarFormularioCuenta] = useState(false);
-  const [erroresCuenta, setErroresCuenta] = useState<ErrorCampo[]>([]);
-
-  // Carga general de cuentas, monedas y catálogo de categorías
-  const cargarDatos = useCallback(async () => {
-    try {
-      const [resMonedas, resCuentas, resCategorias] = await Promise.all([
-        listarMonedasCommand(),
-        listarCuentasCommand(),
-        listarCategoriasCommand().catch(() => []),
-      ]);
-
-      const cuentas = (resCuentas.cuentas || []).map((c) => ({
-        id: c.id,
-        nombre: c.nombre,
-        tipo: c.tipo as any,
-        moneda: c.moneda,
-        saldo_actual: c.saldo_actual,
-      }));
-
-      const subtotales = resCuentas.subtotales || [];
-
-      setMonedas(resMonedas || []);
-      setLista({ cuentas, subtotales });
-      setCategorias(
-        (resCategorias || []).map((cat) => ({
-          id: cat.id,
-          nombre: cat.nombre,
-          tipo: cat.tipo as any,
-          de_fabrica: cat.de_fabrica,
-        }))
-      );
-      setErrorCarga(null);
-    } catch (e) {
-      console.error('Error al cargar datos:', e);
-      setErrorCarga(MENSAJE_CARGA);
-    } finally {
-      setCargando(false);
-    }
-  }, []);
-
-  // Cargar detalle de una cuenta específica
-  const cargarDetalle = useCallback(async (id: string) => {
-    if (!id) return;
-    try {
-      const res = await detalleCuentaCommand(id);
-      const cuentaFormateada: Cuenta = {
-        id: res.cuenta.id,
-        nombre: res.cuenta.nombre,
-        tipo: res.cuenta.tipo as any,
-        moneda: res.cuenta.moneda,
-        saldo_actual: res.cuenta.saldo_actual,
-      };
-
-      setDetalleCuenta({
-        cuenta: cuentaFormateada,
-        composicion: res.composicion,
-        movimientos: res.movimientos.map((m) => ({
-          ...m,
-          monto_formateado: m.monto,
-        })),
-      });
-    } catch (e) {
-      console.error('Error al cargar detalle de cuenta:', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
-
-  useEffect(() => {
-    if (cuentaActivaId) {
-      cargarDetalle(cuentaActivaId);
-    }
-  }, [cuentaActivaId, cargarDetalle]);
-
-  const seleccionarCuenta = (id: string) => {
-    setCuentaActivaId(id);
-    setPantallaActual('detalle-cuenta');
+  const handleCambiarSubpantalla = (
+    vista: 'mis-cuentas' | 'detalle-cuenta' | 'tasas' | 'patrimonio'
+  ) => {
+    setPantallaActual(vista);
   };
 
-  const handleCrearCuenta = async (datos: NuevaCuenta) => {
-    try {
-      await crearCuentaCommand({
-        nombre: datos.nombre,
-        tipo: datos.tipo,
-        moneda: datos.moneda,
-        saldo_inicial: datos.saldo_inicial,
-      });
-      setMostrarFormularioCuenta(false);
-      setErroresCuenta([]);
-      await cargarDatos();
-    } catch (e) {
-      setErroresCuenta(aErrores(e));
-    }
-  };
+  const infoEncabezado = ENCABEZADOS[pantallaActual] ?? ENCABEZADOS['mis-cuentas'];
+  const sesionVigente = control.sesion.estado === 'vigente';
+  const nombreVisible = control.sesion.nombreVisible ?? 'Mi perfil';
+  const inicialUsuario = nombreVisible.trim().charAt(0).toUpperCase() || 'U';
+  const enSesionOPerfil =
+    pantallaActual === 'inicio-sesion' ||
+    pantallaActual === 'registro' ||
+    pantallaActual === 'perfil';
 
-  const handleRegistrarMovimiento = async (datos: {
-    cuenta_id: string;
-    tipo: TipoMovimiento;
-    monto: string;
-    fecha: string;
-    categoria_id: string;
-    nota: string;
-  }) => {
-    await registrarMovimientoCommand(datos);
-    await Promise.all([cargarDetalle(datos.cuenta_id), cargarDatos()]);
-  };
-
-  const handlePrevisualizarMovimiento = async (datos: {
-    cuenta_id: string;
-    tipo: TipoMovimiento;
-    monto: string;
-    fecha: string;
-    categoria_id: string;
-    nota: string;
-  }) => {
-    return await previsualizarMovimientoCommand(datos);
-  };
-
-  const handleCorregirMovimiento = async (movimientoId: string, montoCorrecto: string) => {
-    await corregirMovimientoCommand(movimientoId, montoCorrecto);
-    if (cuentaActivaId) {
-      await Promise.all([cargarDetalle(cuentaActivaId), cargarDatos()]);
-    }
-  };
-
-  const handleCrearCategoria = async (nombre: string, tipo: TipoMovimiento) => {
-    await crearCategoriaCommand(nombre, tipo);
-    const resCat = await listarCategoriasCommand();
-    setCategorias(
-      resCat.map((cat) => ({
-        id: cat.id,
-        nombre: cat.nombre,
-        tipo: cat.tipo as any,
-        de_fabrica: cat.de_fabrica,
-      }))
-    );
-  };
+  const itemsNav: { id: string; etiqueta: string; icono: React.ReactNode }[] = [
+    {
+      id: 'mis-cuentas',
+      etiqueta: 'Mis cuentas',
+      icono: <IconoBilletera className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      id: 'detalle-cuenta',
+      etiqueta: 'Detalle',
+      icono: <IconoDetalleCuenta className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      id: 'tasas',
+      etiqueta: 'Tasas',
+      icono: <IconoTasasCambio className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      id: 'patrimonio',
+      etiqueta: 'Patrimonio',
+      icono: <IconoPatrimonio className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      id: 'amigos',
+      etiqueta: 'Amigos',
+      icono: <IconoAmigos className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      id: 'grupos',
+      etiqueta: 'Grupos',
+      icono: <IconoRecibo className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      id: 'copia-seguridad',
+      etiqueta: 'Copia de seguridad',
+      icono: <IconoCopiaSeguridad className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      id: 'sincronizacion-libro',
+      etiqueta: 'Sincronización',
+      icono: <IconoSincronizacion className="h-3.5 w-3.5 shrink-0" />,
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-fondo text-texto pb-16 transition-colors duration-200">
-      {/* Cabecera con degradado distintivo de Angel */}
+    <div className="min-h-screen bg-fondo pb-16 text-texto transition-colors duration-200">
+      {/* Cabecera superior curva con degradado dinámico y sin barra lateral */}
       <div className="relative rounded-b-[2.5rem] bg-linear-to-br from-grad-a to-grad-b pb-28 text-white shadow-lg">
-        {/* Círculos decorativos con efecto de luz y desenfoque ambiental */}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-b-[2.5rem]">
+        {/* Esferas decorativas de luz y desenfoque ambiental */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-b-[2.5rem]"
+        >
           <div className="absolute -right-24 -top-32 size-96 rounded-full bg-white/10 blur-2xl" />
           <div className="absolute -bottom-44 left-1/3 size-96 rounded-full bg-white/5 blur-3xl" />
         </div>
 
         <div className="relative mx-auto w-full max-w-5xl px-4 pt-5 sm:px-8 sm:pt-6">
-          {/* Barra superior de navegación adaptada a móvil y escritorio */}
-          <header className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
+          {/* Fila 1: Marca + Sesión + Selector de Apariencia */}
+          <header className="flex flex-col gap-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setPantallaActual('mis-cuentas')}
+                className="flex cursor-pointer items-center gap-2.5 text-left focus:outline-none"
+              >
                 <span className="grid size-9 place-items-center rounded-2xl bg-white/15 shadow-sm ring-1 ring-white/25 backdrop-blur-xs sm:size-10">
                   <IconoLogo width={20} height={20} />
                 </span>
                 <div>
-                  <span className="text-base font-bold tracking-tight sm:text-lg">Cuentas Claras</span>
-                  <span className="hidden ml-2 rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-white/90 sm:inline">
+                  <span className="text-base font-bold tracking-tight sm:text-lg">
+                    Cuentas Claras
+                  </span>
+                  <span className="ml-2 hidden rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-white/90 sm:inline">
                     LOCAL-FIRST
                   </span>
                 </div>
-              </div>
+              </button>
 
-              {/* En móviles (< 640px), el selector de apariencia va a la derecha del logo */}
-              <div className="sm:hidden">
-                <SelectorApariencia />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-2.5 sm:justify-end">
-              {/* Píldora de navegación entre vistas con contraste perfecto */}
-              <nav aria-label="Vistas principales" className="flex rounded-xl bg-black/25 p-1 ring-1 ring-white/20 backdrop-blur-md">
-                <button
-                  type="button"
-                  onClick={() => setPantallaActual('mis-cuentas')}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                    pantallaActual === 'mis-cuentas'
-                      ? 'bg-white text-slate-950 shadow-sm'
-                      : 'text-white/85 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  Mis cuentas
-                </button>
-                {lista.cuentas.length > 0 && (
+              <div className="flex items-center gap-2">
+                {sesionVigente ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!cuentaActivaId && lista.cuentas.length > 0) {
-                        setCuentaActivaId(lista.cuentas[0].id);
-                      }
-                      setPantallaActual('detalle-cuenta');
-                    }}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                      pantallaActual === 'detalle-cuenta'
+                    onClick={() => setPantallaActual('perfil')}
+                    className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-xl px-3 text-xs font-semibold transition sm:h-10 sm:px-3.5 ${
+                      pantallaActual === 'perfil'
                         ? 'bg-white text-slate-950 shadow-sm'
-                        : 'text-white/85 hover:text-white hover:bg-white/10'
+                        : 'bg-white/15 text-white ring-1 ring-white/25 backdrop-blur hover:bg-white/25'
                     }`}
                   >
-                    Detalle de cuenta
+                    <span className="flex size-5 items-center justify-center rounded-full bg-acento text-[11px] font-bold text-acento-fg">
+                      {inicialUsuario}
+                    </span>
+                    <span className="max-w-[120px] truncate">{nombreVisible}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPantallaActual('inicio-sesion')}
+                    className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-xs font-semibold transition sm:h-10 sm:px-3.5 ${
+                      enSesionOPerfil
+                        ? 'bg-white text-slate-950 shadow-sm'
+                        : 'bg-white/15 text-white ring-1 ring-white/25 backdrop-blur hover:bg-white/25'
+                    }`}
+                  >
+                    <IconoUsuario className="h-3.5 w-3.5 shrink-0" />
+                    <span>Iniciar sesión</span>
                   </button>
                 )}
-              </nav>
 
-              {/* En escritorio (>= 640px), el selector va al final de la barra */}
-              <div className="hidden sm:block">
                 <SelectorApariencia />
               </div>
             </div>
+
+            {/* Fila 2: Píldora de navegación entre todas las vistas de la aplicación */}
+            <nav
+              aria-label="Vistas principales"
+              className="flex flex-wrap items-center gap-1 rounded-2xl bg-black/25 p-1.5 ring-1 ring-white/20 backdrop-blur-md"
+            >
+              {itemsNav.map((item) => {
+                const activo = pantallaActual === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setPantallaActual(item.id)}
+                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                      activo
+                        ? 'bg-white text-slate-950 shadow-sm'
+                        : 'text-white/85 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    {item.icono}
+                    <span>{item.etiqueta}</span>
+                  </button>
+                );
+              })}
+            </nav>
           </header>
 
-          {/* Título de la cabecera */}
-          <div className="mt-6 sm:mt-8">
+          {/* Título dinámico en la cabecera */}
+          <div className="mt-6 sm:mt-7">
             <h1 className="text-2xl font-bold tracking-tight sm:text-4xl">
-              {pantallaActual === 'mis-cuentas' ? 'Mis cuentas' : detalleCuenta?.cuenta.nombre || 'Detalle de cuenta'}
+              {infoEncabezado.titulo}
             </h1>
             <p className="mt-1 text-xs text-white/80 sm:mt-1.5 sm:text-sm">
-              {pantallaActual === 'mis-cuentas'
-                ? 'Todas tus cuentas y saldos guardados localmente en este dispositivo.'
-                : `Libro de movimientos y desglose de saldo en ${detalleCuenta?.cuenta.moneda || ''}.`}
+              {infoEncabezado.subtitulo}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Contenido principal, superpuesto a la cabecera con margen negativo */}
+      {/* Contenido principal superpuesto a la cabecera con margen negativo */}
       <main className="relative mx-auto -mt-14 w-full max-w-5xl px-4 sm:-mt-16 sm:px-8">
-        {pantallaActual === 'mis-cuentas' ? (
-          <MisCuentas
-            monedas={monedas}
-            lista={lista}
-            cargando={cargando}
-            errorCarga={errorCarga}
-            mostrarFormulario={mostrarFormularioCuenta}
-            errores={erroresCuenta}
-            onAbrirFormulario={() => {
-              setErroresCuenta([]);
-              setMostrarFormularioCuenta(true);
-            }}
-            onCerrarFormulario={() => {
-              setErroresCuenta([]);
-              setMostrarFormularioCuenta(false);
-            }}
-            onCrearCuenta={handleCrearCuenta}
-            onSeleccionarCuenta={seleccionarCuenta}
+        {control.avisoVencidaVisible && (
+          <AvisoSesionVencida
+            modoOscuro={modoOscuro}
+            mostrarBoton={pantallaActual !== 'inicio-sesion'}
+            onIniciarSesion={() => setPantallaActual('inicio-sesion')}
+            onCerrar={control.ocultarAviso}
           />
-        ) : detalleCuenta ? (
-          <DetalleCuenta
-            detalle={detalleCuenta}
-            cuentas={lista.cuentas}
-            monedas={monedas}
-            categorias={categorias}
-            onVolver={() => setPantallaActual('mis-cuentas')}
-            onCambiarCuenta={(id) => setCuentaActivaId(id)}
-            onRegistrarMovimiento={handleRegistrarMovimiento}
-            onPrevisualizarMovimiento={handlePrevisualizarMovimiento}
-            onCorregirMovimiento={handleCorregirMovimiento}
-            onCrearCategoria={handleCrearCategoria}
-          />
-        ) : (
-          <div className="rounded-3xl border border-borde bg-superficie p-12 text-center shadow-suave">
-            <p className="text-sm font-medium text-suave">Cargando detalle de la cuenta…</p>
+        )}
+
+        {/* Al iniciar o cerrar sesión cambia la clave: las pantallas se montan de nuevo y piden
+            sus datos al libro nuevo, sin dejar a la vista nada del usuario anterior. Las pantallas
+            de sesión quedan fuera para no desmontar el formulario que está iniciando sesión. */}
+        <Fragment key={control.claveLibro}>
+          {(pantallaActual === 'mis-cuentas' || pantallaActual === 'detalle-cuenta') && (
+            <PantallaCuentas
+              modoOscuro={modoOscuro}
+              vistaSubpantalla={vistaSubpantalla}
+              setVistaSubpantalla={handleCambiarSubpantalla}
+              versionDatos={sincronizacion.versionDatos}
+            />
+          )}
+          {pantallaActual === 'tasas' && <PantallaTasas modoOscuro={modoOscuro} />}
+          {pantallaActual === 'patrimonio' && (
+            <PantallaPatrimonio
+              modoOscuro={modoOscuro}
+              versionDatos={sincronizacion.versionDatos}
+            />
+          )}
+          {(pantallaActual === 'amigos' || pantallaActual === 'grupos') && (
+            <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+              <PantallaSocial
+                modoOscuro={modoOscuro}
+                vista={pantallaActual}
+                setPantallaActual={setPantallaActual}
+                sincronizacion={sincronizacion}
+              />
+            </div>
+          )}
+          {pantallaActual === 'copia-seguridad' && (
+            <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+              <PantallaCopiaSeguridad
+                modoOscuro={modoOscuro}
+                alCambiarLibro={() => void refrescarLibro()}
+              />
+            </div>
+          )}
+          {pantallaActual === 'sincronizacion-libro' && (
+            <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+              <PantallaSincronizacionLibro
+                modoOscuro={modoOscuro}
+                control={sincronizacionLibro}
+              />
+            </div>
+          )}
+        </Fragment>
+
+        {(pantallaActual === 'inicio-sesion' ||
+          pantallaActual === 'registro' ||
+          pantallaActual === 'perfil') && (
+          <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+            <PantallaSesion
+              modoOscuro={modoOscuro}
+              vista={pantallaActual}
+              setPantallaActual={setPantallaActual}
+              control={control}
+            />
           </div>
         )}
       </main>
+
+      <BienvenidaPrimerAcceso modoOscuro={modoOscuro} setPantallaActual={setPantallaActual} />
     </div>
   );
 }

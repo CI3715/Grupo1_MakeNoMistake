@@ -1,6 +1,6 @@
 # Aplicación — Cuentas Claras
 
-Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. Desde la Entrega 2 la aplicación abre directamente en la pantalla **Mis cuentas**, sin registro ni inicio de sesión: permite crear cuentas (efectivo, banco o billetera digital) con su moneda y saldo inicial, y las guarda solo en el dispositivo, en un archivo SQLite, sin necesidad de internet ni del servidor. El comando de Rust `ping_servidor` de la Entrega 1 sigue existiendo, pero ya no participa en este flujo. Desde la Entrega 3 cada cuenta también registra gastos e ingresos, permite corregirlos mediante ajustes y calcula su saldo automáticamente, todo en el dispositivo y sin conexión.
+Esta carpeta contiene la aplicación de escritorio de Cuentas Claras. La interfaz está hecha con Next.js (React y TypeScript) y se empaqueta en una ventana nativa con Tauri 2, cuyo núcleo está escrito en Rust. Desde la Entrega 2 la aplicación abre directamente en la pantalla **Mis cuentas**, sin exigir registro ni inicio de sesión: permite crear cuentas (efectivo, banco o billetera digital) con su moneda y saldo inicial, y las guarda solo en el dispositivo, en un archivo SQLite, sin necesidad de internet ni del servidor. El comando de Rust `ping_servidor` de la Entrega 1 sigue existiendo, pero ya no participa en este flujo. Desde la Entrega 3 cada cuenta también registra gastos e ingresos, permite corregirlos mediante ajustes y calcula su saldo automáticamente, todo en el dispositivo y sin conexión. Desde la Entrega 5 se puede, de forma opcional, registrarse e iniciar sesión en el servidor: la sesión se guarda en el almacén de secretos del dispositivo y todo lo personal sigue funcionando sin ella (ver «Sesión: registro, inicio de sesión y almacén de secretos»).
 
 Los comandos de este documento se ejecutan desde la carpeta `app/`, salvo que se indique otra cosa. El archivo `package.json` vive aquí y no en la raíz del repositorio, así que si npm se queja de que no lo encuentra, casi seguro estás en la carpeta equivocada.
 
@@ -140,6 +140,251 @@ Corren dos pruebas, ambas con un repositorio en memoria (sin base de datos ni re
 
 Registra y corrige movimientos, cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: los movimientos, la marca de corregido y los saldos deben ser exactamente los mismos. Ningún movimiento ni saldo se envía al servidor (INV-16).
 
+## Monedas, tasas de cambio y patrimonio (Entrega 4)
+
+Desde la Entrega 4 la aplicación permite registrar tasas de cambio, elegir una moneda base y ver el patrimonio total consolidado en esa moneda. Todo se guarda en el mismo archivo `cuentas_claras.db` de las entregas anteriores (ver «Cuentas y almacenamiento local») y funciona sin internet y sin el servidor. Las tasas son personales: no se envían al servidor (INV-16).
+
+La regla de oro es que nunca se suman montos de monedas distintas sin una tasa explícita con fecha (INV-02). Si falta una tasa, el sistema no inventa una conversión ni muestra un total incorrecto: muestra los subtotales por moneda y nombra el par que falta. Una tasa indica cuántas unidades de la moneda de destino equivalen a una de la moneda de origen, con su fecha (no futura) y su fuente; admite hasta 8 decimales y un valor mayor que cero. Pueden convivir varias tasas del mismo par en fechas distintas, y el patrimonio usa la más reciente con fecha igual o anterior a la fecha de consulta (si hay dos el mismo día, gana la registrada más recientemente). Si solo existe la tasa en sentido contrario se usa su inversa (1 ÷ valor), y nunca se calculan tasas cruzadas a través de una tercera moneda. Cambiar la moneda base (USD por defecto) no modifica ningún movimiento ni saldo: solo cambia la moneda del total. Además de VES, USD, EUR y USDT, que no se pueden modificar ni eliminar, se pueden crear monedas propias con código de 3 a 5 letras mayúsculas, nombre, símbolo y de 0 a 8 decimales.
+
+Cada operación se guarda como un evento inmutable (`TasaRegistrada`, `TasaEliminada`, `MonedaBaseCambiada` y `MonedaCreada`) en la tabla `eventos`, que sigue admitiendo solo inserciones: eliminar una tasa es un evento nuevo, no un `DELETE`, y no toca ningún movimiento porque los movimientos nunca guardan una conversión. Los montos se guardan como enteros en la unidad menor de su moneda (50,00 USD es 5000) y las tasas como enteros multiplicados por 10⁸, sin coma flotante (INV-03). El texto solo se usa en lo que viaja hacia la pantalla. Las conversiones usan aritmética decimal exacta y el total consolidado se redondea una sola vez, al final, a los decimales de la moneda base.
+
+Comandos de Tauri que usa la interfaz, con montos y tasas como texto, fechas `AAAA-MM-DD` y errores `{ campo, mensaje }` en español:
+
+| Comando | Qué hace |
+|---|---|
+| `invoke('registrar_tasa')` | Valida y registra una tasa con su fecha y su fuente. |
+| `invoke('eliminar_tasa')` | Registra la eliminación de una tasa registrada por error. |
+| `invoke('listar_tasas')` | Historial de cada par con valor, fecha y fuente. |
+| `invoke('cambiar_moneda_base')` | Cambia la moneda en la que se presenta el total. |
+| `invoke('crear_moneda')` | Crea una moneda propia. |
+| `invoke('listar_monedas')` | Monedas de fábrica y propias. |
+| `invoke('consultar_patrimonio')` | Saldos, subtotales por moneda, total consolidado, tasas usadas y pares que faltan. |
+
+### Reproducir el ejemplo 2.3 en la aplicación
+
+Con `npm run tauri dev`, empezando de cero (ver «Cuentas y almacenamiento local»):
+
+1. Crea tres cuentas: **Efectivo bolívares** en **VES** con `88.700,00`, **Banco en dólares** en **USD** con `200,00` y **Billetera USDT** en **USDT** con `50,00`.
+2. En **Tasas de Cambio** registra `1 USD = 887,00 VES` con fecha 20/10/2026 y fuente `BCV`, y `1 USDT = 1.000,00 VES` con fecha 21/10/2026 y fuente `casa de cambio`.
+3. Elige **VES** como moneda base y abre **Patrimonio**: el total consolidado es `Bs. 316.100,00` (88.700,00 + 177.400,00 + 50.000,00) y el total declara las dos tasas que usó.
+4. Cambia la moneda base a **USD**. El efectivo se convierte con la inversa de USD→VES (88.700 ÷ 887 = 100,00 USD), pero no existe ninguna tasa entre USDT y USD, así que no aparece total: se ven los subtotales por moneda y el aviso «Falta una tasa de USDT a USD con fecha igual o anterior a» la fecha de consulta.
+5. Registra `1 USDT = 1,00 USD`. El total pasa a ser `$ 350,00`.
+6. Para ver otra vez el caso de la tasa faltante, elimina una tasa necesaria: el sistema deja de consolidar y nombra el par exacto.
+
+### Reproducir el ejemplo 2.3 con la prueba automatizada
+
+Desde `src-tauri/`:
+
+```
+cargo test --workspace ejemplo_2_3
+```
+
+Corren tres pruebas con un repositorio en memoria (sin base de datos ni red): `test_entrega4_ejemplo_2_3_completo_y_patrimonio`, en la capa de aplicación, que recorre el ejemplo completo (316.100,00 VES, el faltante USDT→USD con base USD y los 350,00 USD tras registrar la tasa); `el_ejemplo_2_3_se_reproduce_de_punta_a_punta`, en los comandos de Tauri; y `consolidar_subtotales_ejemplo_2_3`, en el dominio.
+
+### Prueba de autonomía de la Entrega 4
+
+Registra tasas, cambia la moneda base y consulta el patrimonio; cierra la aplicación, desactiva la red, apaga el servidor y vuelve a abrirla con `npm run tauri dev`: las tasas, la moneda base y el patrimonio deben ser exactamente los mismos. Ninguna tasa ni saldo se envía al servidor.
+
+## Sesión: registro, inicio de sesión y almacén de secretos (Entrega 5)
+
+Desde la Entrega 5 la aplicación permite registrarse e iniciar sesión en el servidor. La sesión es opcional: sin ella, y con el servidor apagado, todo lo personal (cuentas, movimientos, tasas y patrimonio) sigue funcionando igual, sin conexión. Solo el registro y el inicio de sesión necesitan el servidor.
+
+### Comandos
+
+Los comandos viven en `src-tauri/src/sesion.rs` y los llama la interfaz con `invoke` (los tipos están en `app/utils/tauriCommands.ts`):
+
+| Comando | Qué hace | Ruta del servidor |
+|---|---|---|
+| `registrar_usuario` | Crea la cuenta de usuario. Los errores llegan por campo (`nombre_usuario`, `nombre_visible`, `correo`, `contrasena`). | `POST /usuarios` |
+| `iniciar_sesion` | Inicia sesión, pide el perfil y guarda token, vencimiento y nombre visible en el dispositivo. | `POST /sesiones` y `GET /usuarios/yo` |
+| `obtener_perfil` | Devuelve el perfil con el token guardado. | `GET /usuarios/yo` |
+| `estado_sesion` | Dice si hay sesión vigente, vencida o ninguna. **No usa red**: compara el vencimiento guardado con la hora actual, así la aplicación recuerda la sesión al abrir aunque no haya conexión. | (ninguna) |
+| `cerrar_sesion` | Borra el token y los datos de sesión del dispositivo. El servidor no tiene endpoint de cierre, por eso es solo local. | (ninguna) |
+
+Los errores tienen la forma `{ campo, mensaje }`, con el mensaje en español. Un error sin `campo` es general (por ejemplo, credenciales incorrectas o servidor apagado).
+
+### Dónde se guarda la sesión
+
+La sesión (token, fecha de vencimiento y nombre visible) se guarda en el **almacén de secretos del sistema** con el crate `keyring`: Secret Service en Linux, Keychain en macOS y Credential Manager en Windows. En Linux hace falta un servicio de secretos activo (por ejemplo GNOME Keyring).
+
+Si el sistema no ofrece almacén de secretos, la aplicación usa un **respaldo**: un archivo `sesion.json` en la carpeta de datos de la aplicación, con permisos `0600` en Linux y macOS. Ese archivo no está cifrado; es una deuda técnica registrada en `docs/deuda-tecnica.md`.
+
+El token **nunca llega a la interfaz**: se queda en Rust y en el almacén. La interfaz solo recibe el estado de la sesión (`sin_sesion`, `vigente` o `vencida`), el nombre visible y la fecha de vencimiento.
+
+### Token vencido y servidor apagado
+
+- **Token vencido.** El token vale 60 minutos (configurable en el servidor). Si el servidor responde 401, la sesión se marca como vencida pero se conserva el nombre visible, y la interfaz avisa «Tu sesión venció, inicia sesión de nuevo» sin bloquear las funciones personales.
+- **Servidor apagado o sin red.** Registro e inicio de sesión muestran «No hay conexión con el servidor. Puedes seguir usando la aplicación sin iniciar sesión.». Las peticiones esperan como máximo 5 segundos.
+
+### Qué viaja al servidor
+
+Solo el registro (nombre de usuario, nombre visible, correo y contraseña), el inicio de sesión (correo y contraseña) y el token en el encabezado `Authorization: Bearer`. Nada del libro personal (cuentas, movimientos, saldos y tasas) sale del dispositivo. La contraseña no se imprime en ningún `Debug` ni en los logs: las estructuras que la llevan no derivan `Debug`, y una prueba lo comprueba.
+
+### Dirección del servidor
+
+Los comandos de sesión usan la variable de entorno `CUENTAS_CLARAS_URL`; si no existe, usan `http://localhost:8000`. Se configura igual que para `ping_servidor` (ver «Configurar la dirección del servidor»):
+
+```bash
+CUENTAS_CLARAS_URL=http://localhost:8000 npm run tauri dev
+```
+
+### Probar la sesión a mano (con token de 1 minuto)
+
+1. En la carpeta `servidor/`, levanta la base y el servidor con vigencia de 1 minuto (ver el README del servidor para las variables de entorno):
+
+   ```bash
+   bash scripts/base_datos_local.sh iniciar
+   JWT_MINUTOS=1 CUENTAS_CLARAS_MINUTOS_TOKEN=1 uv run uvicorn main:app --port 8000
+   ```
+
+2. En `app/`, arranca la aplicación con `npm run tauri dev`.
+3. **Registro.** Regístrate con un usuario nuevo; prueba también una contraseña de menos de 10 caracteres y un usuario repetido, y comprueba que cada error sale bajo su campo.
+4. **Inicio de sesión.** Inicia sesión: debe verse tu nombre visible. Con una contraseña equivocada debe decir «Correo o contraseña incorrectos.».
+5. **Token vencido.** Espera más de un minuto y pide el perfil: debe avisar «Tu sesión venció, inicia sesión de nuevo» y el resto de la aplicación debe seguir funcionando.
+6. **Autonomía.** Apaga el servidor: puedes usar cuentas, movimientos, tasas y patrimonio, y solo el registro y el inicio de sesión avisan de que no hay conexión.
+7. **Cerrar y reabrir.** Inicia sesión de nuevo, cierra la aplicación y ábrela antes de que pase un minuto: la sesión sigue vigente, incluso con el servidor apagado.
+
+### Pruebas automatizadas de la sesión
+
+Se prueban con un cliente HTTP falso y un almacén en memoria, sin red ni almacén del sistema:
+
+```bash
+cd src-tauri
+cargo test --lib sesion
+```
+
+Cubren 201, 200, 400, 401, 409, servidor apagado, token vencido (por reloj y por 401), la sesión recordada sin red, y que la contraseña y el token no aparecen en `Debug`, en los errores ni en los logs.
+
+## Amigos, grupos y gastos compartidos (Entrega 6)
+
+Desde la Entrega 6 la aplicación permite agregar amigos, crear grupos con ellos y dividir gastos entre los miembros. Estas funciones **requieren sesión y conexión** con el servidor, porque lo compartido lo ven varias personas. Todo lo personal (cuentas, movimientos, saldos, tasas y patrimonio) sigue siendo solo local y sigue funcionando sin sesión y sin conexión.
+
+Los comandos hablan con el servidor real. La dirección sale de la variable de entorno `CUENTAS_CLARAS_URL` (por defecto `http://localhost:8000`), igual que en los comandos de sesión, y se configura como se explica en «Configurar la dirección del servidor». Cada comando toma el token guardado en el almacén de secretos y lo manda en el encabezado `Authorization`. Sin sesión no se hace ninguna petición y la pantalla invita a iniciar sesión. Si el servidor responde 401, la sesión se marca como vencida y se avisa «Tu sesión venció, inicia sesión de nuevo.». Con el servidor apagado aparece «No hay conexión con el servidor. Puedes seguir usando la aplicación sin iniciar sesión.» y el resto de la aplicación sigue igual. Los errores del servidor (400 con la diferencia exacta, 403, 404 y 409) llegan a la interfaz como `{ campo, mensaje }`.
+
+### Comandos
+
+Viven en `src-tauri/src/social.rs` y sus tipos están en `src-tauri/src/dto_social.rs` y en `app/utils/tauriCommands.ts`. Las personas se identifican por su **nombre de usuario**; nunca viaja el correo de nadie.
+
+| Comando | Qué hace | Ruta del servidor |
+|---|---|---|
+| `buscar_usuario` | Busca por nombre de usuario exacto. No hay búsqueda parcial ni listados. | `GET /usuarios?usuario=` |
+| `invitar_amigo` | Envía una invitación de amistad. | `POST /amistades` |
+| `responder_amistad` | Acepta o rechaza una invitación recibida. | `POST /amistades/{id}/respuesta` |
+| `listar_amistades` | Amigos e invitaciones pendientes, enviadas y recibidas. | `GET /amistades` |
+| `eliminar_amistad` | Elimina una amistad; no borra los grupos ni los gastos que ya comparten. | `DELETE /amistades/{id}` |
+| `crear_grupo` | Crea un grupo; quien lo crea queda como miembro y administrador. | `POST /grupos` |
+| `listar_grupos` | Mis grupos y mis invitaciones pendientes. | `GET /grupos` |
+| `invitar_al_grupo` | El administrador invita a un amigo. | `POST /grupos/{id}/miembros` |
+| `responder_invitacion_grupo` | El invitado acepta o rechaza. | `POST /grupos/{id}/miembros/yo/respuesta` |
+| `registrar_gasto_grupo` | Registra un gasto dividido entre los miembros. | `POST /grupos/{id}/gastos` |
+| `ver_grupo` | Miembros, gastos y balances. Solo para miembros. | `GET /grupos/{id}` |
+| `previsualizar_division` | Calcula la división antes de enviar. **No usa la red**: ya es real. | (ninguna) |
+
+Los errores tienen la forma `{ campo, mensaje }`, con el mensaje en español. Los montos y porcentajes viajan como texto con punto decimal (`"100.00"`).
+
+### División exacta de un gasto
+
+Hay tres reglas: **partes iguales**, **porcentajes** (deben sumar 100) y **montos fijos** (deben sumar el total del gasto). Si no cuadran, se rechaza indicando la diferencia, por ejemplo «Los porcentajes suman 95; faltan 5.».
+
+Las partes se calculan en céntimos y con aritmética exacta (nunca coma flotante). Cuando la división no es exacta, ningún céntimo se pierde ni se inventa:
+
+1. Se calcula la parte exacta de cada participante y se trunca a céntimos.
+2. El residuo es el total menos la suma de las partes truncadas.
+3. El residuo se reparte de a un céntimo, en orden alfabético de nombre de usuario, hasta agotarlo.
+4. Cada parte indica si recibió céntimos de residuo («incluye 0,01 de redondeo»).
+
+Por ejemplo, 100,00 en partes iguales entre ana, beto y carla da 33,34 · 33,33 · 33,33. El cálculo vive en `src-tauri/crates/dominio/src/division.rs`. La aplicación muestra la vista previa, pero **el servidor vuelve a calcular y es su resultado el que se guarda**. El balance de cada miembro es lo que pagó menos lo que le corresponde, y la suma de los balances del grupo es siempre exactamente 0,00.
+
+### Cliente real y simulador de respaldo
+
+El cliente común (token, 401, servidor apagado y traducción de errores) está en `src-tauri/src/social_cliente.rs` y los comandos reales en `src-tauri/src/social_real.rs`. El simulador con datos fijos de `social_fijo.rs` se conserva como respaldo, pero ningún comando lo usa: la aplicación ya no trae amigos ni grupos de ejemplo, ni tienen efecto los textos especiales como `sin-conexion`. Para probar hay que registrar usuarios reales en el servidor.
+
+### Qué viaja al servidor
+
+Solo datos de amistades, grupos y gastos compartidos: nombres de usuario, nombre, moneda y actividad del grupo, y concepto, monto, fecha, pagador y participantes de cada gasto. Nada del libro personal (cuentas, movimientos, saldos ni tasas) sale del dispositivo. El token va solo en el encabezado `Authorization: Bearer`.
+## Prueba de autonomía de la Entrega 6
+
+Los grupos y los gastos compartidos viven en el servidor, pero nada del libro personal depende de él. La prueba automática está en `src-tauri/src/autonomia.rs`:
+
+```
+cd src-tauri
+cargo test --lib autonomia
+```
+
+Apunta el cliente a un puerto donde no escucha nadie y comprueba que el registro y el inicio de sesión fallan con «No hay conexión con el servidor. Puedes seguir usando la aplicación sin iniciar sesión.» sin guardar ninguna sesión; que en la misma ejecución se crean una cuenta y dos movimientos en un SQLite real; que la vista previa de la división (100,00 entre tres da 33,34 · 33,33 · 33,33) se calcula en local, y que al cerrar y reabrir la base el saldo sigue siendo 1.300,00.
+
+A mano: con el servidor encendido, registra un gasto en un grupo; después apaga el servidor y la red y vuelve a abrir la aplicación con `npm run tauri dev`. Cuentas, movimientos, tasas, patrimonio y la vista previa de la división funcionan igual; Amigos y Grupos son lo único que necesita el servidor.
+
+## Libro por usuario, sincronización y cola sin conexión (Entrega 7)
+
+Desde la Entrega 7 cada usuario tiene su propio libro SQLite en el dispositivo y las partes de los gastos compartidos en los que participa bajan automáticamente a la cuenta local que elija para cada grupo, sin duplicarse aunque sincronice muchas veces (RF-COM-10, RNF-17, INV-13, INV-15).
+
+### Libro personal por usuario (ADR-014)
+
+Para que dos personas que usen la aplicación en el mismo computador no mezclen sus cuentas ni sus movimientos, cada sesión usa su propio archivo SQLite en el directorio de datos de la aplicación (`com.cuentasclaras.desktop`):
+
+- **Con sesión iniciada:** `cuentas_claras_<id_usuario>.db` (donde `<id_usuario>` es el UUID devuelto por `GET /usuarios/yo`).
+- **Sin sesión:** `cuentas_claras.db` (sigue funcionando igual que en las entregas anteriores).
+- **Adopción inicial:** la primera persona que inicia sesión cuando todavía no existe ningún `cuentas_claras_<id>.db` adopta automáticamente el `cuentas_claras.db` previo (se renombra a su identificador) para no perder lo que ya tenía anotado localmente.
+- **Cambio en caliente:** al iniciar sesión, registrarse o cerrar sesión, la aplicación sustituye el libro activo en memoria sin necesidad de reiniciar la ventana de Tauri. Si el token vence (`401`), conserva abierto el libro del usuario para que siga consultando y registrando movimientos locales mientras vuelve a iniciar sesión.
+
+### Sincronización con grupos y partes pendientes
+
+Al sincronizar, la aplicación consulta `GET /cambios?desde=<cursor>` en lotes hasta que `hay_mas` sea falso:
+
+- **Cuenta por grupo:** en el detalle de cada grupo se elige a qué cuenta local activa (de la **misma moneda** del grupo) van los gastos compartidos (`cuentas_para_grupo` y `elegir_cuenta_grupo`). Si se cambia la cuenta elegida, solo afecta a las partes pendientes y a los gastos futuros; los movimientos ya aplicados no se mueven.
+- **Partes pendientes:** si llega una parte de un grupo que aún no tiene cuenta elegida (o cuya cuenta ya no es válida), queda en `partes_pendientes` hasta que el usuario elija la cuenta.
+- **Movimiento de grupo inmutable:** cada parte se aplica una sola vez (idempotente por `evento_servidor_id`) como un egreso en la categoría **Otros gastos** con concepto `<grupo> · <gasto>` y marca `gasto_de_grupo: true`. No se puede corregir desde el libro personal (INV-04 / acuerdo de Entrega 7) y se guarda junto con el nuevo cursor en una única transacción SQLite.
+- **Control de concurrencia y demostración:** un candado evita dos sincronizaciones simultáneas (`sincronizando: true`), y `reiniciar_cursor` vuelve el cursor a `0` para demostrar en vivo que volver a bajar todo el historial no duplica ningún movimiento.
+
+### Cola de gastos sin conexión e idempotencia
+
+Registrar un gasto compartido (`registrar_gasto_grupo_con_cola`) entra siempre por la tabla local `cola_envio` antes de salir a la red:
+
+1. Se genera una clave UUID (`Idempotency-Key`) **una única vez** por operación y se guarda como `pendiente`.
+2. Si hay conexión y sesión vigente, se envía `POST /grupos/{id}/gastos` con el encabezado `Idempotency-Key`. Si se pierde la respuesta (corte de red o error `5xx`), la operación permanece en la cola y se reintenta en orden con la **misma clave**, de modo que el servidor devuelve el gasto ya creado (`200`) sin duplicarlo.
+3. Si el servidor rechaza la operación (`400`, `403`, `404` o `409`), si ocurre en vivo devuelve los errores al formulario; si ocurre al vaciar la cola en segundo plano, queda marcada como `rechazado` con su motivo visible y no bloquea el envío de las demás operaciones (el usuario puede quitarla con `descartar_gasto_en_cola`).
+4. Si el servidor responde `401`, el envío se pausa sin perder las operaciones pendientes hasta que el usuario renueve su sesión.
+
+### Qué viaja al servidor y `CUENTAS_CLARAS_URL`
+
+Se mantiene estrictamente el aislamiento de privacidad (INV-16, RES-02):
+
+- **Qué viaja:** únicamente el entero del cursor (`desde` en `GET /cambios?desde=N`), el encabezado `Idempotency-Key` y los datos propios del gasto de grupo (`concepto`, `monto`, `fecha`, `pagador`, `regla`, `participantes`).
+- **Qué nunca sale del dispositivo:** cuentas locales, saldos, movimientos personales, tasas de cambio, categorías propias ni qué cuenta local se asoció a cada grupo.
+- **Dirección del servidor:** todos los clientes HTTP (`sesion.rs`, `social_cliente.rs`, `sincronizacion_cliente.rs` y `social_envio.rs`) leen `CUENTAS_CLARAS_URL` (por defecto `http://localhost:8000`; ver «Configurar la dirección del servidor»).
+
+### Reproducir el flujo 2.8 a mano y pruebas automatizadas
+
+Con el servidor levantado (`servidor/README.md`) y `npm run tauri dev` en `app/`:
+
+1. **Cuatro usuarios (`ana`, `beto`, `carla` y `dario`):** registra e inicia sesión con `ana`, crea cuentas en `USD` y el grupo **Viaje a Mérida** con `beto` y `carla` (deja a `dario` fuera).
+2. **Cuenta por grupo y primer gasto:** sin elegir cuenta aún, registra el gasto **Hotel** (`100,00 USD`, partes iguales) y sincroniza: verás la parte de `ana` (`33,34 USD`) en **Partes pendientes**. Elige tu cuenta en `USD` y comprueba que pasa al libro como movimiento de grupo y descuenta el saldo.
+3. **Cola sin conexión e idempotencia:** inicia sesión con `beto`, elige su cuenta en `USD`, corta la red (o detén temporalmente el servidor), registra **Cena** (`60,00 USD`, porcentajes 50/25/25) y comprueba que queda en **Cola de envío** como `pendiente`. Restaura el servidor y pulsa **Sincronizar**: la cola se vacía sin duplicar y baja su parte (`15,00 USD`).
+4. **Tercer gasto, cuarto usuario y cambio de sesión:** registra **Taxi** (`20,00 USD`, `ana` y `beto`). Comprueba con `carla` que recibe Hotel y Cena pero no Taxi, y con `dario` que no recibe ningún evento. Cambia entre usuarios en la misma ventana y verifica que cada uno ve únicamente su propio `cuentas_claras_<id>.db`.
+5. **Autonomía:** apaga el servidor; las cuentas, movimientos, tasas, patrimonio y la vista previa de división siguen funcionando sin conexión.
+
+Pruebas automatizadas de la Entrega 7 (desde `app/src-tauri/`):
+
+```bash
+cargo test --test vectores_sincronizacion
+cargo test -p infraestructura --test libros_por_usuario --test cola_envio --test autonomia_entrega7
+cargo test --lib sincronizacion
+```
+
+## Libro por usuario, sincronización y cola sin conexión (Entrega 7)
+
+Cada usuario tiene su propio SQLite (`cuentas_claras_<id>.db` con sesión; `cuentas_claras.db` sin sesión). El primer login adopta `cuentas_claras.db` y el libro cambia en caliente sin reiniciar Tauri (ADR-014); ante `401` conserva el libro abierto.
+
+- **Sincronización (`GET /cambios?desde=N`):** baja lotes hasta `hay_mas = false` (`sincronizar`, `estado_sincronizacion`, `reiniciar_cursor`).
+- **Cuenta por grupo y pendientes:** `cuentas_para_grupo` y `elegir_cuenta_grupo` aplican `partes_pendientes` en **Otros gastos** (`<grupo> · <gasto>`, `gasto_de_grupo: true`, no corregibles) en una transacción.
+- **Cola offline:** `registrar_gasto_grupo_con_cola` encola en `cola_envio` con `Idempotency-Key` UUID y reintenta sin duplicar; rechazos (`400`/`403`/`404`/`409`) quedan con motivo (`descartar_gasto_en_cola`); `401` pausa la cola. Solo viajan cursor, clave y gasto compartido (INV-16). Usa `CUENTAS_CLARAS_URL`.
+
+```bash
+cargo test --test vectores_sincronizacion
+cargo test -p infraestructura --test libros_por_usuario --test cola_envio --test autonomia_entrega7
+```
+
 ## Ejecutar las pruebas
 
 Desde `src-tauri/`:
@@ -188,6 +433,8 @@ En PowerShell (Windows):
     $env:CUENTAS_CLARAS_URL="http://localhost:9999"
     npm run tauri dev
 
+La misma variable la usan los comandos de sesión (`registrar_usuario`, `iniciar_sesion` y `obtener_perfil`), no solo `ping_servidor`.
+
 La variable solo vale para esa ejecución. Si el servidor está apagado o la
 dirección es incorrecta, la pantalla muestra un mensaje de error en vez de
 "Conectado". Usa `http` solo en desarrollo: en producción el servidor debe
@@ -215,6 +462,7 @@ app/
 │   │   └── PingScreen.tsx          # Pantalla de la Entrega 1 (ya no se muestra)
 │   ├── types/cuentas.ts  # Tipos compartidos con el núcleo de Rust
 │   ├── utils/formato.ts  # Formato de montos y normalización del saldo
+│   ├── utils/tauriCommands.ts # Tipos y llamadas a los comandos de Tauri
 │   ├── layout.tsx        # Estructura común de todas las páginas
 │   ├── page.tsx          # Página principal (abre en Mis cuentas)
 │   └── globals.css       # Estilos globales (Tailwind)
@@ -237,6 +485,23 @@ app/
 │       ├── cuentas.rs    # Comandos listar_monedas, listar_cuentas y crear_cuenta
 │       ├── movimientos.rs # Comandos de movimientos, categorías y detalle de cuenta (Entrega 3)
 │       ├── dto.rs        # Tipos que viajan entre Rust y la interfaz
+│       ├── libros.rs     # Resolución de archivo SQLite por usuario y adopción (Entrega 7)
+│       ├── cambio_libro.rs # Sustitución del libro en caliente al iniciar/cerrar sesión (Entrega 7)
+│       ├── sesion.rs     # Registro, inicio de sesión y almacén de secretos (Entrega 5)
+│       ├── sesion/pruebas.rs # Pruebas de la sesión con cliente HTTP falso
+│       ├── social.rs     # Comandos de amistades, grupos y gastos compartidos (Entrega 6)
+│       ├── social_cliente.rs # Cliente HTTP común con bearer token e Idempotency-Key
+│       ├── social_real.rs # Implementación real de comandos sociales
+│       ├── social_envio.rs # Envío de gastos de la cola con Idempotency-Key (Entrega 7)
+│       ├── sincronizacion.rs # Comandos de sincronización, cuenta de grupo y cola (Entrega 7)
+│       ├── sincronizacion_cliente.rs # Cliente de GET /cambios?desde=N (Entrega 7)
+│       ├── sincronizacion_libro.rs # Aplicación de lotes y pendientes al libro local (Entrega 7)
+│       ├── libros.rs     # Archivo SQLite por usuario y adopción (Entrega 7)
+│       ├── cambio_libro.rs # Cambio de libro en caliente al iniciar/cerrar sesión (Entrega 7)
+│       ├── social_envio.rs # Envío de cola con Idempotency-Key (Entrega 7)
+│       ├── sincronizacion.rs # Comandos de sincronización, cuenta de grupo y cola (Entrega 7)
+│       ├── sincronizacion_cliente.rs # Cliente GET /cambios?desde=N (Entrega 7)
+│       ├── sincronizacion_libro.rs # Aplicación de lotes al libro local (Entrega 7)
 │       └── ping.rs       # Comando ping_servidor (Entrega 1, fuera del flujo de cuentas)
 ├── next.config.ts        # Configuración de Next.js (exportación estática)
 ├── package.json          # Dependencias y scripts de la interfaz
@@ -285,3 +550,25 @@ Si `cargo fmt --check` muestra diferencias, `cargo fmt` las corrige solo. `cargo
 **La pantalla de ping muestra "No se pudo conectar con el servidor".** El servidor no
 está encendido o la dirección es otra. Levántalo según `servidor/README.md` y
 comprueba que `http://localhost:8000/ping` responde en el navegador.
+
+## Copia de seguridad y sincronización del libro: modo simulación (Entrega 8)
+
+Las pantallas «Copia de seguridad» y «Sincronización» hablan con comandos de Rust que se están
+integrando (cifrado real, `importar_copia`, destino y `sincronizar_libro`). Mientras tanto se
+pueden probar con respuestas simuladas, incluidos los cinco errores de la sección 2.7 de la
+especificación:
+
+```bash
+# desde app/ (solo desarrollo; los archivos .env* no se suben al repositorio)
+echo "NEXT_PUBLIC_SIMULAR_INTERCAMBIO=1" > .env.local
+npm run dev            # sirve para maquetar: con la bandera no hace falta la ventana de Tauri
+```
+
+Con la bandera en `1` las dos pantallas muestran un aviso «Modo simulación» con un selector del
+resultado simulado. No se escribe ni se lee ningún archivo, no se toca el libro y no hay red.
+Sin la bandera (o con otro valor) se usan los comandos reales. La bandera la fija Next al
+compilar: hay que reiniciar `npm run dev` después de cambiarla, y **no** debe estar en una
+compilación de entrega.
+
+Los nombres de archivo llevan prefijo para no confundirlos con la sincronización del servidor de
+la Entrega 7: `copia*` (copia de seguridad) y `sincronizacionLibro*` (destino Git o carpeta).

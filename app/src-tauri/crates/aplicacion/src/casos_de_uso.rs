@@ -6,20 +6,27 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use dominio::{
-    Ajuste, Campo, Categoria, Cuenta, CuentaCreada, ErrorDominio, EstadoMovimiento, Moneda, Monto,
-    Movimiento, MovimientoCorregido, MovimientoRegistrado, TipoCuenta, TipoMovimiento,
-    calcular_saldo_y_composicion, categorias_de_fabrica, corregir_movimiento, crear_categoria,
-    registrar_movimiento, saldo_resultante,
+    Ajuste, Campo, Categoria, Cuenta, CuentaCreada, DECIMALES_MAXIMOS, ErrorDominio,
+    EstadoMovimiento, Moneda, Monto, Movimiento, MovimientoCorregido, MovimientoRegistrado,
+    TipoCuenta, TipoMovimiento, calcular_saldo_y_composicion, categorias_de_fabrica,
+    corregir_movimiento, crear_categoria, crear_moneda, registrar_movimiento_con_monedas,
+    saldo_resultante,
 };
 
+use crate::categorias::id_categoria_canonico;
 use crate::codec;
 use crate::errores::{ErrorAplicacion, ErrorValidacion};
+use crate::fusion::{self, InformeFusion};
+use crate::proyector::{
+    self, TIPO_MONEDA_BASE_CAMBIADA, TIPO_MONEDA_CREADA, TIPO_TASA_ELIMINADA, TIPO_TASA_REGISTRADA,
+};
 use crate::puertos::{
     DispositivoOrigen, EventoRegistrado, GeneradorIdentificadores, Reloj, RepositorioEventos,
 };
 use crate::vistas::{
-    CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, DetalleCuentaVista,
-    ListaCuentas, MonedaDto, MovimientoListado, PrevisualizacionMovimiento, Subtotal,
+    CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, CuentaPatrimonioVista,
+    DetalleCuentaVista, ListaCuentas, MonedaDto, MovimientoListado, ParFaltanteVista,
+    PatrimonioVista, PrevisualizacionMovimiento, Subtotal, TasaListada, TasaUsadaVista,
 };
 
 /// Identificador de tipo para los eventos de creación de cuenta.
@@ -30,6 +37,8 @@ pub const TIPO_MOVIMIENTO_REGISTRADO: &str = "MovimientoRegistrado";
 pub const TIPO_MOVIMIENTO_CORREGIDO: &str = "MovimientoCorregido";
 /// Identificador de tipo para los eventos de creación de categoría personalizada.
 pub const TIPO_CATEGORIA_CREADA: &str = "CategoriaCreada";
+/// Parte de un gasto de grupo aplicada al libro (Entrega 7).
+pub const TIPO_GASTO_DE_GRUPO_APLICADO: &str = "GastoDeGrupoAplicado";
 
 /// Datos de entrada requeridos para registrar una nueva cuenta.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -38,10 +47,39 @@ pub struct NuevaCuenta {
     pub nombre: String,
     /// Tipo de cuenta (`"efectivo"`, `"banco"` o `"billetera_digital"`).
     pub tipo: String,
-    /// Código de la moneda del catálogo (`"VES"`, `"USD"`, `"EUR"`, `"USDT"`).
+    /// Código de una moneda del catálogo (de fábrica o propia).
     pub moneda: String,
     /// Saldo inicial expresado como cadena decimal (por ejemplo, `"1250.50"`).
     pub saldo_inicial: String,
+}
+
+/// Datos de entrada requeridos para registrar una tasa de cambio (RF-CAM-02).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct NuevaTasa {
+    /// Moneda de origen del par (ej. `"USD"`).
+    pub moneda_origen: String,
+    /// Moneda de destino del par (ej. `"VES"`).
+    pub moneda_destino: String,
+    /// Valor decimal de la tasa como texto (ej. `"887.00"`).
+    pub valor: String,
+    /// Fecha de vigencia en formato AAAA-MM-DD.
+    pub fecha: String,
+    /// Fuente de la cotización (ej. `"BCV"`).
+    pub fuente: String,
+}
+
+/// Datos de entrada para crear una moneda propia. Los decimales llegan como
+/// texto, tal como los escribió la persona, y los valida el dominio.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct NuevaMoneda {
+    /// Código de 3 a 5 letras mayúsculas (por ejemplo, `"BTC"`).
+    pub codigo: String,
+    /// Nombre visible.
+    pub nombre: String,
+    /// Símbolo con el que se muestran los montos.
+    pub simbolo: String,
+    /// Número de decimales, de 0 a 8.
+    pub decimales: String,
 }
 
 /// Datos de entrada requeridos para registrar un movimiento (ingreso o gasto).
@@ -105,15 +143,91 @@ struct AjusteProyectado {
     ajuste: Ajuste,
 }
 
+/// Registro interno de una cuenta con su fecha de creación para respetar la fecha de corte en patrimonio.
+#[derive(Debug, Clone)]
+struct CuentaEnLibro {
+    cuenta: CuentaCreada,
+    fecha_creacion: String,
+}
+
+impl std::ops::Deref for CuentaEnLibro {
+    type Target = CuentaCreada;
+    fn deref(&self) -> &Self::Target {
+        &self.cuenta
+    }
+}
+
 /// Estado completo proyectado en memoria a partir de la secuencia de eventos del libro.
 struct EstadoLibro {
-    cuentas: Vec<CuentaCreada>,
+    /// Catálogo de monedas: fábrica más las propias creadas en el libro.
+    monedas: Vec<Moneda>,
+    cuentas: Vec<CuentaEnLibro>,
     categorias: Vec<Categoria>,
     movimientos: Vec<MovimientoProyectado>,
     ajustes: Vec<AjusteProyectado>,
+    tasas: Vec<dominio::Tasa>,
+    moneda_base: String,
+    /// Ids de los movimientos que vienen de un gasto de grupo (no se corrigen desde el libro).
+    ids_de_grupo: HashSet<String>,
 }
 
-/// Servicio de aplicación que agrupa los casos de uso e inyecta los puertos requeridos.
+/// Datos de una parte de gasto de grupo que bajó del servidor (Entrega 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatosParteDeGrupo {
+    pub evento_servidor_id: String,
+    pub grupo_id: String,
+    pub gasto_id: String,
+    pub cuenta_id: String,
+    /// Texto con punto decimal, por ejemplo "33.33".
+    pub monto: String,
+    pub moneda: String,
+    pub fecha: String,
+    /// Ya armado: "<grupo> · <gasto>".
+    pub concepto: String,
+    pub incluye_redondeo: bool,
+}
+
+/// Una parte tal como la entrega GET /cambios, antes de saber a qué cuenta va (Entrega 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParteDeGrupoEntrante {
+    pub evento_servidor_id: String,
+    /// Posición del evento en el registro de cambios del usuario.
+    pub posicion: i64,
+    pub grupo_id: String,
+    pub grupo_nombre: String,
+    pub gasto_id: String,
+    /// Concepto del gasto, sin el nombre del grupo.
+    pub concepto: String,
+    pub fecha: String,
+    pub moneda: String,
+    pub monto: String,
+    pub incluye_redondeo: bool,
+}
+
+impl ParteDeGrupoEntrante {
+    /// Los datos para aplicarla a una cuenta; el concepto queda «<grupo> · <gasto>».
+    pub fn con_cuenta(&self, cuenta_id: &str) -> DatosParteDeGrupo {
+        DatosParteDeGrupo {
+            evento_servidor_id: self.evento_servidor_id.clone(),
+            grupo_id: self.grupo_id.clone(),
+            gasto_id: self.gasto_id.clone(),
+            cuenta_id: cuenta_id.to_string(),
+            monto: self.monto.clone(),
+            moneda: self.moneda.clone(),
+            fecha: self.fecha.clone(),
+            concepto: format!("{} · {}", self.grupo_nombre, self.concepto),
+            incluye_redondeo: self.incluye_redondeo,
+        }
+    }
+}
+
+/// Qué pasó al aplicar una parte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultadoAplicar {
+    Aplicada,
+    YaAplicada,
+}
+
 pub struct CasosDeUso {
     repositorio: Box<dyn RepositorioEventos>,
     reloj: Box<dyn Reloj>,
@@ -137,17 +251,114 @@ impl CasosDeUso {
         }
     }
 
-    /// Devuelve el catálogo de monedas soportadas por el sistema.
-    pub fn listar_monedas(&self) -> Vec<MonedaDto> {
-        Moneda::catalogo()
-            .into_iter()
-            .map(|m| MonedaDto {
-                codigo: m.codigo,
-                nombre: m.nombre,
-                simbolo: m.simbolo,
-                decimales: m.decimales as u8,
-            })
-            .collect()
+    /// Catálogo completo de monedas: las cuatro de fábrica más las propias.
+    fn catalogo(&self) -> Result<Vec<Moneda>, ErrorAplicacion> {
+        Ok(proyector::catalogo_completo(
+            &self.repositorio.listar_monedas_propias()?,
+        ))
+    }
+
+    /// Devuelve el catálogo de monedas: las de fábrica y, después, las propias
+    /// en orden de creación.
+    pub fn listar_monedas(&self) -> Result<Vec<MonedaDto>, ErrorAplicacion> {
+        Ok(self.catalogo()?.into_iter().map(moneda_a_dto).collect())
+    }
+
+    /// Valida y crea una moneda propia (RF-CAM-01) registrando el evento
+    /// `MonedaCreada`. Desde ese momento puede usarse en una cuenta nueva.
+    pub fn crear_moneda(&mut self, entrada: NuevaMoneda) -> Result<MonedaDto, ErrorAplicacion> {
+        // Los decimales llegan como texto: si no son un número entero, el
+        // dominio valida el resto con 0 y se añade el error del campo.
+        let texto_decimales = entrada.decimales.trim();
+        let decimales = texto_decimales.parse::<u32>();
+        let resultado = crear_moneda(
+            &entrada.codigo,
+            &entrada.nombre,
+            &entrada.simbolo,
+            *decimales.as_ref().unwrap_or(&0),
+            &self.catalogo()?,
+        );
+        let error_decimales = decimales.is_err().then(|| ErrorValidacion {
+            campo: Some(Campo::Decimales.a_texto().to_string()),
+            mensaje: if texto_decimales.is_empty() {
+                "Indica cuántos decimales usa la moneda.".to_string()
+            } else {
+                format!("Los decimales deben ser un número entero de 0 a {DECIMALES_MAXIMOS}.")
+            },
+        });
+        let (moneda, evento_dominio) = match (resultado, error_decimales) {
+            (Ok(creada), None) => creada,
+            (resultado, error_decimales) => {
+                let mut errores = resultado.err().map(convertir_errores).unwrap_or_default();
+                errores.extend(error_decimales);
+                return Err(ErrorAplicacion::Validacion(errores));
+            }
+        };
+
+        let evento = EventoRegistrado {
+            id: self.ids.nuevo_id(),
+            tipo: TIPO_MONEDA_CREADA.to_string(),
+            momento_registro: self.reloj.ahora_utc(),
+            dispositivo_origen: self.dispositivo.id_dispositivo(),
+            datos: codec::serializar_moneda_creada(&evento_dominio),
+        };
+        self.repositorio.guardar(&evento)?;
+        Ok(moneda_a_dto(moneda))
+    }
+
+    /// Identificador de este dispositivo: la sincronización lo usa para su carpeta en el destino.
+    pub fn id_dispositivo(&self) -> String {
+        self.dispositivo.id_dispositivo()
+    }
+
+    /// Todos los eventos del libro en orden de inserción, tal como están guardados.
+    /// Solo lee: exportar no modifica el libro (RF-INT-01).
+    pub fn eventos_del_libro(
+        &self,
+    ) -> Result<Vec<crate::puertos::EventoRegistrado>, ErrorAplicacion> {
+        Ok(self.repositorio.listar()?)
+    }
+
+    /// Arma el archivo de respaldo con todos los eventos del libro: texto plano si
+    /// `frase` es `None`, cifrado si lleva frase. Solo lee el libro (RF-INT-01).
+    pub fn exportar_copia(
+        &self,
+        frase: Option<&str>,
+        cifrador: &dyn crate::respaldo::Cifrador,
+    ) -> Result<Vec<u8>, crate::respaldo::ErrorRespaldo> {
+        let eventos = self
+            .eventos_del_libro()
+            .map_err(|_| crate::respaldo::ErrorRespaldo::LibroNoLegible)?;
+        crate::respaldo::exportar_libro(&eventos, &self.reloj.ahora_utc(), frase, cifrador)
+    }
+
+    /// Importa una copia: valida y descifra el archivo completo antes de tocar el
+    /// libro y aplica los eventos con la fusión de la sección 2.1 (RF-INT-02, ESC-04).
+    /// El informe distingue los eventos nuevos, los que ya existían y los rechazados.
+    pub fn importar_copia(
+        &mut self,
+        bytes: &[u8],
+        frase: Option<&str>,
+        cifrador: &dyn crate::respaldo::Cifrador,
+    ) -> Result<InformeFusion, crate::respaldo::ErrorRespaldo> {
+        if frase.is_some_and(|f| f.chars().count() < crate::respaldo::LARGO_MINIMO_FRASE) {
+            return Err(crate::respaldo::ErrorRespaldo::FraseCorta);
+        }
+        let eventos = crate::respaldo::leer_libro(bytes, frase, cifrador)?;
+        self.fusionar_eventos(&eventos)
+            .map_err(|_| crate::respaldo::ErrorRespaldo::LibroNoLegible)
+    }
+
+    /// Une eventos entrantes con el libro local por identificador, sin borrar ni
+    /// modificar nada, y guarda los nuevos en una sola transacción (INV-13, INV-14).
+    pub fn fusionar_eventos(
+        &mut self,
+        entrantes: &[EventoRegistrado],
+    ) -> Result<InformeFusion, ErrorAplicacion> {
+        let locales = self.repositorio.listar()?;
+        let informe = fusion::fusionar(&locales, entrantes);
+        self.repositorio.guardar_lote(&informe.nuevos)?;
+        Ok(informe)
     }
 
     /// Reconstruye el listado de cuentas con su saldo actual derivado de todos sus
@@ -193,13 +404,14 @@ impl CasosDeUso {
         let saldo_normalizado = normalizar_separador_decimal(&entrada.saldo_inicial);
 
         // Una sola llamada a Cuenta::crear (D-10).
-        let resultado_dominio = Cuenta::crear(
+        let resultado_dominio = Cuenta::crear_con_monedas(
             String::new(),
             &entrada.nombre,
             tipo_para_validar,
             &entrada.moneda,
             &saldo_normalizado,
             &nombres_existentes,
+            &self.catalogo()?,
         );
 
         match (resultado_dominio, tipo_resultado) {
@@ -345,7 +557,7 @@ impl CasosDeUso {
         };
         let hoy = self.reloj.hoy();
 
-        let res_dominio = registrar_movimiento(
+        let res_dominio = registrar_movimiento_con_monedas(
             String::new(),
             entrada.cuenta_id.clone(),
             tipo_val,
@@ -356,6 +568,7 @@ impl CasosDeUso {
             &id_cat_resuelto,
             entrada.nota.clone(),
             &estado.categorias,
+            &estado.monedas,
         );
 
         let mut errores = Vec::new();
@@ -403,6 +616,87 @@ impl CasosDeUso {
         }
     }
 
+    /// Aplica al libro la parte de un gasto de grupo que bajó del servidor (Entrega 7).
+    ///
+    /// El id del evento local se deriva del id del evento del servidor con un
+    /// espacio de nombres fijo, para que dos dispositivos que bajaron la misma
+    /// parte produzcan el mismo evento. La carga conserva el id del servidor, que
+    /// es lo que comprueba la idempotencia (INV-13, INV-15). La cuenta debe
+    /// existir y ser de la moneda del grupo (INV-18).
+    pub fn aplicar_parte_de_grupo(
+        &mut self,
+        datos: DatosParteDeGrupo,
+    ) -> Result<ResultadoAplicar, ErrorAplicacion> {
+        let Some(evento) = self.preparar_parte_de_grupo(datos)? else {
+            return Ok(ResultadoAplicar::YaAplicada);
+        };
+        Ok(match self.repositorio.guardar(&evento)? {
+            crate::puertos::ResultadoGuardado::Guardado => ResultadoAplicar::Aplicada,
+            crate::puertos::ResultadoGuardado::YaExistia => ResultadoAplicar::YaAplicada,
+        })
+    }
+
+    /// Valida una parte y arma el evento local que la aplicaría, sin guardarlo.
+    /// `None` si ese evento del servidor ya está aplicado. Permite guardar un lote
+    /// entero junto con su cursor en una sola transacción.
+    pub fn preparar_parte_de_grupo(
+        &self,
+        datos: DatosParteDeGrupo,
+    ) -> Result<Option<EventoRegistrado>, ErrorAplicacion> {
+        let estado = self.proyectar_libro()?;
+        if estado.ids_de_grupo.contains(&datos.evento_servidor_id) {
+            return Ok(None);
+        }
+        let rechazo = |campo: &str, mensaje: &str| {
+            ErrorAplicacion::Validacion(vec![crate::errores::ErrorValidacion {
+                campo: Some(campo.to_string()),
+                mensaje: mensaje.to_string(),
+            }])
+        };
+        let cuenta = estado
+            .cuentas
+            .iter()
+            .find(|c| c.cuenta.id == datos.cuenta_id)
+            .ok_or_else(|| rechazo("cuenta_id", "La cuenta elegida no existe."))?;
+        let moneda = cuenta.cuenta.moneda.clone();
+        if moneda.codigo != datos.moneda {
+            return Err(rechazo(
+                "cuenta_id",
+                "La cuenta debe estar en la moneda del grupo.",
+            ));
+        }
+        let mut monto: Decimal = datos
+            .monto
+            .parse()
+            .map_err(|_| rechazo("monto", "El monto de la parte no es válido."))?;
+        if monto <= Decimal::ZERO || monto.normalize().scale() > moneda.decimales {
+            return Err(rechazo(
+                "monto",
+                "El monto de la parte no es válido para esta moneda.",
+            ));
+        }
+        monto.rescale(moneda.decimales);
+        let parte = dominio::GastoDeGrupoAplicado {
+            id_evento_servidor: datos.evento_servidor_id.clone(),
+            id_grupo: datos.grupo_id,
+            id_gasto: datos.gasto_id,
+            id_cuenta: datos.cuenta_id,
+            monto,
+            moneda,
+            fecha: datos.fecha,
+            concepto: datos.concepto,
+            incluye_redondeo: datos.incluye_redondeo,
+        };
+        let evento = EventoRegistrado {
+            id: crate::identificadores::id_evento_parte_de_grupo(&datos.evento_servidor_id),
+            tipo: TIPO_GASTO_DE_GRUPO_APLICADO.to_string(),
+            momento_registro: self.reloj.ahora_utc(),
+            dispositivo_origen: self.dispositivo.id_dispositivo(),
+            datos: codec::serializar_gasto_de_grupo(&parte),
+        };
+        Ok(Some(evento))
+    }
+
     /// Corrige un movimiento registrado creando un movimiento de ajuste por la diferencia
     /// que referencia al original, sin modificar ni borrar el registro original (INV-04).
     pub fn corregir_movimiento(
@@ -411,6 +705,14 @@ impl CasosDeUso {
     ) -> Result<MovimientoListado, ErrorAplicacion> {
         let estado = self.proyectar_libro()?;
         let id_buscado = entrada.movimiento_id.trim();
+        if estado.ids_de_grupo.contains(id_buscado) {
+            return Err(ErrorAplicacion::Validacion(vec![
+                crate::errores::ErrorValidacion {
+                    campo: None,
+                    mensaje: "Se corrige en el grupo.".to_string(),
+                },
+            ]));
+        }
 
         let mut movimientos_para_dominio: Vec<Movimiento> = estado
             .movimientos
@@ -542,7 +844,7 @@ impl CasosDeUso {
         cantidad.rescale(cuenta_ev.moneda.decimales);
 
         let comp = calcular_composicion_de_cuenta(cuenta_ev, &estado)?;
-        let (_, mov_hipotetico) = registrar_movimiento(
+        let (_, mov_hipotetico) = registrar_movimiento_con_monedas(
             "prev".to_string(),
             cuenta_ev.id.clone(),
             TipoMovimiento::Gasto,
@@ -553,6 +855,7 @@ impl CasosDeUso {
             "gasto:alimentacion",
             None,
             &categorias_de_fabrica(),
+            &estado.monedas,
         )
         .map_err(|errs| ErrorAplicacion::Validacion(convertir_errores(errs)))?;
 
@@ -638,7 +941,8 @@ impl CasosDeUso {
                 id_categoria: mp.movimiento.id_categoria.clone(),
                 nota: mp.movimiento.nota.clone(),
             };
-            let vista = armar_movimiento_original_listado(&ev_equiv, cat, &ajustes_mov);
+            let mut vista = armar_movimiento_original_listado(&ev_equiv, cat, &ajustes_mov);
+            vista.gasto_de_grupo = estado.ids_de_grupo.contains(&mp.movimiento.id);
             items_ordenados.push((mp.movimiento.fecha.clone(), mp.orden, vista));
         }
 
@@ -674,35 +978,71 @@ impl CasosDeUso {
         })
     }
 
-    /// Recorre todos los eventos del repositorio garantizando idempotencia por `id` (INV-13)
-    /// y reconstruye el estado de cuentas, categorías, movimientos y ajustes.
+    /// Recorre todos los eventos del repositorio en orden determinista
+    /// (momento de registro, dispositivo e identificador), garantizando
+    /// idempotencia por `id` (INV-13) y reconstruyendo el estado de cuentas,
+    /// categorías, movimientos y ajustes. Así, dos dispositivos con el mismo
+    /// conjunto de eventos derivan los mismos saldos sin importar el orden en
+    /// que recibieron los eventos.
     fn proyectar_libro(&self) -> Result<EstadoLibro, ErrorAplicacion> {
-        let eventos = self.repositorio.listar()?;
+        let mut eventos = self.repositorio.listar()?;
+        crate::fusion::ordenar_eventos(&mut eventos);
         let mut vistos = HashSet::new();
-        let mut cuentas = Vec::new();
+        let mut monedas = Moneda::catalogo();
+        let mut cuentas: Vec<CuentaEnLibro> = Vec::new();
+        let mut tasas = Vec::new();
+        let mut moneda_base = "USD".to_string();
         let mut categorias = categorias_de_fabrica();
         let mut movimientos: Vec<MovimientoProyectado> = Vec::new();
         let mut ajustes: Vec<AjusteProyectado> = Vec::new();
+        let mut ids_de_grupo: HashSet<String> = HashSet::new();
 
         for (indice, e) in eventos.iter().enumerate() {
             if !vistos.insert(e.id.clone()) {
                 continue;
             }
             match e.tipo.as_str() {
-                TIPO_CUENTA_CREADA => {
-                    cuentas.push(codec::deserializar(&e.datos)?);
+                TIPO_MONEDA_CREADA => {
+                    let ev = codec::deserializar_moneda_creada(&e.datos)?;
+                    if Moneda::por_codigo_en(&ev.codigo, &monedas).is_none() {
+                        monedas.push(Moneda::nueva_propia(
+                            &ev.codigo,
+                            &ev.nombre,
+                            &ev.simbolo,
+                            ev.decimales,
+                        ));
+                    }
                 }
-                TIPO_CATEGORIA_CREADA => {
-                    let ev = codec::deserializar_evento_categoria(&e.datos)?;
-                    categorias.push(Categoria {
-                        id: ev.id_categoria,
-                        nombre: ev.nombre,
-                        tipo: ev.tipo,
-                        de_fabrica: false,
+                TIPO_CUENTA_CREADA => {
+                    let fecha_creacion = if e.momento_registro.len() >= 10 {
+                        e.momento_registro[..10].to_string()
+                    } else {
+                        "1970-01-01".to_string()
+                    };
+                    let cuenta = codec::deserializar(&e.datos, &monedas)?;
+                    cuentas.push(CuentaEnLibro {
+                        cuenta,
+                        fecha_creacion,
                     });
                 }
+                TIPO_CATEGORIA_CREADA => {
+                    let ev = codec::deserializar_categoria(&e.datos)?;
+                    let id = id_categoria_canonico(&ev.id);
+                    if !categorias.iter().any(|c| c.id == id) {
+                        let tipo = match ev.tipo.as_str() {
+                            "ingreso" => TipoMovimiento::Ingreso,
+                            _ => TipoMovimiento::Gasto,
+                        };
+                        categorias.push(Categoria {
+                            id,
+                            nombre: ev.nombre,
+                            tipo,
+                            de_fabrica: ev.es_fabrica,
+                        });
+                    }
+                }
                 TIPO_MOVIMIENTO_REGISTRADO => {
-                    let ev = codec::deserializar_evento_movimiento(&e.datos)?;
+                    let ev = codec::deserializar_evento_movimiento(&e.datos, &monedas)?;
                     let monto = Monto::from_evento_interno(&ev, &ev.moneda);
                     movimientos.push(MovimientoProyectado {
                         orden: indice,
@@ -712,14 +1052,14 @@ impl CasosDeUso {
                             tipo: ev.tipo,
                             monto,
                             fecha: ev.fecha,
-                            id_categoria: ev.id_categoria,
+                            id_categoria: id_categoria_canonico(&ev.id_categoria),
                             nota: ev.nota,
                             estado: EstadoMovimiento::Vigente,
                         },
                     });
                 }
                 TIPO_MOVIMIENTO_CORREGIDO => {
-                    let ev = codec::deserializar_correccion(&e.datos)?;
+                    let ev = codec::deserializar_correccion(&e.datos, &monedas)?;
                     if let Some(orig) = movimientos
                         .iter_mut()
                         .find(|m| m.movimiento.id == ev.id_movimiento_original)
@@ -748,15 +1088,348 @@ impl CasosDeUso {
                         },
                     });
                 }
+                TIPO_GASTO_DE_GRUPO_APLICADO => {
+                    let parte = codec::deserializar_gasto_de_grupo(&e.datos, &monedas)?;
+                    let ev = parte.como_movimiento();
+                    ids_de_grupo.insert(ev.id_movimiento.clone());
+                    let monto = Monto::from_evento_interno(&ev, &ev.moneda);
+                    movimientos.push(MovimientoProyectado {
+                        orden: indice,
+                        movimiento: Movimiento {
+                            id: ev.id_movimiento,
+                            id_cuenta: ev.id_cuenta,
+                            tipo: ev.tipo,
+                            monto,
+                            fecha: ev.fecha,
+                            id_categoria: id_categoria_canonico(&ev.id_categoria),
+                            nota: ev.nota,
+                            estado: EstadoMovimiento::Vigente,
+                        },
+                    });
+                }
+                TIPO_TASA_REGISTRADA => {
+                    let ev = codec::deserializar_tasa_registrada(&e.datos)?;
+                    tasas.push(dominio::Tasa {
+                        id: ev.id,
+                        moneda_origen: ev.moneda_origen,
+                        moneda_destino: ev.moneda_destino,
+                        valor: ev.valor,
+                        fecha: ev.fecha,
+                        fuente: ev.fuente,
+                    });
+                }
+                TIPO_TASA_ELIMINADA => {
+                    let id_tasa = codec::deserializar_tasa_eliminada(&e.datos)?;
+                    tasas.retain(|t| t.id != id_tasa);
+                }
+                TIPO_MONEDA_BASE_CAMBIADA => {
+                    let ev = codec::deserializar_moneda_base_cambiada(&e.datos)?;
+                    moneda_base = ev;
+                }
                 _ => continue,
             }
         }
 
         Ok(EstadoLibro {
+            ids_de_grupo,
+            monedas,
             cuentas,
             categorias,
             movimientos,
             ajustes,
+            tasas,
+            moneda_base,
+        })
+    }
+    pub fn registrar_tasa(&mut self, entrada: NuevaTasa) -> Result<TasaListada, ErrorAplicacion> {
+        let estado = self.proyectar_libro()?;
+        let valor_limpio = normalizar_separador_decimal(&entrada.valor);
+
+        let valor = dominio::validar_tasa(
+            &entrada.moneda_origen,
+            &entrada.moneda_destino,
+            &valor_limpio,
+            &entrada.fecha,
+            &entrada.fuente,
+            &self.reloj.hoy(),
+            &estado.monedas,
+        )
+        .map_err(|errs| ErrorAplicacion::Validacion(convertir_errores(errs)))?;
+
+        let id = self.ids.nuevo_id();
+        let ev = dominio::TasaRegistrada {
+            id: id.clone(),
+            moneda_origen: entrada.moneda_origen.trim().to_uppercase(),
+            moneda_destino: entrada.moneda_destino.trim().to_uppercase(),
+            valor,
+            fecha: entrada.fecha.trim().to_string(),
+            fuente: entrada.fuente.trim().to_string(),
+        };
+
+        let evento = EventoRegistrado {
+            id: self.ids.nuevo_id(),
+            tipo: TIPO_TASA_REGISTRADA.to_string(),
+            momento_registro: self.reloj.ahora_utc(),
+            dispositivo_origen: self.dispositivo.id_dispositivo(),
+            datos: codec::serializar_tasa(&ev),
+        };
+        self.repositorio.guardar(&evento)?;
+
+        let decs = estado
+            .monedas
+            .iter()
+            .find(|m| m.codigo.eq_ignore_ascii_case(&ev.moneda_destino))
+            .map(|m| m.decimales)
+            .unwrap_or(2);
+
+        Ok(TasaListada {
+            id: ev.id,
+            moneda_origen: ev.moneda_origen,
+            moneda_destino: ev.moneda_destino,
+            valor: formatear_monto(ev.valor, decs),
+            fecha: ev.fecha,
+            fuente: ev.fuente,
+        })
+    }
+
+    /// Elimina lógicamente una tasa de cambio existente registrando el evento `TasaEliminada` (RF-CAM-02).
+    pub fn eliminar_tasa(&mut self, id: &str) -> Result<(), ErrorAplicacion> {
+        let estado = self.proyectar_libro()?;
+        let id_limpio = id.trim();
+        if !estado.tasas.iter().any(|t| t.id == id_limpio) {
+            return Err(ErrorAplicacion::Validacion(vec![ErrorValidacion {
+                campo: Some("tasa".to_string()),
+                mensaje: format!("La tasa con id '{id_limpio}' no existe o ya fue eliminada"),
+            }]));
+        }
+
+        let _ev = dominio::TasaEliminada {
+            id: id_limpio.to_string(),
+        };
+
+        let evento = EventoRegistrado {
+            id: self.ids.nuevo_id(),
+            tipo: TIPO_TASA_ELIMINADA.to_string(),
+            momento_registro: self.reloj.ahora_utc(),
+            dispositivo_origen: self.dispositivo.id_dispositivo(),
+            datos: codec::serializar_tasa_eliminada(id_limpio),
+        };
+        self.repositorio.guardar(&evento)?;
+        Ok(())
+    }
+
+    /// Devuelve el historial de tasas de cambio activas (no eliminadas) en orden de registro.
+    pub fn listar_tasas(&self) -> Result<Vec<TasaListada>, ErrorAplicacion> {
+        let estado = self.proyectar_libro()?;
+        Ok(estado
+            .tasas
+            .iter()
+            .map(|t| {
+                let decs = estado
+                    .monedas
+                    .iter()
+                    .find(|m| m.codigo.eq_ignore_ascii_case(&t.moneda_destino))
+                    .map(|m| m.decimales)
+                    .unwrap_or(2);
+                TasaListada {
+                    id: t.id.clone(),
+                    moneda_origen: t.moneda_origen.clone(),
+                    moneda_destino: t.moneda_destino.clone(),
+                    valor: formatear_monto(t.valor, decs),
+                    fecha: t.fecha.clone(),
+                    fuente: t.fuente.clone(),
+                }
+            })
+            .collect())
+    }
+
+    /// Modifica la moneda base utilizada para consolidar el patrimonio (RF-CAM-03).
+    pub fn cambiar_moneda_base(&mut self, nueva_base: &str) -> Result<String, ErrorAplicacion> {
+        let estado = self.proyectar_libro()?;
+        let base_limpia = nueva_base.trim().to_uppercase();
+
+        if !estado
+            .monedas
+            .iter()
+            .any(|m| m.codigo.eq_ignore_ascii_case(&base_limpia))
+        {
+            return Err(ErrorAplicacion::Validacion(vec![ErrorValidacion {
+                campo: Some("moneda".to_string()),
+                mensaje: format!("La moneda '{base_limpia}' no está en el catálogo"),
+            }]));
+        }
+
+        let _ev = dominio::MonedaBaseCambiada {
+            nueva_moneda_base: base_limpia.clone(),
+        };
+
+        let evento = EventoRegistrado {
+            id: self.ids.nuevo_id(),
+            tipo: TIPO_MONEDA_BASE_CAMBIADA.to_string(),
+            momento_registro: self.reloj.ahora_utc(),
+            dispositivo_origen: self.dispositivo.id_dispositivo(),
+            datos: codec::serializar_moneda_base_cambiada(&base_limpia),
+        };
+        self.repositorio.guardar(&evento)?;
+        Ok(base_limpia)
+    }
+
+    /// Obtiene la moneda base vigente para la consolidación de patrimonio (por defecto `"USD"`).
+    pub fn obtener_moneda_base(&self) -> Result<String, ErrorAplicacion> {
+        let estado = self.proyectar_libro()?;
+        Ok(estado.moneda_base)
+    }
+
+    /// Consulta la posición patrimonial consolidada a una fecha dada (o la fecha del sistema).
+    ///
+    /// Agrupa las cuentas existentes a la fecha, calcula sus saldos, genera subtotales
+    /// por moneda y, si existen tasas de cambio aplicables, consolida el total en la
+    /// moneda base configurada.
+    pub fn consultar_patrimonio(
+        &self,
+        fecha_consulta: Option<String>,
+    ) -> Result<PatrimonioVista, ErrorAplicacion> {
+        let fecha = match fecha_consulta {
+            Some(f) => {
+                let f_limpia = f.trim().to_string();
+                dominio::validar_fecha(&f_limpia)
+                    .map_err(|e| ErrorAplicacion::Validacion(convertir_errores(vec![e])))?;
+                if f_limpia > self.reloj.hoy() {
+                    return Err(ErrorAplicacion::Validacion(vec![ErrorValidacion {
+                        campo: Some("fecha".to_string()),
+                        mensaje: "La fecha de consulta no puede ser futura".to_string(),
+                    }]));
+                }
+                f_limpia
+            }
+            None => self.reloj.hoy(),
+        };
+
+        let estado = self.proyectar_libro()?;
+        let mut cuentas_vista = Vec::new();
+        let mut saldos_por_cuenta = Vec::new();
+
+        let decimales_base = estado
+            .monedas
+            .iter()
+            .find(|m| m.codigo.eq_ignore_ascii_case(&estado.moneda_base))
+            .map(|m| m.decimales)
+            .unwrap_or(2);
+
+        for cl in &estado.cuentas {
+            // "una cuenta no aparece antes de su fecha de creación"
+            if cl.fecha_creacion > fecha {
+                continue;
+            }
+
+            // Calcular saldo de la cuenta a la fecha de consulta
+            let comp = calcular_composicion_a_fecha(&cl.cuenta, &estado, &fecha)?;
+            let saldo_dec = comp.saldo_actual.cantidad();
+            let saldo_str = formatear_monto(saldo_dec, cl.cuenta.moneda.decimales);
+
+            let en_moneda_base = if cl
+                .cuenta
+                .moneda
+                .codigo
+                .eq_ignore_ascii_case(&estado.moneda_base)
+            {
+                Some(formatear_monto(saldo_dec, decimales_base))
+            } else {
+                dominio::buscar_tasa_aplicable(
+                    &cl.cuenta.moneda.codigo,
+                    &estado.moneda_base,
+                    &fecha,
+                    &estado.tasas,
+                )
+                .map(|t| {
+                    let conv = if t.es_inversa {
+                        saldo_dec / t.valor
+                    } else {
+                        saldo_dec * t.valor
+                    };
+                    formatear_monto(conv, decimales_base)
+                })
+            };
+
+            cuentas_vista.push(CuentaPatrimonioVista {
+                id: cl.cuenta.id.clone(),
+                nombre: cl.cuenta.nombre.clone(),
+                moneda: cl.cuenta.moneda.codigo.clone(),
+                saldo: saldo_str,
+                en_moneda_base,
+            });
+
+            saldos_por_cuenta.push((
+                cl.cuenta.moneda.codigo.clone(),
+                cl.cuenta.moneda.decimales,
+                saldo_dec,
+            ));
+        }
+
+        let subtotales_vista = calcular_subtotales(&saldos_por_cuenta);
+        let subtotales_dec: Vec<(String, Decimal)> = subtotales_vista
+            .iter()
+            .map(|s| {
+                let d = Decimal::from_str(&s.total).unwrap_or(Decimal::ZERO);
+                (s.moneda.clone(), d)
+            })
+            .collect();
+
+        let cons = dominio::consolidar_subtotales(
+            &estado.moneda_base,
+            &fecha,
+            &subtotales_dec,
+            &estado.tasas,
+            &estado.monedas,
+        );
+
+        let decimales_base = estado
+            .monedas
+            .iter()
+            .find(|m| m.codigo.eq_ignore_ascii_case(&estado.moneda_base))
+            .map(|m| m.decimales)
+            .unwrap_or(2);
+
+        let total_str = cons.total.map(|t| formatear_monto(t, decimales_base));
+
+        let tasas_usadas: Vec<TasaUsadaVista> = cons
+            .tasas_usadas
+            .into_iter()
+            .map(|t| {
+                let decs = estado
+                    .monedas
+                    .iter()
+                    .find(|m| m.codigo.eq_ignore_ascii_case(&t.moneda_destino))
+                    .map(|m| m.decimales)
+                    .unwrap_or(2);
+                TasaUsadaVista {
+                    origen: t.moneda_origen,
+                    destino: t.moneda_destino,
+                    valor: formatear_monto(t.valor, decs),
+                    fecha: t.fecha,
+                    fuente: t.fuente,
+                    es_inversa: t.es_inversa,
+                }
+            })
+            .collect();
+
+        let faltantes: Vec<ParFaltanteVista> = cons
+            .faltantes
+            .into_iter()
+            .map(|f| ParFaltanteVista {
+                origen: f.moneda_origen,
+                destino: f.moneda_destino,
+            })
+            .collect();
+
+        Ok(PatrimonioVista {
+            moneda_base: estado.moneda_base,
+            fecha_consulta: fecha,
+            cuentas: cuentas_vista,
+            subtotales: subtotales_vista,
+            total: total_str,
+            tasas_usadas,
+            faltantes,
         })
     }
 }
@@ -768,13 +1441,14 @@ trait MontoDesdeEvento {
 
 impl MontoDesdeEvento for Monto {
     fn from_evento_interno(ev: &MovimientoRegistrado, moneda: &Moneda) -> Monto {
-        let (cuenta_base, _) = Cuenta::crear(
+        let (cuenta_base, _) = Cuenta::crear_con_monedas(
             "tmp".to_string(),
             "Tmp",
             TipoCuenta::Efectivo,
             &moneda.codigo,
             &ev.monto.to_string(),
             &[],
+            std::slice::from_ref(moneda),
         )
         .expect("monto de evento previamente validado");
         cuenta_base.saldo().clone()
@@ -786,20 +1460,32 @@ fn calcular_composicion_de_cuenta(
     cuenta_ev: &CuentaCreada,
     estado: &EstadoLibro,
 ) -> Result<dominio::ComposicionSaldo, ErrorAplicacion> {
-    let (cuenta_dom, _) = Cuenta::crear(
+    calcular_composicion_a_fecha(cuenta_ev, estado, "9999-12-31")
+}
+
+/// Calcula la composición y el saldo de una cuenta hasta una fecha de corte dada.
+fn calcular_composicion_a_fecha(
+    cuenta_ev: &CuentaCreada,
+    estado: &EstadoLibro,
+    fecha_corte: &str,
+) -> Result<dominio::ComposicionSaldo, ErrorAplicacion> {
+    let (cuenta_dom, _) = Cuenta::crear_con_monedas(
         cuenta_ev.id.clone(),
         &cuenta_ev.nombre,
         cuenta_ev.tipo,
         &cuenta_ev.moneda.codigo,
         &cuenta_ev.saldo_inicial.to_string(),
         &[],
+        std::slice::from_ref(&cuenta_ev.moneda),
     )
     .map_err(|e| ErrorAplicacion::Interno(format!("Cuenta corrupta en proyección: {e:?}")))?;
 
     let movs_cuenta: Vec<Movimiento> = estado
         .movimientos
         .iter()
-        .filter(|m| m.movimiento.id_cuenta == cuenta_ev.id)
+        .filter(|m| {
+            m.movimiento.id_cuenta == cuenta_ev.id && m.movimiento.fecha.as_str() <= fecha_corte
+        })
         .map(|m| m.movimiento.clone())
         .collect();
 
@@ -808,7 +1494,10 @@ fn calcular_composicion_de_cuenta(
     let ajustes_cuenta: Vec<Ajuste> = estado
         .ajustes
         .iter()
-        .filter(|a| ids_movs_cuenta.contains(a.ajuste.id_movimiento_original.as_str()))
+        .filter(|a| {
+            ids_movs_cuenta.contains(a.ajuste.id_movimiento_original.as_str())
+                && a.fecha.as_str() <= fecha_corte
+        })
         .map(|a| a.ajuste.clone())
         .collect();
 
@@ -816,9 +1505,8 @@ fn calcular_composicion_de_cuenta(
         .map_err(|e| ErrorAplicacion::Interno(format!("Error al calcular saldo: {e:?}")))
 }
 
-/// Resuelve un identificador o nombre de categoría (incluyendo nombres equivalentes del enunciado).
 fn resolver_id_categoria(entrada: &str, categorias: &[Categoria]) -> String {
-    let limpio = entrada.trim();
+    let limpio = id_categoria_canonico(entrada.trim());
     if limpio.is_empty() {
         return String::new();
     }
@@ -884,6 +1572,7 @@ fn armar_movimiento_original_listado(
     };
 
     MovimientoListado {
+        gasto_de_grupo: false,
         id: ev.id_movimiento.clone(),
         cuenta_id: ev.id_cuenta.clone(),
         tipo: codec::tipo_movimiento_a_texto(&ev.tipo).to_string(),
@@ -915,6 +1604,7 @@ fn armar_ajuste_listado(
     };
 
     MovimientoListado {
+        gasto_de_grupo: false,
         id: ev.id_ajuste.clone(),
         cuenta_id: original.id_cuenta.clone(),
         tipo: codec::tipo_movimiento_a_texto(&original.tipo).to_string(),
@@ -968,6 +1658,17 @@ fn calcular_subtotales(saldos: &[(String, u32, Decimal)]) -> Vec<Subtotal> {
         });
     }
     subtotales
+}
+
+/// Convierte una moneda del dominio al modelo de lectura de la interfaz.
+fn moneda_a_dto(m: Moneda) -> MonedaDto {
+    MonedaDto {
+        codigo: m.codigo,
+        nombre: m.nombre,
+        simbolo: m.simbolo,
+        decimales: m.decimales as u8,
+        de_fabrica: m.de_fabrica,
+    }
 }
 
 /// Transforma la lista de errores de dominio al tipo [`ErrorValidacion`] de la capa de aplicación.

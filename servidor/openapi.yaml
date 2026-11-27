@@ -1,0 +1,1697 @@
+openapi: 3.1.0
+ 
+info:
+  title: Cuentas Claras API
+  version: 0.1.0
+  description: |
+    Servidor de Cuentas Claras.
+ 
+    Identifica a las personas (registro, inicio de sesión y perfil), gestiona
+    sus amistades (búsqueda exacta, invitaciones, listado y baja) y, desde la
+    Entrega 6, guarda lo que comparten varias personas: grupos y gastos
+    divididos. Desde la Entrega 7 también entrega a cada persona, por
+    `GET /cambios`, la parte que le toca de cada gasto de grupo, y acepta una
+    clave de idempotencia al registrar gastos para que un reintento no cree un
+    segundo gasto. **No recibe ni guarda cuentas, movimientos, saldos, tasas ni
+    categorías** (INV-16, RES-02): esos datos nunca salen del dispositivo, y el
+    servidor tampoco sabe en qué cuenta aplicó la app cada parte.
+ 
+    Este archivo se escribe a mano y se verifica contra `/openapi.json`, que
+    genera FastAPI. Si una ruta cambia en el código, hay que cambiarla aquí.
+ 
+    Las rutas de amistades y grupos devuelven la respuesta armada a mano, así que
+    `/openapi.json` solo muestra de ellas el código de éxito y no sus cuerpos ni
+    sus errores. Para esas rutas este archivo es la referencia: rutas y métodos
+    coinciden con los del servidor y cada código documentado sale de `main.py`.
+ 
+    ## Forma de los errores
+ 
+    - **400** y **409** devuelven `{"errores": [{"campo": ..., "mensaje": ...}]}`.
+      Nunca repiten el valor enviado (la contraseña no aparece en ningún error).
+      El **409** de `POST /grupos/{id}/gastos` usa el campo `idempotency_key`.
+    - **401** devuelve `{"mensaje": ...}`.
+    - Los nombres de campo son `nombre_usuario`, `nombre_visible`, `correo` y
+      `contrasena` (y `cuerpo` si el cuerpo no es un objeto JSON). Las
+      amistades usan `usuario` y `aceptar`. Los gastos
+      usan `concepto`, `monto`, `fecha`, `pagador`, `regla`, `participantes`,
+      `porcentajes` y `montos`. Los grupos usan `nombre`, `moneda` y
+      `respuesta` (más `usuario` al invitar). `GET /cambios` usa `desde` y la
+      clave de idempotencia usa `idempotency_key`.
+    - Nunca se responde 422: los errores de tipo también son 400 por campo.
+    - Un grupo inexistente, un identificador mal formado, una persona ajena y
+      un invitado que aún no aceptó reciben **el mismo 404** con el mismo
+      cuerpo, `{"mensaje": "Grupo no encontrado."}` (INV-17, RNF-07, ADR-013).
+
+    ## Dinero
+
+    Montos y porcentajes viajan como **texto** con punto decimal (`"100.00"`,
+    `"33.33"`), nunca como número JSON (RNF-08). En los mensajes de error se
+    escriben con coma (`"118,00"`). La división exacta y el reparto del residuo
+    están descritos en ADR-013 y fijados por `docs/vectores-division.json`.
+ 
+    ## Fechas
+
+    Todas van en UTC con el formato `AAAA-MM-DDThh:mm:ssZ`, igual que `/ping`.
+
+    ## Tipos de PostgreSQL
+
+    El contrato refleja el esquema de la tabla `usuarios`: `id` es `UUID`,
+    `fecha_alta` es `TIMESTAMPTZ` en UTC, y los textos usan `VARCHAR(n)` con
+    los límites indicados (`nombre_usuario` 30, `nombre_visible` 50 y `correo`
+    254). El hash de la contraseña es `TEXT` y nunca aparece en una respuesta.
+
+servers:
+  - url: http://localhost:8000
+    description: Entorno local (HTTP permitido solo aquí; todo despliegue exige HTTPS, RNF-06).
+ 
+tags:
+  - name: Estado
+    description: Comprobación de que el servidor responde.
+  - name: Usuarios
+    description: Registro y perfil.
+  - name: Sesiones
+    description: Inicio de sesión y clave de acceso temporal.
+  - name: Amistades
+    description: >-
+      Búsqueda exacta de personas, invitaciones de amistad, respuesta, listado
+      y baja. Todos los datos compartidos viven en el servidor; las amistades
+      solo existen tras la aceptación.
+  - name: Grupos
+    description: Grupos compartidos (solo sus miembros aceptados los ven).
+  - name: Gastos
+    description: Gastos de un grupo y su división exacta.
+  - name: Cambios
+    description: >-
+      Registro de cambios de cada persona: las partes de los gastos de grupo
+      que le corresponden, para que la app las aplique a su libro personal.
+ 
+paths:
+  /ping:
+    get:
+      tags: [Estado]
+      summary: Comprobar que el servidor está activo
+      operationId: ping
+      responses:
+        "200":
+          description: El servidor responde.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingRespuesta"
+ 
+  /usuarios:
+    post:
+      tags: [Usuarios]
+      summary: Registrarse
+      description: |
+        Crea un usuario. La contraseña se guarda solo como hash argon2id con sal
+        única; nunca se devuelve. El nombre de usuario y el correo son únicos; el
+        correo se compara sin distinguir mayúsculas.
+      operationId: registrarUsuario
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistroUsuario"
+            example:
+              nombre_usuario: ana.perez
+              nombre_visible: Ana Pérez
+              correo: ana@example.com
+              contrasena: una-clave-larga-123
+      responses:
+        "201":
+          description: Usuario creado. No incluye contraseña ni hash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usuario"
+        "400":
+          description: >-
+            Datos inválidos: nombre de usuario fuera de formato, nombre visible
+            vacío, correo mal formado, contraseña de menos de 10
+            caracteres, o campo ausente. Se informan todos los campos que fallan
+            a la vez.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: correo
+                    mensaje: El correo no tiene un formato válido.
+                  - campo: contrasena
+                    mensaje: La contraseña debe tener al menos 10 caracteres.
+        "409":
+          description: El nombre de usuario o el correo ya están registrados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: correo
+                    mensaje: Ese correo ya está registrado.
+ 
+    get:
+      tags: [Usuarios]
+      summary: Buscar usuario por nombre de usuario exacto
+      description: |
+        Busca solo coincidencias exactas del nombre de usuario. Nunca devuelve
+        el correo ni permite enumerar personas: no hay búsqueda parcial, por
+        prefijo ni listados (RF-SOC-04). El parámetro se declara opcional
+        porque el servidor responde 400 con el error por campo (no 422) cuando
+        falta o viene vacío.
+      operationId: buscarUsuario
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: usuario
+          in: query
+          required: true
+          description: Nombre de usuario exacto, por ejemplo `ana.perez`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 30
+            pattern: "^[a-z0-9._]{3,30}$"
+            example: ana.perez
+      responses:
+        "200":
+          description: >-
+            Usuario encontrado. Solo incluye `nombre_usuario` y
+            `nombre_visible`; nunca el correo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioPublico"
+        "400":
+          description: Falta el parámetro `usuario` o viene vacío.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "404":
+          description: No existe un usuario con ese nombre de usuario exacto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Usuario no encontrado.
+
+  /sesiones:
+    post:
+      tags: [Sesiones]
+      summary: Iniciar sesión
+      description: |
+        Con credenciales válidas entrega un token firmado (JWT, HS256) con una
+        vigencia de 60 minutos por defecto (configurable por variable de entorno).
+        Con credenciales incorrectas responde siempre lo mismo, exista o no el
+        usuario.
+      operationId: iniciarSesion
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credenciales"
+            example:
+              correo: ana@example.com
+              contrasena: una-clave-larga-123
+      responses:
+        "200":
+          description: Sesión iniciada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sesion"
+        "400":
+          description: Falta el correo o la contraseña, o vienen vacíos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: >-
+            Correo o contraseña incorrectos. El mensaje y el código son idénticos
+            si el correo no existe o si la contraseña no coincide.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Correo o contraseña incorrectos.
+ 
+  /usuarios/yo:
+    get:
+      tags: [Usuarios]
+      summary: Perfil propio
+      operationId: obtenerPerfil
+      security:
+        - tokenBearer: []
+      responses:
+        "200":
+          description: Datos del usuario de la sesión. Nunca incluye hash ni contraseña.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usuario"
+        "401":
+          description: >-
+            Token ausente, alterado, firmado con otro secreto, vencido, o con un
+            esquema distinto de Bearer.
+          headers:
+            WWW-Authenticate:
+              description: Esquema de autenticación esperado.
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Sesión no válida o vencida.
+ 
+  /grupos:
+    post:
+      tags: [Grupos]
+      summary: Crear grupo
+      description: |
+        Quien crea el grupo queda como miembro y administrador (RF-COM-01).
+        El nombre es obligatorio; la descripción y la actividad (por ejemplo,
+        «Viaje a Mérida, marzo») son opcionales. La moneda es un código de tres
+        letras y se guarda en mayúsculas; todos los gastos del grupo van en ella.
+      operationId: crearGrupo
+      security:
+        - tokenBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NuevoGrupo"
+            example:
+              nombre: Viaje a Mérida
+              descripcion: Gastos del viaje
+              moneda: USD
+              actividad: Viaje a Mérida, marzo
+      responses:
+        "201":
+          description: Grupo creado; quien lo creó es su administrador.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrupoResumen"
+              example:
+                id: 3f2b8c1e-5a47-4d9b-9e0a-1c2d3e4f5a6b
+                nombre: Viaje a Mérida
+                descripcion: Gastos del viaje
+                moneda: USD
+                actividad: Viaje a Mérida, marzo
+                rol: administrador
+                cantidad_miembros: 1
+        "400":
+          description: Falta el nombre o la moneda no es un código de tres letras.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: nombre
+                    mensaje: El nombre del grupo es obligatorio.
+                  - campo: moneda
+                    mensaje: La moneda debe ser un código ISO de tres letras mayúsculas.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+
+    get:
+      tags: [Grupos]
+      summary: Listar mis grupos e invitaciones
+      description: |
+        Devuelve los grupos donde la persona es miembro aceptado y, aparte, las
+        invitaciones pendientes con el nombre del grupo y quién invitó. Una
+        invitación pendiente no da acceso a los gastos ni a los balances
+        (RF-COM-02): para eso hay que aceptarla.
+      operationId: listarMisGrupos
+      security:
+        - tokenBearer: []
+      responses:
+        "200":
+          description: Grupos e invitaciones pendientes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListaGrupos"
+              example:
+                grupos:
+                  - id: 3f2b8c1e-5a47-4d9b-9e0a-1c2d3e4f5a6b
+                    nombre: Viaje a Mérida
+                    descripcion: ""
+                    moneda: USD
+                    actividad: Viaje a Mérida, marzo
+                    rol: administrador
+                    cantidad_miembros: 3
+                invitaciones:
+                  - grupo_id: 9a8b7c6d-1e2f-4a3b-8c4d-5e6f7a8b9c0d
+                    nombre: Cumpleaños de Luis
+                    moneda: USD
+                    actividad: ""
+                    invitado_por:
+                      nombre_usuario: luis
+                      nombre_visible: Luis Gómez
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+
+  /grupos/{id_grupo}:
+    get:
+      tags: [Grupos]
+      summary: Detalle de grupo
+      description: |
+        Miembros aceptados, gastos (del más reciente al más antiguo) con sus
+        partes y el balance de cada miembro. Solo para miembros aceptados.
+        `balance = pago − le_corresponde`; la suma de todos es exactamente
+        `0.00` (INV-08). Un miembro sin gastos aparece con `0.00`.
+      operationId: obtenerGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+      responses:
+        "200":
+          description: Detalle del grupo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrupoDetalle"
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "404":
+          $ref: "#/components/responses/GrupoNoEncontrado"
+
+  /grupos/{id_grupo}/miembros:
+    post:
+      tags: [Grupos]
+      summary: Invitar a un amigo al grupo
+      description: |
+        Solo el administrador puede invitar, y solo a sus amigos (RF-COM-02).
+        Nadie entra al grupo sin aceptar: la persona queda como `invitado` y no
+        ve gastos ni balances hasta aceptar.
+
+        Las comprobaciones van en este orden: sesión (401), pertenencia (404
+        uniforme), rol de administrador (403), datos (400), existencia de la
+        persona (404 «Usuario no encontrado.»), amistad (403) y duplicado (409).
+      operationId: invitarAlGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitarMiembro"
+            example:
+              usuario: beto
+      responses:
+        "201":
+          description: Invitación creada; la persona todavía no es miembro.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MiembroInvitado"
+              example:
+                usuario: beto
+                nombre_visible: Beto Ruiz
+                rol: miembro
+                estado: invitado
+        "400":
+          description: Falta el nombre de usuario.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: usuario
+                    mensaje: El nombre de usuario es obligatorio.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "403":
+          description: >-
+            Quien invita es miembro pero no administrador, o la persona
+            invitada no es su amiga.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              examples:
+                noAdministrador:
+                  value:
+                    mensaje: Solo el administrador puede invitar miembros.
+                noEsAmigo:
+                  value:
+                    mensaje: Solo puedes invitar a personas que sean tus amigos.
+        "404":
+          description: >-
+            El grupo no existe o quien consulta no es miembro aceptado (el
+            404 uniforme), o no hay ninguna persona con ese nombre de usuario.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              examples:
+                grupo:
+                  value:
+                    mensaje: Grupo no encontrado.
+                usuario:
+                  value:
+                    mensaje: Usuario no encontrado.
+        "409":
+          description: La persona ya es miembro o ya tiene una invitación pendiente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: usuario
+                    mensaje: El usuario ya pertenece al grupo o tiene una invitación pendiente.
+
+  /grupos/{id_grupo}/miembros/yo/respuesta:
+    post:
+      tags: [Grupos]
+      summary: Responder la invitación al grupo
+      description: |
+        Solo responde quien fue invitado. Al aceptar pasa a ser miembro y ya ve
+        gastos y balances; al rechazar, la invitación se cierra. Si el grupo no
+        existe, el identificador no es un UUID o la persona no tiene una
+        invitación pendiente (incluida una ya respondida), la respuesta es el
+        mismo 404 «Grupo no encontrado.»; esa comprobación va antes que la del
+        cuerpo.
+      operationId: responderInvitacionGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResponderInvitacionGrupo"
+            example:
+              respuesta: aceptar
+      responses:
+        "200":
+          description: Invitación aceptada o rechazada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaMensaje"
+              examples:
+                aceptada:
+                  value:
+                    mensaje: Invitación aceptada.
+                rechazada:
+                  value:
+                    mensaje: Invitación rechazada.
+        "400":
+          description: La respuesta no es `aceptar` ni `rechazar`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: respuesta
+                    mensaje: La respuesta debe ser 'aceptar' o 'rechazar'.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "404":
+          $ref: "#/components/responses/GrupoNoEncontrado"
+
+  /grupos/{id_grupo}/gastos:
+    post:
+      tags: [Gastos]
+      summary: Registrar gasto de grupo
+      description: |
+        El servidor divide el monto con la regla elegida (el mismo
+        procedimiento que la vista previa de la app) y guarda el gasto con
+        todas sus partes en una sola transacción: o queda todo o nada (INV-07).
+
+        1. Cada parte exacta se trunca a céntimos.
+        2. Residuo = monto − suma de las partes truncadas.
+        3. El residuo se reparte de a un céntimo en orden alfabético de nombre
+           de usuario; esas partes llevan `incluye_redondeo: true`.
+
+        Las comprobaciones van en este orden: sesión (401), pertenencia (404
+        uniforme), encabezado `Idempotency-Key` y datos (400 por campo) y, por
+        último, la clave ya usada (200 o 409). Pagador y participantes deben
+        ser miembros aceptados; un miembro puede quedar fuera del reparto.
+
+        Al guardar el gasto, el servidor agrega al registro de cambios de cada
+        participante un evento con su parte (ver `GET /cambios`). Quien queda
+        fuera del reparto no recibe nada, y tampoco quien recibe una parte de
+        0,00 (por ejemplo, 0,02 entre tres: la tercera parte es 0,00): el
+        libro personal no admite movimientos de cero, así que ese evento no se
+        crea ni consume una posición. Gasto, eventos y clave se guardan en
+        una sola transacción.
+
+        ## Clave de idempotencia (RNF-17, ESC-09)
+
+        El encabezado `Idempotency-Key` es **opcional** para el servidor: sin
+        él, el registro se comporta como en la Entrega 6 y siempre responde
+        201. La app lo envía siempre: un UUID generado una sola vez al crear la
+        operación y repetido en cada reintento. La clave es de 8 a 128
+        caracteres ASCII visibles (sin espacios) y su alcance es **por
+        usuario**: la misma clave de dos personas no choca.
+
+        El servidor guarda la clave junto con una huella (SHA-256) del cuerpo
+        canónico: grupo, concepto, monto, fecha, pagador, regla y participantes
+        ordenados.
+
+        - Clave nueva: se registra el gasto y responde **201**.
+        - Clave ya procesada con la misma huella (por ejemplo, porque se perdió
+          la respuesta): responde **200** con el gasto ya registrado, sin crear
+          otro gasto ni eventos nuevos.
+        - Clave ya procesada con otra huella: responde **409**.
+        - La clave solo se consume si el gasto se registró bien: un 400 o un 404
+          no la gastan.
+      operationId: registrarGastoGrupo
+      security:
+        - tokenBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdGrupo"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NuevoGasto"
+            examples:
+              partesIguales:
+                summary: 100,00 entre tres (33,34 / 33,33 / 33,33)
+                value:
+                  concepto: Cena
+                  monto: "100.00"
+                  fecha: "2026-03-10"
+                  pagador: ana
+                  regla: partes_iguales
+                  participantes:
+                    - { usuario: ana, valor: "" }
+                    - { usuario: beto, valor: "" }
+                    - { usuario: carla, valor: "" }
+              porcentajes:
+                summary: 60,00 al 50 / 25 / 25
+                value:
+                  concepto: Taxi
+                  monto: "60.00"
+                  fecha: "2026-03-11"
+                  pagador: beto
+                  regla: porcentajes
+                  participantes:
+                    - { usuario: ana, valor: "50" }
+                    - { usuario: beto, valor: "25" }
+                    - { usuario: carla, valor: "25" }
+      responses:
+        "201":
+          description: Gasto guardado con la división calculada por el servidor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gasto"
+              example:
+                id: 7d1f0c2a-3b4e-4f5a-8c9d-0e1f2a3b4c5d
+                concepto: Cena
+                monto: "100.00"
+                fecha: "2026-03-10"
+                pagador: ana
+                regla: partes_iguales
+                partes:
+                  - { usuario: ana, monto: "33.34", incluye_redondeo: true }
+                  - { usuario: beto, monto: "33.33", incluye_redondeo: false }
+                  - { usuario: carla, monto: "33.33", incluye_redondeo: false }
+        "200":
+          description: >-
+            La clave de idempotencia ya se había procesado con el mismo cuerpo:
+            devuelve el gasto ya registrado, tal como se respondió la primera
+            vez. No se crea otro gasto ni eventos nuevos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gasto"
+              example:
+                id: 7d1f0c2a-3b4e-4f5a-8c9d-0e1f2a3b4c5d
+                concepto: Cena
+                monto: "100.00"
+                fecha: "2026-03-10"
+                pagador: ana
+                regla: partes_iguales
+                partes:
+                  - { usuario: ana, monto: "33.34", incluye_redondeo: true }
+                  - { usuario: beto, monto: "33.33", incluye_redondeo: false }
+                  - { usuario: carla, monto: "33.33", incluye_redondeo: false }
+        "400":
+          description: >-
+            Datos inválidos, o porcentajes o montos que no cuadran. Cuando no
+            cuadran, el mensaje dice la suma y la diferencia exacta con
+            «faltan» o «sobran». También responde 400 una clave de idempotencia
+            que no tiene de 8 a 128 caracteres visibles (campo
+            `idempotency_key`); una clave rechazada así no se consume.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              examples:
+                porcentajes:
+                  value:
+                    errores:
+                      - campo: porcentajes
+                        mensaje: Los porcentajes suman 95; faltan 5.
+                montos:
+                  value:
+                    errores:
+                      - campo: montos
+                        mensaje: Los montos suman 118,00; faltan 2,00.
+                datos:
+                  value:
+                    errores:
+                      - campo: monto
+                        mensaje: El monto debe ser mayor que 0 y tener hasta dos decimales.
+                      - campo: regla
+                        mensaje: Elige una regla de división válida.
+                      - campo: participantes
+                        mensaje: Elige al menos un participante.
+                clave:
+                  value:
+                    errores:
+                      - campo: idempotency_key
+                        mensaje: La clave de idempotencia debe tener de 8 a 128 caracteres visibles.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+        "404":
+          $ref: "#/components/responses/GrupoNoEncontrado"
+        "409":
+          description: >-
+            La clave de idempotencia ya se usó con datos distintos. La app no
+            debe reintentar la operación: es otra operación y necesita otra
+            clave.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: idempotency_key
+                    mensaje: Esa clave ya se usó con otros datos; usa una clave nueva para un gasto distinto.
+
+  /cambios:
+    get:
+      tags: [Cambios]
+      summary: Obtener los cambios del usuario
+      description: |
+        Devuelve, en orden de posición, los eventos del registro de cambios de
+        **quien consulta** posteriores al cursor `desde`, en lotes de como
+        máximo 100. Cuando `hay_mas` es `true`, la app vuelve a pedir con el
+        `cursor` recibido hasta que sea `false`.
+
+        - Cada usuario tiene su propia numeración: la posición del primer
+          evento es 1 y crece de uno en uno dentro de su registro. El cursor es
+          la posición del último evento del lote, o el mismo `desde` si no hay
+          nada nuevo.
+        - Sin `desde` se toma 0 (desde el principio). Pedir otra vez desde 0
+          devuelve los mismos eventos con los mismos identificadores: el
+          registro solo crece, no se modifica ni se borra (INV-13).
+        - Solo se entregan eventos de gastos de grupos de los que quien
+          consulta es participante del gasto. Un miembro excluido de la
+          división no recibe nada (tampoco quien recibe una parte de 0,00), y
+          nunca se entregan eventos de otras personas ni de grupos ajenos
+          (INV-17). Por eso esta ruta no responde 404.
+        - El servidor solo entrega partes. No sabe qué cuentas tiene la
+          persona, en cuál se aplicó cada parte ni cuál es su saldo (INV-16).
+        - Los clientes deben ignorar, sin fallar, los eventos de un `tipo` que
+          no conocen: el servidor puede agregar tipos nuevos más adelante.
+      operationId: obtenerCambios
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: desde
+          in: query
+          required: false
+          description: >-
+            Cursor: posición del último evento que la app ya recibió. Entero
+            no negativo; si falta, vale 0. Un valor que no es entero o es
+            negativo responde 400 con el campo `desde`.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            maximum: 9223372036854775807
+            default: 0
+          example: 0
+      responses:
+        "200":
+          description: Eventos posteriores al cursor (puede ser una lista vacía).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CambiosRespuesta"
+              examples:
+                lote:
+                  summary: Un evento nuevo, sin más pendientes
+                  value:
+                    eventos:
+                      - id: 0b9d6c1e-52f7-4c3a-9d10-7a4e8f2b6c33
+                        posicion: 1
+                        tipo: gasto_de_grupo
+                        grupo:
+                          id: 5c2a9e47-1d3b-4f60-8a7e-3b9c0d1e2f48
+                          nombre: Viaje a Mérida
+                        gasto:
+                          id: 7d1f0c2a-3b4e-4f5a-8c9d-0e1f2a3b4c5d
+                          concepto: Hotel
+                        fecha: "2026-03-10"
+                        moneda: USD
+                        monto: "33.33"
+                        incluye_redondeo: false
+                    cursor: 1
+                    hay_mas: false
+                sinNovedades:
+                  summary: Nada nuevo (el cursor no cambia)
+                  value:
+                    eventos: []
+                    cursor: 1
+                    hay_mas: false
+        "400":
+          description: El cursor `desde` no es un entero no negativo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+              example:
+                errores:
+                  - campo: desde
+                    mensaje: El cursor debe ser un número entero no negativo.
+        "401":
+          $ref: "#/components/responses/SesionInvalida"
+
+  /amistades:
+    get:
+      tags: [Amistades]
+      summary: Listar amistades e invitaciones
+      description: >-
+        Devuelve los amigos aceptados y las invitaciones pendientes, enviadas y
+        recibidas, vistas desde la persona autenticada. Nunca incluye el correo
+        del otro usuario.
+      operationId: listarAmistades
+      security:
+        - tokenBearer: []
+      responses:
+        "200":
+          description: Amigos e invitaciones pendientes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Amistad"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+    post:
+      tags: [Amistades]
+      summary: Enviar solicitud de amistad
+      description: |
+        Crea una invitación pendiente. La amistad no existe hasta que el
+        destinatario la acepta (INV-10). No se puede invitar a uno mismo ni
+        duplicar una invitación pendiente o una amistad ya aceptada, en ningún
+        sentido (RF-SOC-05).
+      operationId: enviarSolicitudAmistad
+      security:
+        - tokenBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NuevaAmistad"
+            example:
+              usuario: beto
+      responses:
+        "201":
+          description: Invitación pendiente creada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Amistad"
+        "400":
+          description: >-
+            Falta el usuario, viene vacío o se intenta invitar a uno mismo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "404":
+          description: No existe un usuario con ese nombre de usuario exacto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Usuario no encontrado.
+        "409":
+          description: >-
+            Ya hay una invitación pendiente en cualquier sentido o ya son
+            amigos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+
+  /amistades/{id_amistad}/respuesta:
+    post:
+      tags: [Amistades]
+      summary: Responder a una solicitud de amistad
+      description: >-
+        Solo la persona destinataria puede aceptar o rechazar. Una invitación
+        ya respondida no se puede volver a responder.
+      operationId: responderSolicitudAmistad
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: id_amistad
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResponderAmistad"
+            example:
+              aceptar: true
+      responses:
+        "200":
+          description: Invitación aceptada o rechazada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RespuestaAmistad"
+        "400":
+          description: Falta el campo `aceptar`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErroresPorCampo"
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "403":
+          description: Quien responde no es la persona destinataria.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Solo el destinatario puede responder a la invitación.
+        "404":
+          description: No existe una amistad con ese id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Amistad no encontrada.
+        "409":
+          description: La invitación ya fue respondida o cancelada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: La invitación ya fue respondida o cancelada.
+
+  /amistades/{id_amistad}:
+    delete:
+      tags: [Amistades]
+      summary: Eliminar una amistad
+      description: >-
+        Cualquiera de las dos personas puede eliminar la amistad. Los grupos y
+        gastos ya compartidos no se borran ni cambian (RF-SOC-06).
+      operationId: eliminarAmistad
+      security:
+        - tokenBearer: []
+      parameters:
+        - name: id_amistad
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Amistad eliminada. No devuelve cuerpo.
+        "401":
+          description: Token ausente, inválido o vencido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+        "404":
+          description: No existe la amistad o quien pide no participa en ella.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMensaje"
+              example:
+                mensaje: Amistad no encontrada.
+
+components:
+  parameters:
+    IdGrupo:
+      name: id_grupo
+      in: path
+      required: true
+      description: >-
+        UUID del grupo. Un valor que no es UUID responde el mismo 404 que un
+        grupo inexistente.
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        Clave de idempotencia de la operación: de 8 a 128 caracteres ASCII
+        visibles (sin espacios), generada una sola vez por la app y repetida en
+        cada reintento. Alcance por usuario. Opcional para el servidor; la app
+        siempre la envía.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{8,128}$"
+      example: 3f2b8c1e-6a4d-4b7e-9c10-2d5e7a9b0c11
+
+  responses:
+    SesionInvalida:
+      description: Token ausente, alterado, vencido o con un esquema distinto de Bearer.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorMensaje"
+          example:
+            mensaje: Sesión no válida o vencida.
+    GrupoNoEncontrado:
+      description: >-
+        El grupo no existe, el identificador no es un UUID, quien consulta no
+        es miembro o su invitación aún no está aceptada. Los cuatro casos son
+        idénticos en código y cuerpo, para no revelar si el grupo existe.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorMensaje"
+          example:
+            mensaje: Grupo no encontrado.
+
+  securitySchemes:
+    tokenBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Token entregado por `POST /sesiones`, en el encabezado
+        `Authorization: Bearer <token>`.
+ 
+  schemas:
+    PingRespuesta:
+      type: object
+      required: [estado, mensaje, version, timestamp]
+      properties:
+        estado:
+          type: string
+          example: ok
+        mensaje:
+          type: string
+          example: Servidor Cuentas Claras activo
+        version:
+          type: string
+          example: 0.1.0
+        timestamp:
+          $ref: "#/components/schemas/FechaHoraUtc"
+ 
+    FechaHoraUtc:
+      type: string
+      format: date-time
+      description: >-
+        Fecha y hora en UTC, formato `AAAA-MM-DDThh:mm:ssZ`. Cuando se persiste
+        en la base, la columna es `TIMESTAMPTZ`.
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+      example: "2026-11-10T10:00:00Z"
+ 
+    RegistroUsuario:
+      type: object
+      required: [nombre_usuario, nombre_visible, correo, contrasena]
+      properties:
+        nombre_usuario:
+          type: string
+          description: >-
+            De 3 a 30 caracteres; solo letras minúsculas, dígitos, punto y guion
+            bajo. Columna `VARCHAR(30)` con índice único.
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-z0-9._]{3,30}$"
+          example: ana.perez
+        nombre_visible:
+          type: string
+          description: >-
+            El que verán sus amigos más adelante. Se recorta y no puede quedar
+            vacío. Columna `VARCHAR(50)`.
+          minLength: 1
+          maxLength: 50
+          example: Ana Pérez
+        correo:
+          type: string
+          format: email
+          maxLength: 254
+          description: >-
+            Se guarda en minúsculas en una columna `VARCHAR(254)`. La unicidad
+            no distingue mayúsculas: `Ana@Example.com` y `ana@example.com` son
+            el mismo correo.
+          example: ana@example.com
+        contrasena:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 10
+          description: >-
+            Al menos 10 caracteres. Se guarda solo como hash argon2id en una
+            columna `TEXT`. Nunca se devuelve ni se registra en logs.
+          example: una-clave-larga-123
+ 
+    Credenciales:
+      type: object
+      required: [correo, contrasena]
+      properties:
+        correo:
+          type: string
+          format: email
+          maxLength: 254
+          description: Se compara sin distinguir mayúsculas.
+          example: ana@example.com
+        contrasena:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 1
+          example: una-clave-larga-123
+ 
+    Usuario:
+      type: object
+      description: >-
+        Fila de la tabla `usuarios` sin contraseña ni hash. `id` es `UUID` y
+        `fecha_alta` es `TIMESTAMPTZ` en UTC.
+      required: [id, nombre_usuario, nombre_visible, correo, fecha_alta]
+      properties:
+        id:
+          type: string
+          format: uuid
+          maxLength: 36
+          description: Clave primaria `UUID`.
+          example: 3f2b8c1e-6a4d-4b7e-9c10-2d5e7a9b0c11
+        nombre_usuario:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-z0-9._]{3,30}$"
+          example: ana.perez
+        nombre_visible:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Ana Pérez
+        correo:
+          type: string
+          format: email
+          maxLength: 254
+          example: ana@example.com
+        fecha_alta:
+          $ref: "#/components/schemas/FechaHoraUtc"
+ 
+    UsuarioPublico:
+      type: object
+      description: >-
+        Resultado de la búsqueda exacta. Solo nombre de usuario y nombre
+        visible; nunca el correo (RF-SOC-04).
+      required: [nombre_usuario, nombre_visible]
+      properties:
+        nombre_usuario:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: "^[a-z0-9._]{3,30}$"
+          example: beto
+        nombre_visible:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Beto Pérez
+
+    NuevaAmistad:
+      type: object
+      required: [usuario]
+      properties:
+        usuario:
+          type: string
+          minLength: 1
+          maxLength: 30
+          description: Nombre de usuario exacto del destinatario.
+          example: beto
+
+    ResponderAmistad:
+      type: object
+      required: [aceptar]
+      properties:
+        aceptar:
+          type: boolean
+          description: "`true` acepta la invitación; `false` la rechaza."
+          example: true
+
+    EstadoAmistad:
+      type: string
+      enum: [pendiente, aceptada, rechazada, eliminada]
+
+    Amistad:
+      type: object
+      description: >-
+        Amistad o invitación vista desde una de las dos personas. Nunca
+        incluye el correo del otro usuario.
+      required:
+        - id
+        - estado
+        - otro_id
+        - otro_nombre_usuario
+        - otro_nombre_visible
+        - enviada_por_mi
+        - fecha_invitacion
+        - fecha_respuesta
+      properties:
+        id:
+          type: string
+          format: uuid
+        estado:
+          $ref: "#/components/schemas/EstadoAmistad"
+        otro_id:
+          type: string
+          format: uuid
+        otro_nombre_usuario:
+          type: string
+          minLength: 3
+          maxLength: 30
+          example: beto
+        otro_nombre_visible:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: Beto Pérez
+        enviada_por_mi:
+          type: boolean
+          description: >-
+            `true` si la invitación la envió quien consulta; `false` si la
+            recibió.
+        fecha_invitacion:
+          $ref: "#/components/schemas/FechaHoraUtc"
+        fecha_respuesta:
+          description: >-
+            `null` mientras la invitación está pendiente; la fecha de
+            aceptación, rechazo o baja en los demás casos.
+          oneOf:
+            - $ref: "#/components/schemas/FechaHoraUtc"
+            - type: "null"
+
+    RespuestaAmistad:
+      type: object
+      required: [id, estado, fecha_respuesta]
+      properties:
+        id:
+          type: string
+          format: uuid
+        estado:
+          $ref: "#/components/schemas/EstadoAmistad"
+        fecha_respuesta:
+          oneOf:
+            - $ref: "#/components/schemas/FechaHoraUtc"
+            - type: "null"
+
+    Sesion:
+      type: object
+      required: [token, tipo, vence_en]
+      properties:
+        token:
+          type: string
+          description: JWT firmado con el id del usuario y su vencimiento.
+        tipo:
+          type: string
+          enum: [Bearer]
+        vence_en:
+          $ref: "#/components/schemas/FechaHoraUtc"
+ 
+    ErrorCampo:
+      type: object
+      required: [campo, mensaje]
+      properties:
+        campo:
+          type: string
+          enum:
+            - nombre_usuario
+            - nombre_visible
+            - correo
+            - contrasena
+            - cuerpo
+            - usuario
+            - aceptar
+            - nombre
+            - moneda
+            - respuesta
+            - concepto
+            - monto
+            - fecha
+            - pagador
+            - regla
+            - participantes
+            - porcentajes
+            - montos
+            - desde
+            - idempotency_key
+          description: >-
+            Campo que falla. `cuerpo` solo aparece si el cuerpo de la petición no
+            es un objeto JSON.
+        mensaje:
+          type: string
+          description: En español, sin trazas técnicas y sin el valor enviado.
+ 
+    ErroresPorCampo:
+      type: object
+      required: [errores]
+      properties:
+        errores:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ErrorCampo"
+ 
+    ErrorMensaje:
+      type: object
+      required: [mensaje]
+      properties:
+        mensaje:
+          type: string
+ 
+
+    Dinero:
+      type: string
+      description: >-
+        Monto como texto con punto y dos decimales. Nunca número JSON (RNF-08).
+        En la base es `NUMERIC(14, 2)`.
+      pattern: '^-?\d+\.\d{2}$'
+      example: "33.34"
+
+    ReglaDivision:
+      type: string
+      enum: [partes_iguales, porcentajes, montos_fijos]
+
+    ParticipanteGasto:
+      type: object
+      required: [usuario]
+      properties:
+        usuario:
+          type: string
+          description: Nombre de usuario de un miembro aceptado.
+          example: ana
+        valor:
+          type: string
+          description: >-
+            Porcentaje («50», «33.33», hasta dos decimales) con `porcentajes`;
+            monto («40.00») con `montos_fijos`; vacío con `partes_iguales`.
+          example: "50"
+
+    NuevoGasto:
+      type: object
+      required: [concepto, monto, fecha, pagador, regla, participantes]
+      properties:
+        concepto:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Cena del viernes
+        monto:
+          type: string
+          description: >-
+            Mayor que 0, hasta dos decimales y como máximo `9999999999.99`.
+          example: "100.00"
+        fecha:
+          type: string
+          format: date
+          example: "2026-11-12"
+        pagador:
+          type: string
+          description: Nombre de usuario de un miembro aceptado.
+          example: ana
+        regla:
+          $ref: "#/components/schemas/ReglaDivision"
+        participantes:
+          type: array
+          minItems: 1
+          description: >-
+            Sin repetidos. Los porcentajes deben sumar exactamente 100 y los
+            montos fijos, exactamente el monto.
+          items:
+            $ref: "#/components/schemas/ParticipanteGasto"
+
+    Parte:
+      type: object
+      required: [usuario, monto, incluye_redondeo]
+      properties:
+        usuario:
+          type: string
+        monto:
+          $ref: "#/components/schemas/Dinero"
+        incluye_redondeo:
+          type: boolean
+          description: Verdadero si esta parte recibió un céntimo del residuo.
+
+    Gasto:
+      type: object
+      required: [id, concepto, monto, fecha, pagador, regla, partes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        concepto:
+          type: string
+        monto:
+          $ref: "#/components/schemas/Dinero"
+        fecha:
+          type: string
+          format: date
+        pagador:
+          type: string
+        regla:
+          $ref: "#/components/schemas/ReglaDivision"
+        partes:
+          type: array
+          description: En orden alfabético de nombre de usuario; suman exactamente `monto`.
+          items:
+            $ref: "#/components/schemas/Parte"
+
+    CambiosRespuesta:
+      type: object
+      required: [eventos, cursor, hay_mas]
+      properties:
+        eventos:
+          type: array
+          maxItems: 100
+          description: En orden de posición creciente; como máximo 100 por respuesta.
+          items:
+            $ref: "#/components/schemas/EventoCambio"
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            Posición del último evento del lote, o el mismo `desde` si no hay
+            nada nuevo. Es el `desde` de la siguiente petición.
+        hay_mas:
+          type: boolean
+          description: Verdadero si quedan eventos posteriores a este lote.
+
+    EventoCambio:
+      type: object
+      description: >-
+        Una parte de un gasto de grupo para quien consulta. Es una fila del
+        registro de cambios del usuario: no se modifica ni se borra, y su `id`
+        no cambia nunca. Un cliente debe ignorar los campos y los `tipo` que no
+        conoce.
+      required:
+        [id, posicion, tipo, grupo, gasto, fecha, moneda, monto, incluye_redondeo]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: >-
+            Identificador único e inmutable del evento. La app lo guarda al
+            aplicar la parte y así no la aplica dos veces (INV-13, INV-15).
+        posicion:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Posición creciente dentro del registro de este usuario; sirve de cursor.
+        tipo:
+          type: string
+          description: >-
+            Tipo de evento. Hoy solo existe `gasto_de_grupo`; no es un enum
+            cerrado porque el servidor puede agregar tipos nuevos.
+          example: gasto_de_grupo
+        grupo:
+          type: object
+          required: [id, nombre]
+          description: >-
+            El nombre es el que tenía el grupo al registrarse el gasto, para que
+            el movimiento de la app no cambie si luego se renombra el grupo.
+          properties:
+            id:
+              type: string
+              format: uuid
+            nombre:
+              type: string
+              example: Viaje a Mérida
+        gasto:
+          type: object
+          required: [id, concepto]
+          properties:
+            id:
+              type: string
+              format: uuid
+            concepto:
+              type: string
+              example: Hotel
+        fecha:
+          type: string
+          format: date
+          description: Fecha del gasto (`AAAA-MM-DD`).
+          example: "2026-03-10"
+        moneda:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: Moneda del grupo, en mayúsculas.
+          example: USD
+        monto:
+          $ref: "#/components/schemas/Dinero"
+        incluye_redondeo:
+          type: boolean
+          description: Verdadero si esta parte incluye un céntimo de redondeo (ver ADR-013).
+
+    GrupoResumen:
+      type: object
+      required: [id, nombre, descripcion, moneda, actividad, rol, cantidad_miembros]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        descripcion:
+          type: string
+        moneda:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        actividad:
+          type: string
+        rol:
+          type: string
+          enum: [administrador, miembro]
+          description: Rol de quien consulta.
+        cantidad_miembros:
+          type: integer
+          minimum: 1
+
+    MiembroGrupo:
+      type: object
+      required: [usuario, nombre_visible, rol]
+      description: Miembro aceptado. Nunca lleva el correo (RF-SOC-04).
+      properties:
+        usuario:
+          type: string
+        nombre_visible:
+          type: string
+        rol:
+          type: string
+          enum: [administrador, miembro]
+
+    Balance:
+      type: object
+      required: [usuario, pago, le_corresponde, balance]
+      properties:
+        usuario:
+          type: string
+        pago:
+          $ref: "#/components/schemas/Dinero"
+        le_corresponde:
+          $ref: "#/components/schemas/Dinero"
+        balance:
+          $ref: "#/components/schemas/Dinero"
+
+    GrupoDetalle:
+      type: object
+      required: [grupo, miembros, gastos, balances]
+      properties:
+        grupo:
+          $ref: "#/components/schemas/GrupoResumen"
+        miembros:
+          type: array
+          description: Miembros aceptados en orden alfabético.
+          items:
+            $ref: "#/components/schemas/MiembroGrupo"
+        gastos:
+          type: array
+          description: Del más reciente al más antiguo.
+          items:
+            $ref: "#/components/schemas/Gasto"
+        balances:
+          type: array
+          description: En orden alfabético; suman exactamente 0.00.
+          items:
+            $ref: "#/components/schemas/Balance"
+
+    NuevoGrupo:
+      type: object
+      required: [nombre, moneda]
+      properties:
+        nombre:
+          type: string
+          minLength: 1
+          description: Obligatorio; se recorta y no puede quedar vacío.
+          example: Viaje a Mérida
+        descripcion:
+          type: string
+          description: Opcional.
+          example: Gastos del viaje
+        moneda:
+          type: string
+          pattern: "^[A-Za-z]{3}$"
+          description: >-
+            Código de tres letras; el servidor lo guarda en mayúsculas. Es la
+            moneda de todos los gastos del grupo.
+          example: USD
+        actividad:
+          type: string
+          description: Opcional. Fecha o actividad asociada, en texto libre.
+          example: Viaje a Mérida, marzo
+
+    InvitacionGrupo:
+      type: object
+      required: [grupo_id, nombre, moneda, actividad, invitado_por]
+      description: >-
+        Invitación pendiente. Solo trae lo necesario para decidir; no incluye
+        gastos ni balances.
+      properties:
+        grupo_id:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        moneda:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        actividad:
+          type: string
+        invitado_por:
+          $ref: "#/components/schemas/UsuarioPublico"
+
+    ListaGrupos:
+      type: object
+      required: [grupos, invitaciones]
+      properties:
+        grupos:
+          type: array
+          description: Grupos donde la persona es miembro aceptado.
+          items:
+            $ref: "#/components/schemas/GrupoResumen"
+        invitaciones:
+          type: array
+          description: Invitaciones pendientes de responder.
+          items:
+            $ref: "#/components/schemas/InvitacionGrupo"
+
+    InvitarMiembro:
+      type: object
+      required: [usuario]
+      properties:
+        usuario:
+          type: string
+          description: Nombre de usuario exacto de un amigo de quien invita.
+          example: beto
+
+    MiembroInvitado:
+      type: object
+      required: [usuario, nombre_visible, rol, estado]
+      properties:
+        usuario:
+          type: string
+        nombre_visible:
+          type: string
+        rol:
+          type: string
+          enum: [miembro]
+        estado:
+          type: string
+          enum: [invitado]
+
+    ResponderInvitacionGrupo:
+      type: object
+      required: [respuesta]
+      properties:
+        respuesta:
+          type: string
+          enum: [aceptar, rechazar]
+
+    RespuestaMensaje:
+      type: object
+      required: [mensaje]
+      properties:
+        mensaje:
+          type: string

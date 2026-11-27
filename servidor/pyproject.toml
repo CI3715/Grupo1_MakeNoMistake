@@ -11,16 +11,25 @@ dependencies = [
     "annotated-doc==0.0.5",
     "annotated-types==0.8.0",
     "anyio==4.15.1",
+    "argon2-cffi==25.1.0",
+    "argon2-cffi-bindings==26.1.0",
+    "cffi==2.1.1",
     "click==8.5.0",
     "fastapi==0.142.2",
     "h11==0.16.0",
     "idna==3.20",
-    "opentelemetry-api==1.45.0",
+    "opentelemetry-api==1.45.2",
+    "psycopg[binary]==3.3.8",
+    "psycopg-binary==3.3.8",
+    "pycparser==3.12 ; implementation_name != 'PyPy'",
     "pydantic==2.13.5",
     "pydantic-core==2.46.5",
+    "pyjwt==2.15.1",
+    "python-dotenv==1.2.4",
     "starlette==1.7.0",
     "typing-extensions==4.16.0",
     "typing-inspection==0.4.4",
+    "tzdata==2026.6 ; sys_platform == 'win32'",
     "uvicorn==0.54.0",
 ]
 
@@ -30,6 +39,7 @@ dev = [
     "httpx2==2.13.1",
     "ruff==0.16.10",
     "mypy==2.4.0",
+    "hypothesis==6.170.15",
 ]
 
 [tool.uv]
@@ -51,4 +61,4 @@ select = ["E", "F", "I", "B", "UP", "PTH"]
 
 [tool.mypy]
 strict = true
-files = ["main.py", "tests"]
+files = ["*.py", "tests"]

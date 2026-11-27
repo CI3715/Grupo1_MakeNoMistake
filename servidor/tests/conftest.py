@@ -1,0 +1,306 @@
+"""Fixtures y configuración compartida para las pruebas del servidor.
+
+Cada prueba recibe un almacén de usuarios en memoria nuevo, variables de
+entorno falsas para el JWT y un cliente de pruebas (incluyendo los usuarios
+ana, beto, carla y dario para la Entrega 6). Las pruebas contra PostgreSQL
+real están en ``test_repositorio_usuarios.py`` y ``test_integracion_postgres.py``.
+"""
+
+import os
+from collections.abc import Generator
+from typing import Any
+
+import pytest
+from dotenv import load_dotenv
+from fastapi.testclient import TestClient
+from repositorio_en_memoria import (
+    RepositorioAmistadesEnMemoria,
+    RepositorioCambiosEnMemoria,
+    RepositorioEnMemoria,
+    RepositorioGastosEnMemoria,
+    RepositorioGruposEnMemoria,
+)
+
+from base_datos import BaseDatos
+from configuracion import RUTA_ENV
+from main import (
+    AlmacenAmistades,
+    AlmacenCambios,
+    AlmacenGastos,
+    AlmacenGrupos,
+    AlmacenUsuarios,
+    app,
+)
+
+# Igual que en las pruebas de usuarios: en local ``servidor/.env`` ya trae la
+# base de pruebas y en un clon limpio las pruebas de PostgreSQL se omiten.
+load_dotenv(RUTA_ENV)
+URL_PRUEBAS = os.environ.get("CUENTAS_CLARAS_DB_URL_PRUEBAS") or None
+
+SECRETO_PRUEBA = "secreto-de-prueba-muy-seguro-para-la-entrega-5"
+MINUTOS_PRUEBA = 60
+CONTRASENA_PRUEBA = "Password123!"
+
+# Variables que pueden llegar desde servidor/.env (algunas pruebas lo cargan) y
+# que cambiarían el resultado de las pruebas de configuración del token.
+VARIABLES_AJENAS = (
+    "CUENTAS_CLARAS_DB_URL",
+    "CUENTAS_CLARAS_SECRETO_JWT",
+    "CUENTAS_CLARAS_MINUTOS_TOKEN",
+)
+
+# Guarda anti-borrado para la base compartida en Supabase (Angel - Tarea 3)
+MENSAJE_ERROR_SUPABASE = (
+    "CUENTAS_CLARAS_DB_URL_PRUEBAS no puede apuntar a Supabase (haría TRUNCATE "
+    "y borraría los datos compartidos del equipo). Usa PostgreSQL local con "
+    "Docker Compose en el puerto 55432."
+)
+
+
+def es_host_supabase(url: str | None) -> bool:
+    """Detecta si la URL apunta a un host o pooler de Supabase."""
+    if not url:
+        return False
+    url_baja = url.lower()
+    return (
+        "supabase.co" in url_baja
+        or "pooler.supabase.com" in url_baja
+        or "supabase" in url_baja
+    )
+
+
+def verificar_no_supabase(url: str | None) -> None:
+    """Impide que las pruebas de integración con TRUNCATE corran contra Supabase."""
+    if es_host_supabase(url):
+        pytest.fail(MENSAJE_ERROR_SUPABASE)
+
+
+# Solo lo compartido entre varias personas (Entregas 6 y 7). Cualquier tabla
+# nueva tiene que justificarse aquí: añadir una del libro personal rompe INV-16.
+TABLAS_PERMITIDAS = {
+    "usuarios",
+    "amistades",
+    "grupos",
+    "miembros",
+    "gastos",
+    "partes_gasto",
+    "cambios",
+    "posiciones_usuario",
+    "claves_idempotencia",
+}
+
+
+@pytest.fixture
+def repositorio_falso() -> RepositorioEnMemoria:
+    """Almacén en memoria que usan las rutas durante la prueba."""
+    return RepositorioEnMemoria()
+
+
+@pytest.fixture(autouse=True)
+def entorno_prueba(
+    monkeypatch: pytest.MonkeyPatch, repositorio_falso: RepositorioEnMemoria
+) -> Generator[None, None, None]:
+    """Aísla cada prueba: entorno propio y ninguna conexión a PostgreSQL."""
+    # Anotados con los protocolos de main: mypy avisa si el almacén en memoria
+    # deja de parecerse a lo que usan las rutas (y, por tanto, al real).
+    usuarios: AlmacenUsuarios = repositorio_falso
+    grupos: AlmacenGrupos = RepositorioGruposEnMemoria(repositorio_falso)
+    amistades: AlmacenAmistades = RepositorioAmistadesEnMemoria(repositorio_falso)
+    gastos: AlmacenGastos = RepositorioGastosEnMemoria(repositorio_falso)
+    registro_cambios: AlmacenCambios = RepositorioCambiosEnMemoria(repositorio_falso)
+    for variable in VARIABLES_AJENAS:
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("JWT_SECRET", SECRETO_PRUEBA)
+    monkeypatch.setenv("JWT_MINUTOS", str(MINUTOS_PRUEBA))
+    # Con un almacén ya presente, el arranque de la app no abre conexiones.
+    monkeypatch.setattr(app.state, "repositorio_usuarios", usuarios, raising=False)
+    monkeypatch.setattr(
+        app.state,
+        "repositorio_grupos",
+        grupos,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app.state,
+        "repositorio_amistades",
+        amistades,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app.state,
+        "repositorio_gastos",
+        gastos,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app.state,
+        "repositorio_cambios",
+        registro_cambios,
+        raising=False,
+    )
+    yield
+
+
+@pytest.fixture
+def cliente() -> Generator[TestClient, None, None]:
+    """Provee un cliente de pruebas HTTP para la aplicación FastAPI."""
+    with TestClient(app) as c:
+        yield c
+
+
+def registrar_usuario_prueba(
+    c: TestClient,
+    usuario: str,
+    nombre_visible: str,
+    correo: str,
+    contrasena: str = CONTRASENA_PRUEBA,
+) -> dict[str, Any]:
+    """Registra un usuario en la API y retorna la respuesta 201."""
+    resp = c.post(
+        "/usuarios",
+        json={
+            "nombre_usuario": usuario,
+            "nombre_visible": nombre_visible,
+            "correo": correo,
+            "contrasena": contrasena,
+        },
+    )
+    assert resp.status_code == 201, f"Fallo al registrar {usuario}: {resp.text}"
+    return resp.json()  # type: ignore[no-any-return]
+
+
+def iniciar_sesion_prueba(
+    c: TestClient, correo: str, contrasena: str = CONTRASENA_PRUEBA
+) -> str:
+    """Inicia sesión y retorna el token de acceso."""
+    resp = c.post(
+        "/sesiones",
+        json={"correo": correo, "contrasena": contrasena},
+    )
+    assert resp.status_code == 200, f"Fallo al iniciar sesión {correo}: {resp.text}"
+    data = resp.json()
+    token: str = data.get("token") or data.get("token_acceso", "")
+    return token
+
+
+def encabezado_auth(token: str) -> dict[str, str]:
+    """Retorna el encabezado Authorization para solicitudes Bearer."""
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def usuarios_flujo(cliente: TestClient) -> dict[str, dict[str, Any]]:
+    """Crea los 4 usuarios del flujo de la Entrega 6 (ana, beto, carla y dario).
+
+    - ana: miembro y creadora del grupo
+    - beto: amigo y miembro
+    - carla: amiga y miembro
+    - dario: usuario registrado ajeno (no amigo ni miembro del grupo)
+    """
+    datos_usuarios = [
+        ("ana", "Ana García", "ana@ejemplo.com"),
+        ("beto", "Beto Pérez", "beto@ejemplo.com"),
+        ("carla", "Carla Gómez", "carla@ejemplo.com"),
+        ("dario", "Darío Silva", "dario@ejemplo.com"),
+    ]
+    resultado: dict[str, dict[str, Any]] = {}
+    for usuario, visible, correo in datos_usuarios:
+        perfil = registrar_usuario_prueba(cliente, usuario, visible, correo)
+        token = iniciar_sesion_prueba(cliente, correo)
+        resultado[usuario] = {
+            "perfil": perfil,
+            "usuario": usuario,
+            "nombre_visible": visible,
+            "correo": correo,
+            "token": token,
+            "auth": encabezado_auth(token),
+        }
+    return resultado
+
+
+@pytest.fixture
+def token_ana(usuarios_flujo: dict[str, dict[str, Any]]) -> str:
+    """Token de acceso para ana."""
+    return str(usuarios_flujo["ana"]["token"])
+
+
+@pytest.fixture
+def token_beto(usuarios_flujo: dict[str, dict[str, Any]]) -> str:
+    """Token de acceso para beto."""
+    return str(usuarios_flujo["beto"]["token"])
+
+
+@pytest.fixture
+def token_carla(usuarios_flujo: dict[str, dict[str, Any]]) -> str:
+    """Token de acceso para carla."""
+    return str(usuarios_flujo["carla"]["token"])
+
+
+@pytest.fixture
+def token_dario(usuarios_flujo: dict[str, dict[str, Any]]) -> str:
+    """Token de acceso para dario (usuario ajeno no miembro)."""
+    return str(usuarios_flujo["dario"]["token"])
+
+
+@pytest.fixture
+def base_datos_pruebas() -> BaseDatos:
+    """Base de pruebas vacía, con el esquema creado.
+
+    Se omite la prueba si no está definida ``CUENTAS_CLARAS_DB_URL_PRUEBAS``,
+    para que ``uv run pytest`` funcione en un clon limpio sin PostgreSQL.
+    """
+
+    if URL_PRUEBAS is None:
+        pytest.skip(
+            "Define CUENTAS_CLARAS_DB_URL_PRUEBAS para probar los repositorios "
+            "contra PostgreSQL."
+        )
+
+    verificar_no_supabase(URL_PRUEBAS)
+
+    base_datos = BaseDatos(URL_PRUEBAS)
+    base_datos.crear_esquema()
+    with base_datos.conexion() as conexion:
+        # CASCADE limpia también grupos, gastos, cambios y posiciones.
+        conexion.execute("TRUNCATE TABLE usuarios CASCADE")
+    return base_datos
+
+
+# ---------- Ayudantes para la Entrega 7 (Angel - Tarea 2) ----------
+
+
+@pytest.fixture
+def grupo_merida(cliente: TestClient, usuarios_flujo: dict[str, dict[str, Any]]) -> str:
+    """Crea el grupo «Viaje a Mérida» en USD con miembros aceptados.
+
+    - ana: creadora y administradora
+    - beto: amigo y miembro aceptado
+    - carla: amiga y miembro aceptado
+    - dario: no pertenece al grupo
+    """
+    from apoyo_compartido import crear_grupo_merida_http
+
+    return crear_grupo_merida_http(cliente, usuarios_flujo)
+
+
+def registrar_gasto_idempotente(
+    c: TestClient,
+    grupo_id: str,
+    auth: dict[str, str],
+    cuerpo: dict[str, Any],
+    clave_idempotencia: str | None = None,
+) -> Any:
+    """Registra un gasto en un grupo con o sin encabezado Idempotency-Key."""
+    encabezados = dict(auth)
+    if clave_idempotencia is not None:
+        encabezados["Idempotency-Key"] = clave_idempotencia
+    return c.post(f"/grupos/{grupo_id}/gastos", json=cuerpo, headers=encabezados)
+
+
+def leer_cambios(
+    c: TestClient,
+    auth: dict[str, str],
+    desde: int | str = 0,
+) -> Any:
+    """Consulta GET /cambios?desde=<cursor> con el token del usuario."""
+    return c.get(f"/cambios?desde={desde}", headers=auth)

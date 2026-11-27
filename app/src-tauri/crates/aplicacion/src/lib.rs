@@ -4,26 +4,63 @@
 //! a través de las interfaces (traits) definidas en el módulo [`puertos`].
 
 pub mod casos_de_uso;
+pub mod categorias;
 pub mod codec;
 pub mod contrato;
+pub mod contrato_transporte;
 pub mod errores;
+pub mod fusion;
+pub mod identificadores;
 pub mod memoria;
 pub mod proyector;
 pub mod puertos;
+pub mod respaldo;
+pub mod secretos;
+pub mod sincronizar_libro;
+pub mod transporte;
+pub mod transporte_memoria;
+pub mod unidades;
 pub mod vistas;
 
 pub use casos_de_uso::{
     CasosDeUso, DatosCorregirMovimiento, DatosPrevisualizarMovimiento, NuevaCategoria, NuevaCuenta,
-    NuevoMovimiento, TIPO_CATEGORIA_CREADA, TIPO_CUENTA_CREADA, TIPO_MOVIMIENTO_CORREGIDO,
-    TIPO_MOVIMIENTO_REGISTRADO,
+    NuevaMoneda, NuevaTasa, NuevoMovimiento, TIPO_CATEGORIA_CREADA, TIPO_CUENTA_CREADA,
+    TIPO_MOVIMIENTO_CORREGIDO, TIPO_MOVIMIENTO_REGISTRADO,
 };
+pub type NuevaMonedaPropia = NuevaMoneda;
+
+pub use casos_de_uso::{DatosParteDeGrupo, ParteDeGrupoEntrante, ResultadoAplicar};
 pub use errores::{ErrorAplicacion, ErrorValidacion};
-pub use memoria::{DispositivoFijo, GeneradorSecuencial, RelojFijo, RepositorioEnMemoria};
+pub use fusion::{
+    EventoRechazado, InformeFusion, MotivoRechazo, clave_orden, fusionar, ordenar_eventos,
+};
+pub use identificadores::id_evento_parte_de_grupo;
+pub use memoria::{
+    DispositivoFijo, GeneradorSecuencial, RelojFijo, RelojModificable, RepositorioEnMemoria,
+};
+pub use proyector::{
+    TIPO_MONEDA_BASE_CAMBIADA, TIPO_MONEDA_CREADA, TIPO_TASA_ELIMINADA, TIPO_TASA_REGISTRADA,
+};
 pub use puertos::{
     CategoriaProyectada, CuentaProyectada, DispositivoOrigen, ErrorRepositorio, EventoRegistrado,
-    GeneradorIdentificadores, MovimientoProyectado, Reloj, RepositorioEventos, ResultadoGuardado,
+    GeneradorIdentificadores, MonedaProyectada, MovimientoProyectado, Reloj, RepositorioEventos,
+    ResultadoGuardado, TasaProyectada,
 };
+pub use respaldo::{
+    Cifrador, EncabezadoExportacion, ErrorRespaldo, LARGO_MINIMO_FRASE, MARCA_FORMATO,
+    VERSION_FORMATO, exportar_libro, leer_encabezado, leer_libro, libro_a_texto, texto_a_libro,
+};
+pub use secretos::{
+    AlmacenSecretos, AlmacenSecretosEnMemoria, CredencialesGit, ErrorSecretos,
+    bateria_contrato_almacen_secretos, validar_credenciales_git, validar_frase_de_paso,
+};
+pub use transporte::{
+    ErrorTransporte, LARGO_MAXIMO_NOMBRE, LoteDeDispositivo, TransporteSincronizacion,
+    lotes_por_leer, nombre_de_lote, validar_nombre,
+};
+pub use transporte_memoria::{DestinoEnMemoria, TransporteEnMemoria};
 pub use vistas::{
     CategoriaListada, CategoriaResumen, ComposicionVista, CuentaListada, DetalleCuentaVista,
-    ListaCuentas, MonedaDto, MovimientoListado, PrevisualizacionMovimiento, Subtotal,
+    ListaCuentas, MonedaDto, MovimientoListado, ParFaltanteVista, PatrimonioVista,
+    PrevisualizacionMovimiento, Subtotal, TasaListada, TasaUsadaVista,
 };

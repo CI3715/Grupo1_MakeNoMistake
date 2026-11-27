@@ -1,0 +1,61 @@
+# PostgreSQL 17 para el servidor de Cuentas Claras (desarrollo y pruebas).
+#
+# Alternativa al clúster local de scripts/base_datos_local.sh cuando se prefiere
+# Docker. Levanta PostgreSQL en el puerto 55432 (el mismo del script, para no
+# chocar con un PostgreSQL del sistema en el 5432) con dos bases:
+#
+#   cuentas_claras          desarrollo
+#   cuentas_claras_pruebas  pruebas de integración (TRUNCATE entre pruebas)
+#
+# Uso, desde servidor/:
+#
+#   cp .env.example .env     # define CUENTAS_CLARAS_DB_USUARIO y _CLAVE
+#   docker compose up -d
+#   docker compose ps
+#   docker compose logs -f postgres
+#   docker compose down      # detiene el contenedor y conserva los datos
+#   docker compose down -v   # detiene y borra los datos (empezar de cero)
+#
+# El usuario y la clave se leen de servidor/.env: no se escriben en este
+# archivo. El servidor usa CUENTAS_CLARAS_DB_URL y las pruebas
+# CUENTAS_CLARAS_DB_URL_PRUEBAS, ambas también en .env.
+#
+# Si el clúster local del script está corriendo, deténlo antes:
+#   bash scripts/base_datos_local.sh detener
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: cuentas-claras-postgres
+    restart: unless-stopped
+    environment:
+      # `:?` hace que Docker Compose falle con un mensaje claro si falta la
+      # variable, en vez de arrancar con un usuario o una clave vacíos.
+      POSTGRES_USER: ${CUENTAS_CLARAS_DB_USUARIO:?Define CUENTAS_CLARAS_DB_USUARIO en servidor/.env}
+      POSTGRES_PASSWORD: ${CUENTAS_CLARAS_DB_CLAVE:?Define CUENTAS_CLARAS_DB_CLAVE en servidor/.env}
+      POSTGRES_DB: cuentas_claras
+      # Solo la codificación: la configuración regional se deja en la del
+      # sistema para que funcione igual en Linux, macOS y Windows.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      # Solo en la interfaz local: la base no queda expuesta a la red.
+      - "127.0.0.1:55432:5432"
+    volumes:
+      # Volumen con nombre: sobrevive a `docker compose down` y a reinicios.
+      - datos:/var/lib/postgresql/data
+      # Crea cuentas_claras_pruebas la primera vez que se inicializa el
+      # volumen. Si el volumen ya existe, este archivo no se vuelve a ejecutar.
+      - ./scripts/base_pruebas.sql:/docker-entrypoint-initdb.d/01-base-pruebas.sql:ro
+    healthcheck:
+      # `$$` escapa el dólar para que lo expanda el contenedor, no Compose.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  datos:
+    # Nombre fijo para que los datos no dependan del nombre del directorio ni
+    # del proyecto de Compose con el que se arranque.
+    name: cuentas-claras-postgres-datos

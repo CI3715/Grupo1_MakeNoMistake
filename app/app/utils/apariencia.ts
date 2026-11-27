@@ -6,6 +6,8 @@
  * Si localStorage no está disponible, la app usa los valores por defecto.
  */
 
+import { useSyncExternalStore } from 'react';
+
 export type Modo = 'claro' | 'oscuro' | 'sistema';
 
 export const MODOS: { id: Modo; nombre: string }[] = [
@@ -33,6 +35,7 @@ export interface Apariencia {
 
 const CLAVE_MODO = 'cc-modo';
 const CLAVE_PALETA = 'cc-paleta';
+const EVENTO_CAMBIO = 'cc-apariencia-cambio';
 const POR_DEFECTO: Apariencia = { modo: 'sistema', paleta: 'indigo' };
 
 export function leerApariencia(): Apariencia {
@@ -59,12 +62,35 @@ export function guardarApariencia(a: Apariencia): void {
 
 /** Escribe data-tema y data-paleta en <html>. "sistema" sigue la preferencia del sistema operativo. */
 export function aplicarApariencia(a: Apariencia): void {
+  if (typeof window === 'undefined') return;
   const oscuro =
     a.modo === 'oscuro' ||
     (a.modo === 'sistema' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const raiz = document.documentElement;
   raiz.dataset.tema = oscuro ? 'oscuro' : 'claro';
   raiz.dataset.paleta = a.paleta;
+  window.dispatchEvent(new Event(EVENTO_CAMBIO));
+}
+
+function suscribirTema(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const mql = window.matchMedia('(prefers-color-scheme: dark)');
+  window.addEventListener(EVENTO_CAMBIO, listener);
+  mql.addEventListener('change', listener);
+  return () => {
+    window.removeEventListener(EVENTO_CAMBIO, listener);
+    mql.removeEventListener('change', listener);
+  };
+}
+
+function leerSnapshotOscuro(): boolean {
+  if (typeof document === 'undefined') return true;
+  return document.documentElement.dataset.tema !== 'claro';
+}
+
+/** Hook reactivo que indica si el tema activo en `<html data-tema>` es oscuro. */
+export function useModoOscuro(): boolean {
+  return useSyncExternalStore(suscribirTema, leerSnapshotOscuro, () => true);
 }
 
 /** Misma lógica que `aplicarApariencia`, como texto, para ejecutarla en <head> antes de pintar. */

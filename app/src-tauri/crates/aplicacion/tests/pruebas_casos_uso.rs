@@ -10,7 +10,8 @@ use aplicacion::puertos::{
 };
 use aplicacion::{
     CasosDeUso, DatosCorregirMovimiento, DatosPrevisualizarMovimiento, DispositivoFijo,
-    ErrorAplicacion, GeneradorSecuencial, NuevaCategoria, NuevaCuenta, NuevoMovimiento, RelojFijo,
+    ErrorAplicacion, GeneradorSecuencial, NuevaCategoria, NuevaCuenta, NuevaMoneda,
+    NuevaMonedaPropia, NuevaTasa, NuevoMovimiento, RelojFijo, RelojModificable,
     RepositorioEnMemoria,
 };
 
@@ -35,7 +36,7 @@ fn contrato_repositorio_en_memoria_pasa_bateria_completa() {
 #[test]
 fn inv01_catalogo_de_monedas_y_todo_monto_lleva_su_moneda() {
     let mut app = preparar_entorno();
-    let monedas = app.listar_monedas();
+    let monedas = app.listar_monedas().unwrap();
     assert_eq!(monedas.len(), 4);
     for codigo in ["VES", "USD", "EUR", "USDT"] {
         assert!(
@@ -569,4 +570,577 @@ fn validaciones_de_crear_cuenta_y_errores_de_repositorio() {
 
     let err_repo = ErrorAplicacion::from(ErrorRepositorio("fallo".to_string()));
     assert!(matches!(err_repo, ErrorAplicacion::Almacenamiento(_)));
+}
+
+/// RF-CAM-01: una moneda propia entra al catálogo y se puede usar en una
+/// cuenta nueva con sus propios decimales; los saldos se calculan en su escala.
+#[test]
+fn una_moneda_propia_se_crea_y_se_usa_en_una_cuenta_nueva() {
+    let mut app = preparar_entorno();
+
+    let btc = app
+        .crear_moneda(NuevaMoneda {
+            codigo: "BTC".to_string(),
+            nombre: "Bitcoin".to_string(),
+            simbolo: "â‚¿".to_string(),
+            decimales: "8".to_string(),
+        })
+        .unwrap();
+    assert_eq!(btc.decimales, 8);
+
+    let monedas = app.listar_monedas().unwrap();
+    assert_eq!(monedas.len(), 5);
+    assert_eq!(
+        monedas[4].codigo, "BTC",
+        "las propias van después de las de fábrica"
+    );
+
+    let cuenta = app
+        .crear_cuenta(NuevaCuenta {
+            nombre: "Billetera fría".to_string(),
+            tipo: "billetera_digital".to_string(),
+            moneda: "BTC".to_string(),
+            saldo_inicial: "0,00012345".to_string(),
+        })
+        .unwrap();
+    assert_eq!(cuenta.saldo_actual, "0.00012345");
+
+    app.registrar_movimiento(NuevoMovimiento {
+        cuenta_id: cuenta.id.clone(),
+        tipo: "ingreso".to_string(),
+        monto: "0.00000005".to_string(),
+        fecha: "2026-10-19".to_string(),
+        categoria_id: "Regalos".to_string(),
+        nota: None,
+    })
+    .unwrap();
+    let lista = app.listar_cuentas().unwrap();
+    assert_eq!(lista.cuentas[0].saldo_actual, "0.00012350");
+    assert_eq!(lista.subtotales[0].moneda, "BTC");
+
+    // Repetir el código o redefinir una de fábrica se rechaza por campo.
+    for codigo in ["BTC", "USD"] {
+        let err = app
+            .crear_moneda(NuevaMoneda {
+                codigo: codigo.to_string(),
+                nombre: "Otra".to_string(),
+                simbolo: "O".to_string(),
+                decimales: "2".to_string(),
+            })
+            .unwrap_err();
+        match err {
+            ErrorAplicacion::Validacion(lista) => {
+                assert_eq!(lista[0].campo.as_deref(), Some("codigo"), "{codigo}")
+            }
+            otro => panic!("se esperaba validación, llegó {otro:?}"),
+        }
+    }
+    assert_eq!(app.listar_monedas().unwrap().len(), 5);
+
+    // Decimales que no son un número: se informa ese campo junto con los demás.
+    let err = app
+        .crear_moneda(NuevaMoneda {
+            codigo: "x".to_string(),
+            nombre: "Otra".to_string(),
+            simbolo: "O".to_string(),
+            decimales: "dos".to_string(),
+        })
+        .unwrap_err();
+    match err {
+        ErrorAplicacion::Validacion(lista) => {
+            let campos: Vec<_> = lista.iter().filter_map(|e| e.campo.as_deref()).collect();
+            assert_eq!(campos, vec!["codigo", "decimales"]);
+        }
+        otro => panic!("se esperaba validación, llegó {otro:?}"),
+    }
+}
+
+#[test]
+fn test_entrega4_ejemplo_2_3_completo_y_patrimonio() {
+    let mut app = CasosDeUso::nuevo(
+        Box::new(RepositorioEnMemoria::nuevo()),
+        Box::new(RelojFijo::nuevo("2026-10-23T18:00:00Z")),
+        Box::new(GeneradorSecuencial::nuevo()),
+        Box::new(DispositivoFijo::nuevo("disp-1")),
+    );
+
+    // 1. Cuentas del ejemplo 2.3
+    app.crear_cuenta(NuevaCuenta {
+        nombre: "Banco Provincial".into(),
+        tipo: "banco".into(),
+        moneda: "VES".into(),
+        saldo_inicial: "88700.00".into(),
+    })
+    .unwrap();
+
+    app.crear_cuenta(NuevaCuenta {
+        nombre: "Banesco Panamá".into(),
+        tipo: "banco".into(),
+        moneda: "USD".into(),
+        saldo_inicial: "200.00".into(),
+    })
+    .unwrap();
+
+    app.crear_cuenta(NuevaCuenta {
+        nombre: "Binance USDT".into(),
+        tipo: "billetera_digital".into(),
+        moneda: "USDT".into(),
+        saldo_inicial: "50.00".into(),
+    })
+    .unwrap();
+
+    // 2. Tasas del ejemplo
+    app.registrar_tasa(NuevaTasa {
+        moneda_origen: "USD".into(),
+        moneda_destino: "VES".into(),
+        valor: "887.00".into(),
+        fecha: "2026-10-23".into(),
+        fuente: "BCV".into(),
+    })
+    .unwrap();
+
+    app.registrar_tasa(NuevaTasa {
+        moneda_origen: "USDT".into(),
+        moneda_destino: "VES".into(),
+        valor: "1000.00".into(),
+        fecha: "2026-10-23".into(),
+        fuente: "P2P".into(),
+    })
+    .unwrap();
+
+    // 3. Consolidación con base VES
+    app.cambiar_moneda_base("VES").unwrap();
+    assert_eq!(app.obtener_moneda_base().unwrap(), "VES");
+
+    let pat_ves = app.consultar_patrimonio(Some("2026-10-23".into())).unwrap();
+    assert_eq!(pat_ves.moneda_base, "VES");
+    assert_eq!(pat_ves.total, Some("316100.00".into()));
+    assert!(pat_ves.faltantes.is_empty());
+    assert_eq!(pat_ves.tasas_usadas.len(), 2);
+    // Verificación de la columna "En VES" del ejemplo 2.3
+    assert_eq!(pat_ves.cuentas[0].en_moneda_base, Some("88700.00".into()));
+    assert_eq!(pat_ves.cuentas[1].en_moneda_base, Some("177400.00".into()));
+    assert_eq!(pat_ves.cuentas[2].en_moneda_base, Some("50000.00".into()));
+
+    // 4. Cambiar base a USD: falta tasa USDT -> USD
+    app.cambiar_moneda_base("USD").unwrap();
+    let pat_usd_incompleto = app.consultar_patrimonio(Some("2026-10-23".into())).unwrap();
+    assert_eq!(pat_usd_incompleto.moneda_base, "USD");
+    assert_eq!(pat_usd_incompleto.total, None);
+    assert_eq!(pat_usd_incompleto.faltantes.len(), 1);
+    assert_eq!(pat_usd_incompleto.faltantes[0].origen, "USDT");
+    assert_eq!(pat_usd_incompleto.faltantes[0].destino, "USD");
+    // Tasa usada para VES -> USD es la inversa (1 / 887.00)
+    assert_eq!(pat_usd_incompleto.tasas_usadas.len(), 1);
+    assert!(pat_usd_incompleto.tasas_usadas[0].es_inversa);
+    assert_eq!(pat_usd_incompleto.tasas_usadas[0].origen, "USD");
+    assert_eq!(pat_usd_incompleto.tasas_usadas[0].destino, "VES");
+    assert_eq!(
+        pat_usd_incompleto.cuentas[0].en_moneda_base,
+        Some("100.00".into())
+    );
+    assert_eq!(
+        pat_usd_incompleto.cuentas[1].en_moneda_base,
+        Some("200.00".into())
+    );
+    assert_eq!(pat_usd_incompleto.cuentas[2].en_moneda_base, None);
+
+    // 5. Registrar tasa USDT -> USD: 1 USDT = 1.00 USD
+    app.registrar_tasa(NuevaTasa {
+        moneda_origen: "USDT".into(),
+        moneda_destino: "USD".into(),
+        valor: "1.00".into(),
+        fecha: "2026-10-23".into(),
+        fuente: "P2P".into(),
+    })
+    .unwrap();
+
+    // 6. Reconsultar con base USD: total = 350.00 USD
+    let pat_usd_completo = app.consultar_patrimonio(Some("2026-10-23".into())).unwrap();
+    assert_eq!(pat_usd_completo.moneda_base, "USD");
+    assert_eq!(pat_usd_completo.total, Some("350.00".into()));
+    assert!(pat_usd_completo.faltantes.is_empty());
+    assert_eq!(pat_usd_completo.tasas_usadas.len(), 2);
+    assert_eq!(
+        pat_usd_completo.cuentas[0].en_moneda_base,
+        Some("100.00".into())
+    );
+    assert_eq!(
+        pat_usd_completo.cuentas[1].en_moneda_base,
+        Some("200.00".into())
+    );
+    assert_eq!(
+        pat_usd_completo.cuentas[2].en_moneda_base,
+        Some("50.00".into())
+    );
+}
+
+/// Comprueba la selección de la tasa vigente, desempate en la misma fecha (gana la última registrada)
+/// y descarte de tasas con fecha posterior a la de consulta.
+#[test]
+fn test_entrega4_seleccion_tasa_vigente_y_desempate() {
+    let reloj = RelojModificable::nuevo("2026-10-20T12:00:00Z");
+    let mut app = CasosDeUso::nuevo(
+        Box::new(RepositorioEnMemoria::nuevo()),
+        Box::new(reloj.clone()),
+        Box::new(GeneradorSecuencial::nuevo()),
+        Box::new(DispositivoFijo::nuevo("disp-1")),
+    );
+
+    app.crear_cuenta(NuevaCuenta {
+        nombre: "Cuenta VES".into(),
+        tipo: "banco".into(),
+        moneda: "VES".into(),
+        saldo_inicial: "1000.00".into(),
+    })
+    .unwrap();
+
+    // Registrar varias tasas USD -> VES
+    app.registrar_tasa(NuevaTasa {
+        moneda_origen: "USD".into(),
+        moneda_destino: "VES".into(),
+        valor: "880.00".into(),
+        fecha: "2026-10-20".into(),
+        fuente: "BCV".into(),
+    })
+    .unwrap();
+
+    reloj.avanzar("2026-10-22T12:00:00Z");
+    app.registrar_tasa(NuevaTasa {
+        moneda_origen: "USD".into(),
+        moneda_destino: "VES".into(),
+        valor: "885.00".into(),
+        fecha: "2026-10-22".into(),
+        fuente: "BCV mañana".into(),
+    })
+    .unwrap();
+
+    app.registrar_tasa(NuevaTasa {
+        moneda_origen: "USD".into(),
+        moneda_destino: "VES".into(),
+        valor: "887.00".into(),
+        fecha: "2026-10-22".into(),
+        fuente: "BCV tarde".into(),
+    })
+    .unwrap();
+
+    reloj.avanzar("2026-10-23T12:00:00Z");
+
+    // Consulta al 2026-10-21: toma la del 2026-10-20 (880.00)
+    let pat_21 = app.consultar_patrimonio(Some("2026-10-21".into())).unwrap();
+    assert_eq!(pat_21.tasas_usadas[0].valor, "880.00");
+
+    // Consulta al 2026-10-23: desempate en la fecha 2026-10-22, gana la registrada más recientemente en el libro (887.00)
+    let pat_23 = app.consultar_patrimonio(Some("2026-10-23".into())).unwrap();
+    assert_eq!(pat_23.tasas_usadas[0].valor, "887.00");
+    assert_eq!(pat_23.tasas_usadas[0].fuente, "BCV tarde");
+}
+
+/// Comprueba la eliminación lógica de tasas y su impacto en las consultas de patrimonio.
+#[test]
+fn test_entrega4_eliminar_tasa_y_efectos() {
+    let mut app = CasosDeUso::nuevo(
+        Box::new(RepositorioEnMemoria::nuevo()),
+        Box::new(RelojFijo::nuevo("2026-10-23T12:00:00Z")),
+        Box::new(GeneradorSecuencial::nuevo()),
+        Box::new(DispositivoFijo::nuevo("disp-1")),
+    );
+
+    app.crear_cuenta(NuevaCuenta {
+        nombre: "Banesco".into(),
+        tipo: "banco".into(),
+        moneda: "USD".into(),
+        saldo_inicial: "100.00".into(),
+    })
+    .unwrap();
+
+    app.cambiar_moneda_base("VES").unwrap();
+
+    let tasa = app
+        .registrar_tasa(NuevaTasa {
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: "887.00".into(),
+            fecha: "2026-10-23".into(),
+            fuente: "BCV".into(),
+        })
+        .unwrap();
+
+    assert_eq!(app.listar_tasas().unwrap().len(), 1);
+    let pat_con_tasa = app.consultar_patrimonio(Some("2026-10-23".into())).unwrap();
+    assert_eq!(pat_con_tasa.total, Some("88700.00".into()));
+
+    // Eliminar la tasa
+    app.eliminar_tasa(&tasa.id).unwrap();
+    assert!(app.listar_tasas().unwrap().is_empty());
+
+    // Ahora la consolidación falla por falta de tasa
+    let pat_sin_tasa = app.consultar_patrimonio(Some("2026-10-23".into())).unwrap();
+    assert_eq!(pat_sin_tasa.total, None);
+    assert_eq!(pat_sin_tasa.faltantes.len(), 1);
+
+    // Intentar eliminarla otra vez falla
+    let err = app.eliminar_tasa(&tasa.id).unwrap_err();
+    assert!(matches!(err, ErrorAplicacion::Validacion(_)));
+}
+
+/// Comprueba la creación de monedas propias y su uso en cuentas y listados (RF-CAM-01).
+#[test]
+fn test_entrega4_monedas_propias_y_cuentas() {
+    let mut app = preparar_entorno();
+
+    // Listar inicial (4 monedas de fábrica)
+    let iniciales = app.listar_monedas().unwrap();
+    assert_eq!(iniciales.len(), 4);
+    assert!(iniciales.iter().all(|m| m.de_fabrica));
+
+    // Crear moneda propia
+    let btc = app
+        .crear_moneda(NuevaMonedaPropia {
+            codigo: "BTC".into(),
+            nombre: "Bitcoin".into(),
+            simbolo: "₿".into(),
+            decimales: "8".into(),
+        })
+        .unwrap();
+
+    assert_eq!(btc.codigo, "BTC");
+    assert_eq!(btc.decimales, 8);
+    assert!(!btc.de_fabrica);
+
+    // Listar ahora contiene 5 monedas
+    let monedas = app.listar_monedas().unwrap();
+    assert_eq!(monedas.len(), 5);
+    assert!(monedas.iter().any(|m| m.codigo == "BTC" && !m.de_fabrica));
+
+    // Crear cuenta con la moneda propia
+    let cta = app
+        .crear_cuenta(NuevaCuenta {
+            nombre: "Cold Wallet".into(),
+            tipo: "billetera_digital".into(),
+            moneda: "BTC".into(),
+            saldo_inicial: "0.12345678".into(),
+        })
+        .unwrap();
+    assert_eq!(cta.saldo_actual, "0.12345678");
+
+    // Registrar gasto en BTC
+    app.registrar_movimiento(NuevoMovimiento {
+        cuenta_id: cta.id.clone(),
+        tipo: "gasto".into(),
+        monto: "0.02345678".into(),
+        fecha: "2026-10-19".into(),
+        categoria_id: "gasto:otros".into(),
+        nota: Some("Transferencia".into()),
+    })
+    .unwrap();
+
+    let detalle = app.detalle_cuenta(&cta.id).unwrap();
+    assert_eq!(detalle.cuenta.saldo_actual, "0.10000000");
+}
+
+/// Comprueba todas las validaciones de `RegistrarTasa` y `CrearMoneda`.
+#[test]
+fn test_entrega4_validaciones_registrar_tasa_y_crear_moneda() {
+    let mut app = preparar_entorno();
+
+    // Moneda inexistente
+    let err_tasa1 = app
+        .registrar_tasa(NuevaTasa {
+            moneda_origen: "XYZ".into(),
+            moneda_destino: "USD".into(),
+            valor: "1.00".into(),
+            fecha: "2026-10-19".into(),
+            fuente: "Fuente".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err_tasa1, ErrorAplicacion::Validacion(_)));
+
+    // Mismas monedas
+    let err_tasa2 = app
+        .registrar_tasa(NuevaTasa {
+            moneda_origen: "USD".into(),
+            moneda_destino: "USD".into(),
+            valor: "1.00".into(),
+            fecha: "2026-10-19".into(),
+            fuente: "Fuente".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err_tasa2, ErrorAplicacion::Validacion(_)));
+
+    // Valor no válido / cero / negativo
+    let err_tasa3 = app
+        .registrar_tasa(NuevaTasa {
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: "0.00".into(),
+            fecha: "2026-10-19".into(),
+            fuente: "BCV".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err_tasa3, ErrorAplicacion::Validacion(_)));
+
+    // Fecha futura
+    let err_tasa4 = app
+        .registrar_tasa(NuevaTasa {
+            moneda_origen: "USD".into(),
+            moneda_destino: "VES".into(),
+            valor: "887.00".into(),
+            fecha: "2026-10-25".into(),
+            fuente: "BCV".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err_tasa4, ErrorAplicacion::Validacion(_)));
+
+    // Validaciones de CrearMoneda
+    // Código corto
+    let err_mon1 = app
+        .crear_moneda(NuevaMonedaPropia {
+            codigo: "BT".into(),
+            nombre: "Bitcoin".into(),
+            simbolo: "₿".into(),
+            decimales: "8".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err_mon1, ErrorAplicacion::Validacion(_)));
+
+    // Código existente
+    let err_mon2 = app
+        .crear_moneda(NuevaMonedaPropia {
+            codigo: "USD".into(),
+            nombre: "Dólar".into(),
+            simbolo: "$".into(),
+            decimales: "2".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err_mon2, ErrorAplicacion::Validacion(_)));
+
+    // Decimales > 8
+    let err_mon3 = app
+        .crear_moneda(NuevaMonedaPropia {
+            codigo: "ETH".into(),
+            nombre: "Ethereum".into(),
+            simbolo: "Ξ".into(),
+            decimales: "9".into(),
+        })
+        .unwrap_err();
+    assert!(matches!(err_mon3, ErrorAplicacion::Validacion(_)));
+}
+
+/// Comprueba que `MovimientoListado` entregue el `monto_vigente` correcto tanto
+/// para movimientos vigentes como para movimientos corregidos (C-03).
+#[test]
+fn test_entrega4_c03_monto_vigente_en_movimientos_corregidos() {
+    let mut app = preparar_entorno();
+
+    let cta = app
+        .crear_cuenta(NuevaCuenta {
+            nombre: "Banesco".into(),
+            tipo: "banco".into(),
+            moneda: "USD".into(),
+            saldo_inicial: "100.00".into(),
+        })
+        .unwrap();
+
+    let mov = app
+        .registrar_movimiento(NuevoMovimiento {
+            cuenta_id: cta.id.clone(),
+            tipo: "gasto".into(),
+            monto: "50.00".into(),
+            fecha: "2026-10-19".into(),
+            categoria_id: "gasto:alimentacion".into(),
+            nota: Some("Almuerzo".into()),
+        })
+        .unwrap();
+
+    // Inicialmente vigente: monto_vigente es Some("50.00")
+    assert_eq!(mov.estado, "vigente");
+    assert_eq!(mov.monto_vigente, Some("50.00".into()));
+
+    // Corregir a 40.00
+    app.corregir_movimiento(DatosCorregirMovimiento {
+        movimiento_id: mov.id.clone(),
+        monto_correcto: "40.00".into(),
+    })
+    .unwrap();
+
+    let detalle = app.detalle_cuenta(&cta.id).unwrap();
+    let original = detalle.movimientos.iter().find(|m| m.id == mov.id).unwrap();
+    assert_eq!(original.estado, "corregido");
+    assert_eq!(original.monto_vigente, Some("40.00".into()));
+
+    // Corregir otra vez a 30.00
+    app.corregir_movimiento(DatosCorregirMovimiento {
+        movimiento_id: mov.id.clone(),
+        monto_correcto: "30.00".into(),
+    })
+    .unwrap();
+
+    let detalle2 = app.detalle_cuenta(&cta.id).unwrap();
+    let original2 = detalle2
+        .movimientos
+        .iter()
+        .find(|m| m.id == mov.id)
+        .unwrap();
+    assert_eq!(original2.monto_vigente, Some("30.00".into()));
+}
+
+/// Comprueba el filtro por fecha de corte en `consultar_patrimonio`
+/// y que rechace fechas futuras (relativas al reloj).
+#[test]
+fn test_entrega4_fecha_corte_patrimonio() {
+    let reloj = RelojModificable::nuevo("2026-10-20T12:00:00Z");
+    let mut app = CasosDeUso::nuevo(
+        Box::new(RepositorioEnMemoria::nuevo()),
+        Box::new(reloj.clone()),
+        Box::new(GeneradorSecuencial::nuevo()),
+        Box::new(DispositivoFijo::nuevo("disp-1")),
+    );
+
+    let cta = app
+        .crear_cuenta(NuevaCuenta {
+            nombre: "Cuenta USD".into(),
+            tipo: "banco".into(),
+            moneda: "USD".into(),
+            saldo_inicial: "100.00".into(),
+        })
+        .unwrap();
+
+    reloj.avanzar("2026-10-21T12:00:00Z");
+    app.registrar_movimiento(NuevoMovimiento {
+        cuenta_id: cta.id.clone(),
+        tipo: "ingreso".into(),
+        monto: "50.00".into(),
+        fecha: "2026-10-21".into(),
+        categoria_id: "ingreso:salario".into(),
+        nota: None,
+    })
+    .unwrap();
+
+    reloj.avanzar("2026-10-23T12:00:00Z");
+    app.registrar_movimiento(NuevoMovimiento {
+        cuenta_id: cta.id.clone(),
+        tipo: "ingreso".into(),
+        monto: "30.00".into(),
+        fecha: "2026-10-23".into(),
+        categoria_id: "ingreso:otros".into(),
+        nota: None,
+    })
+    .unwrap();
+
+    // Consulta al 2026-10-21: solo cuenta el saldo inicial + primer ingreso = 150.00
+    let pat_21 = app.consultar_patrimonio(Some("2026-10-21".into())).unwrap();
+    assert_eq!(pat_21.cuentas[0].saldo, "150.00");
+    assert_eq!(pat_21.total, Some("150.00".into()));
+
+    // Consulta al 2026-10-23: cuenta ambos ingresos = 180.00
+    let pat_23 = app.consultar_patrimonio(Some("2026-10-23".into())).unwrap();
+    assert_eq!(pat_23.cuentas[0].saldo, "180.00");
+    assert_eq!(pat_23.total, Some("180.00".into()));
+
+    // Fecha futura relativa a reloj (2026-10-24 > 2026-10-23)
+    let err_futura = app
+        .consultar_patrimonio(Some("2026-10-24".into()))
+        .unwrap_err();
+    assert!(matches!(err_futura, ErrorAplicacion::Validacion(_)));
 }
