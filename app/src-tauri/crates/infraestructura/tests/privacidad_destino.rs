@@ -11,21 +11,24 @@
 //! El contenido de un lote es, por especificación (sección 2.5), el mismo formato cifrado
 //! de la exportación; por eso aquí se usa `exportar_copia` con frase para fabricarlo.
 //!
-//! Pendiente de conectar: cuando existan el caso de uso de sincronizar (Cristina - Tarea 5)
-//! y el adaptador Git (John - Tarea 5), esta misma comprobación debe correr sobre lo que
-//! ellos escriben de verdad, sobre la copia de trabajo del repositorio y sobre el archivo
-//! SQLite del libro (para confirmar que allí no quedan la frase ni el token).
+//! Con Git (repositorio real, remoto local) se hace la misma comprobación sobre la copia de
+//! trabajo, su configuración y el remoto. El archivo de configuración del destino y el
+//! almacén de secretos los cubren las pruebas de `sincronizacion_destino.rs`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use aplicacion::secretos::CredencialesGit;
+use aplicacion::sincronizar_libro::{EstadoSincronizacion, sincronizar};
 use aplicacion::{
     CasosDeUso, DispositivoFijo, GeneradorSecuencial, NuevaCuenta, RelojFijo, RepositorioEnMemoria,
     TransporteSincronizacion, nombre_de_lote,
 };
 use infraestructura::cifrado::{CifradorArgon2, MAGIA_CONTENEDOR, ParametrosArgon2};
 use infraestructura::transporte_carpeta::TransporteCarpeta;
+use infraestructura::transporte_git::TransporteGit;
 
 const FRASE: &str = "frase-de-paso-de-beto-2026";
 const TOKEN_GIT: &str = "ghp_TokenSecretoDeGitDeBeto0123456789";
@@ -263,4 +266,62 @@ fn el_escaner_detecta_un_archivo_en_claro_en_el_destino() {
         halladas.iter().any(|h| h.contains(TOKEN_GIT)),
         "no detectó el token: {halladas:?}"
     );
+}
+
+/// Con el repositorio Git de verdad: la copia de trabajo, su configuración y el remoto no
+/// guardan la frase, el usuario ni el token; los lotes confirmados son contenedores
+/// cifrados (RNF-01, RF-INT-05, RF-INT-06). Necesita el programa `git`.
+#[test]
+fn el_repositorio_git_y_su_copia_local_no_filtran_nada() {
+    let carpeta = CarpetaTemporal::nueva();
+    let remoto = carpeta.base.join("remoto.git");
+    let salida = Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&remoto)
+        .output()
+        .expect("estas pruebas necesitan el programa git");
+    assert!(salida.status.success());
+
+    let copia = carpeta.base.join("copia-local");
+    let credenciales = CredencialesGit::nuevas(USUARIO_GIT, TOKEN_GIT);
+    let mut transporte = TransporteGit::nuevo(
+        &remoto.to_string_lossy(),
+        copia.clone(),
+        "laptop-beto",
+        Some(credenciales),
+    )
+    .unwrap();
+    let mut casos = casos_con("Bóveda Secreta Beto", "laptop-beto");
+    let resultado = sincronizar(
+        &mut casos,
+        &mut transporte,
+        &cifrador(),
+        FRASE,
+        "2026-11-25T10:00:00Z",
+        &EstadoSincronizacion::default(),
+    );
+    if let Err(e) = resultado {
+        panic!("no se pudo sincronizar con el repositorio: {e}");
+    }
+
+    // Los archivos de lote de la copia de trabajo (fuera de `.git`) son contenedores cifrados.
+    let lotes: Vec<PathBuf> = archivos_de(&copia)
+        .into_iter()
+        .filter(|ruta| !ruta.components().any(|c| c.as_os_str() == ".git"))
+        .collect();
+    assert!(!lotes.is_empty(), "no se confirmó ningún lote");
+    for ruta in &lotes {
+        let contenido = fs::read(ruta).unwrap();
+        assert!(
+            contenido.starts_with(MAGIA_CONTENEDOR),
+            "{} no es un contenedor cifrado",
+            ruta.display()
+        );
+    }
+
+    // Ni la copia local (incluida su configuración) ni el remoto guardan datos ni secretos.
+    let halladas = filtraciones_en(&copia, &todo_lo_prohibido());
+    assert!(halladas.is_empty(), "la copia local filtra: {halladas:?}");
+    let halladas = filtraciones_en(&remoto, &todo_lo_prohibido());
+    assert!(halladas.is_empty(), "el remoto filtra: {halladas:?}");
 }
