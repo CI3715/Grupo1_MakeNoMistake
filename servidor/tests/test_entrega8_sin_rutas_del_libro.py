@@ -5,8 +5,8 @@ La copia y la sincronización van del dispositivo a un archivo o a un destino qu
 controla la persona (Git o una carpeta). Esta entrega no agrega endpoints, así que:
 
 - el conjunto de rutas es exactamente el de la Entrega 7,
-- ninguna ruta ni esquema habla de copias, destinos, lotes, frases de paso
-  o credenciales de Git,
+- ninguna ruta ni esquema habla de copias, destinos, lotes, frases de paso o credenciales
+  de Git,
 - ningún campo del contrato recibe datos del libro personal.
 
 La otra mitad de la verificación (la aplicación no hace HTTP al exportar, importar ni
