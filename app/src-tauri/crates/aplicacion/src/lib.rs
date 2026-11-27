@@ -10,6 +10,7 @@ pub mod contrato;
 pub mod contrato_transporte;
 pub mod errores;
 pub mod fusion;
+pub mod identificadores;
 pub mod memoria;
 pub mod proyector;
 pub mod puertos;
@@ -30,7 +31,10 @@ pub type NuevaMonedaPropia = NuevaMoneda;
 
 pub use casos_de_uso::{DatosParteDeGrupo, ParteDeGrupoEntrante, ResultadoAplicar};
 pub use errores::{ErrorAplicacion, ErrorValidacion};
-pub use fusion::{EventoRechazado, InformeFusion, MotivoRechazo, clave_orden, fusionar};
+pub use fusion::{
+    EventoRechazado, InformeFusion, MotivoRechazo, clave_orden, fusionar, ordenar_eventos,
+};
+pub use identificadores::id_evento_parte_de_grupo;
 pub use memoria::{
     DispositivoFijo, GeneradorSecuencial, RelojFijo, RelojModificable, RepositorioEnMemoria,
 };
