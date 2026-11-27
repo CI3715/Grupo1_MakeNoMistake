@@ -16,7 +16,7 @@ use thiserror::Error;
 
 use crate::casos_de_uso::CasosDeUso;
 use crate::puertos::EventoRegistrado;
-use crate::respaldo::{Cifrador, ErrorRespaldo, exportar_libro};
+use crate::respaldo::{Cifrador, ErrorRespaldo, LARGO_MINIMO_FRASE, exportar_libro, leer_libro};
 use crate::transporte::{
     ErrorTransporte, LoteDeDispositivo, TransporteSincronizacion, lotes_por_leer, nombre_de_lote,
 };
@@ -108,10 +108,26 @@ pub fn sincronizar(
         // 1. Traer lo que otros dispositivos publicaron.
         transporte.traer()?;
 
-        // 2. Fusionar solo los lotes que faltan.
-        for (dispositivo, lote) in lotes_por_leer(&*transporte, &nuevo.leidos)? {
-            let bytes = transporte.leer_lote(&dispositivo, &lote)?;
-            let resumen = casos.importar_copia(&bytes, Some(frase), cifrador)?;
+        // 2. Fusionar solo los lotes que faltan. Primero se leen y descifran todos, y
+        //    después se fusionan juntos en una sola pasada: los lotes de dispositivos
+        //    distintos pueden depender unos de otros (un movimiento del teléfono usa la
+        //    cuenta que creó la laptop) y el orden de las carpetas del destino no tiene
+        //    nada que ver con el orden en que ocurrieron los eventos. Fusionarlos juntos
+        //    los aplica en el orden determinista de la sección 2.1, y si un lote no se
+        //    puede leer no se toca el libro.
+        let por_leer = lotes_por_leer(&*transporte, &nuevo.leidos)?;
+        if !por_leer.is_empty() {
+            if frase.chars().count() < LARGO_MINIMO_FRASE {
+                return Err(ErrorRespaldo::FraseCorta.into());
+            }
+            let mut entrantes: Vec<EventoRegistrado> = Vec::new();
+            for (dispositivo, lote) in &por_leer {
+                let bytes = transporte.leer_lote(dispositivo, lote)?;
+                entrantes.extend(leer_libro(&bytes, Some(frase), cifrador)?);
+            }
+            let resumen = casos
+                .fusionar_eventos(&entrantes)
+                .map_err(|_| ErrorRespaldo::LibroNoLegible)?;
             informe.recibidos += resumen.nuevos.len();
             recibidos_ids.extend(resumen.nuevos.iter().map(|e| e.id.clone()));
             informe
@@ -120,7 +136,7 @@ pub fn sincronizar(
                     id: r.evento.id.clone(),
                     motivo: r.motivo.mensaje(),
                 }));
-            nuevo.leidos.insert((dispositivo, lote));
+            nuevo.leidos.extend(por_leer);
         }
 
         // 3. Enviar, en un lote nuevo, los eventos locales que el destino no tiene.

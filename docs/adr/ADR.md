@@ -20,6 +20,7 @@ Este directorio contiene las Architecture Decision Records (ADRs) del proyecto.
 - [ADR-015: Registro de cambios por usuario y clave de idempotencia en el servidor](./ADR-015-registro-de-cambios-e-idempotencia.md)
 - [ADR-016: PostgreSQL con Docker Compose y Supabase para el servidor](./ADR-016-postgresql-con-docker-compose-y-supabase.md) — sustituye las partes de ADR-009 sobre Neon y sobre el clúster local como única forma de desarrollo
 - [ADR-017: Derivación de clave con Argon2id y cifrado autenticado AES-256-GCM para copias y lotes de sincronización](./ADR-017-cifrado-con-frase-de-paso.md)
+- [ADR-018: Puerto `TransporteSincronizacion` y sus tres adaptadores (falso, carpeta y Git)](./ADR-018-puerto-transporte-sincronizacion.md)
 
 ## Notas
 
