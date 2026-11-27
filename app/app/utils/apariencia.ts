@@ -6,8 +6,6 @@
  * Si localStorage no está disponible, la app usa los valores por defecto.
  */
 
-import { useSyncExternalStore } from 'react';
-
 export type Modo = 'claro' | 'oscuro' | 'sistema';
 
 export const MODOS: { id: Modo; nombre: string }[] = [
@@ -35,7 +33,7 @@ export interface Apariencia {
 
 const CLAVE_MODO = 'cc-modo';
 const CLAVE_PALETA = 'cc-paleta';
-const EVENTO_CAMBIO = 'cc-apariencia-cambio';
+export const EVENTO_APARIENCIA_CAMBIO = 'cc-apariencia-cambio';
 const POR_DEFECTO: Apariencia = { modo: 'sistema', paleta: 'indigo' };
 
 export function leerApariencia(): Apariencia {
@@ -69,29 +67,25 @@ export function aplicarApariencia(a: Apariencia): void {
   const raiz = document.documentElement;
   raiz.dataset.tema = oscuro ? 'oscuro' : 'claro';
   raiz.dataset.paleta = a.paleta;
-  window.dispatchEvent(new Event(EVENTO_CAMBIO));
+  window.dispatchEvent(new Event(EVENTO_APARIENCIA_CAMBIO));
 }
 
-function suscribirTema(listener: () => void): () => void {
+export function suscribirTema(listener: () => void): () => void {
   if (typeof window === 'undefined') return () => {};
   const mql = window.matchMedia('(prefers-color-scheme: dark)');
-  window.addEventListener(EVENTO_CAMBIO, listener);
+  window.addEventListener(EVENTO_APARIENCIA_CAMBIO, listener);
   mql.addEventListener('change', listener);
   return () => {
-    window.removeEventListener(EVENTO_CAMBIO, listener);
+    window.removeEventListener(EVENTO_APARIENCIA_CAMBIO, listener);
     mql.removeEventListener('change', listener);
   };
 }
 
-function leerSnapshotOscuro(): boolean {
+export function leerSnapshotOscuro(): boolean {
   if (typeof document === 'undefined') return true;
   return document.documentElement.dataset.tema !== 'claro';
 }
 
-/** Hook reactivo que indica si el tema activo en `<html data-tema>` es oscuro. */
-export function useModoOscuro(): boolean {
-  return useSyncExternalStore(suscribirTema, leerSnapshotOscuro, () => true);
-}
-
 /** Misma lógica que `aplicarApariencia`, como texto, para ejecutarla en <head> antes de pintar. */
 export const SCRIPT_APARIENCIA = `(function(){var r=document.documentElement,m='sistema',p='indigo';try{m=localStorage.getItem('${CLAVE_MODO}')||m;p=localStorage.getItem('${CLAVE_PALETA}')||p}catch(e){}var d=m==='oscuro'||(m!=='claro'&&window.matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.tema=d?'oscuro':'claro';r.dataset.paleta=p})();`;
+

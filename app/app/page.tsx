@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Fragment, useState } from 'react';
+import React, { Fragment, useState, useSyncExternalStore } from 'react';
 import { PantallaCuentas } from './components/PantallaCuentas';
 import { PantallaTasas } from './components/PantallaTasas';
 import { PantallaPatrimonio } from './components/PantallaPatrimonio';
@@ -23,7 +23,7 @@ import {
   IconoTasasCambio,
   IconoUsuario,
 } from './components/Iconos';
-import { useModoOscuro } from './utils/apariencia';
+import { leerSnapshotOscuro, suscribirTema } from './utils/apariencia';
 import { useSesion } from './utils/useSesion';
 import { useSincronizacion } from './utils/useSincronizacion';
 import { useSincronizacionLibro } from './utils/useSincronizacionLibro';
@@ -79,7 +79,7 @@ const ENCABEZADOS: Record<string, { titulo: string; subtitulo: string }> = {
 
 export default function Home() {
   const [pantallaActual, setPantallaActual] = useState<string>('mis-cuentas');
-  const modoOscuro = useModoOscuro();
+  const modoOscuro = useSyncExternalStore(suscribirTema, leerSnapshotOscuro, () => true);
   const control = useSesion();
   const sincronizacion = useSincronizacion({
     sesionEstado: control.sesion.estado,
