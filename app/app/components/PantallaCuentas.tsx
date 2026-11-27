@@ -44,6 +44,8 @@ import {
 import { ListaCuentas } from './ListaCuentas';
 import { ListaMovimientos } from './ListaMovimientos';
 import { SubtotalesPorMoneda } from './SubtotalesPorMoneda';
+import { SelectorCuentaMinimalista } from './SelectorCuentaMinimalista';
+import type { DisenoEscritorio } from '../utils/apariencia';
 
 /** Solo traduce el DTO del backend a lo que pinta la tabla; no calcula nada. */
 function adaptarMovimiento(dto: MovimientoDto, moneda: string): Movimiento {
@@ -88,6 +90,7 @@ interface PantallaCuentasProps {
   setVistaSubpantalla: (vista: 'mis-cuentas' | 'detalle-cuenta' | 'tasas' | 'patrimonio') => void;
   /** Sube tras cada sincronización: se vuelven a leer cuentas, saldos y movimientos. */
   versionDatos?: number;
+  diseno?: DisenoEscritorio;
 }
 
 export function PantallaCuentas({
@@ -95,6 +98,7 @@ export function PantallaCuentas({
   vistaSubpantalla,
   setVistaSubpantalla,
   versionDatos = 0,
+  diseno = 'barra-superior',
 }: PantallaCuentasProps) {
   const [cuentaActivaId, setCuentaActivaId] = useState<string>('');
   const [cuentas, setCuentas] = useState<CuentaDto[]>([]);
@@ -319,9 +323,178 @@ export function PantallaCuentas({
     .filter(([campo]) => !CAMPOS_MOVIMIENTO.includes(campo))
     .map(([, mensaje]) => mensaje);
 
+  const bloqueDetalleCuenta = (
+    <div className="w-full space-y-6">
+      {/* Barra superior de acciones del detalle */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {diseno !== 'dividida' && (
+          <button
+            type="button"
+            onClick={() => setVistaSubpantalla('mis-cuentas')}
+            className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-borde bg-superficie px-4 text-xs font-semibold text-texto shadow-suave transition hover:border-acento hover:bg-superficie-2 focus-visible:outline-2 focus-visible:outline-acento sm:w-auto sm:text-sm"
+          >
+            <IconoFlechaAtras width={16} height={16} />
+            <span>Volver a Mis cuentas</span>
+          </button>
+        )}
+
+        <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row sm:items-center">
+          {cuentas.length > 0 && (
+            <SelectorCuentaMinimalista
+              cuentas={cuentas}
+              cuentaActivaId={cuentaActivaId}
+              onSeleccionarCuenta={setCuentaActivaId}
+            />
+          )}
+
+          <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:w-auto sm:flex-row">
+            {/* Nuevo Gasto: Acción principal cotidiana -> Relleno sólido minimalista (sin rojo chillón) */}
+            <button
+              type="button"
+              onClick={() => abrirModalMovimientoConTipo('gasto')}
+              title="Registrar nuevo gasto"
+              className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-texto px-4 text-xs font-semibold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98] sm:text-sm"
+            >
+              <IconoGasto width={15} height={15} />
+              <span>Nuevo Gasto</span>
+            </button>
+            {/* Nuevo Ingreso: Acción complementaria periódica -> Puro borde (outline) minimalista (sin verde chillón) */}
+            <button
+              type="button"
+              onClick={() => abrirModalMovimientoConTipo('ingreso')}
+              title="Registrar nuevo ingreso"
+              className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-borde-fuerte bg-transparent px-4 text-xs font-semibold text-texto transition hover:border-texto hover:bg-superficie-2 active:scale-[0.98] sm:text-sm"
+            >
+              <IconoIngreso width={15} height={15} />
+              <span>Nuevo Ingreso</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tarjeta de cabecera y composición de la cuenta */}
+      <div className="rounded-3xl border border-borde bg-superficie p-4 shadow-suave sm:p-6">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-borde pb-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-acento-suave text-acento-texto shadow-sm sm:size-12">
+              <IconoTipo tipo={tipoCuentaReal} width={22} height={22} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="truncate text-lg font-bold tracking-tight text-texto sm:text-2xl">
+                  {nombreCuentaReal} ({monedaCuentaReal})
+                </h2>
+                <span className="rounded-full bg-acento-suave px-2.5 py-0.5 text-xs font-bold text-acento-texto">
+                  {monedaCuentaReal}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-suave">
+                {nombreTipo(tipoCuentaReal)} · ID de la cuenta:{' '}
+                <span className="font-mono text-[11px] opacity-80">{cuentaActivaId}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {detalleCuenta && (
+          <ComposicionSaldo
+            composicion={detalleCuenta.composicion}
+            simbolo={simboloCuentaReal}
+            saldoActual={detalleCuenta.cuenta.saldo_actual}
+          />
+        )}
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-4 lg:col-span-2">
+            <div>
+              <h3 className="text-base font-semibold tracking-tight text-texto">
+                Historial de Movimientos
+              </h3>
+              <p className="mt-0.5 text-xs text-suave">
+                Operaciones registradas en el libro local de eventos
+              </p>
+            </div>
+            <ListaMovimientos
+              movimientos={movimientosAdaptados}
+              onCorregir={(m) => {
+                setErrorCorreccion(null);
+                setMovimientoAEditar(m);
+              }}
+              modoOscuro={modoOscuro}
+            />
+          </div>
+
+          <div className="h-fit rounded-2xl border border-borde bg-superficie-2/40 p-5">
+            <h3 className="mb-1 text-sm font-bold text-texto">Nueva Categoría</h3>
+            <p className="mb-3.5 text-xs text-suave">
+              Crea categorías propias para clasificar tus ingresos y gastos.
+            </p>
+            <FormularioCategoria
+              onAgregar={handleCrearCategoria}
+              errores={erroresCat}
+              modoOscuro={modoOscuro}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <>
-      {vistaSubpantalla === 'mis-cuentas' ? (
+      {diseno === 'dividida' ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
+          {/* Panel Izquierdo: Subtotales y Cuentas (4 cols) */}
+          <div className="space-y-6 lg:col-span-4">
+            {subtotales.length > 0 && (
+              <aside className="min-w-0">
+                <SubtotalesPorMoneda
+                  subtotales={subtotales}
+                  monedas={monedas}
+                  cuentas={cuentasAdaptadas}
+                />
+              </aside>
+            )}
+            <section
+              aria-labelledby="titulo-panel-cuentas-dividida"
+              className="min-w-0 overflow-hidden rounded-3xl border border-borde bg-superficie shadow-suave"
+            >
+              <div className="flex items-center justify-between gap-4 border-b border-borde px-4 py-3.5 sm:px-5">
+                <div>
+                  <h2
+                    id="titulo-panel-cuentas-dividida"
+                    className="text-base font-semibold tracking-tight text-texto"
+                  >
+                    Mis Cuentas
+                  </h2>
+                  <p className="text-xs text-suave">{cuentas.length} registradas</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => abrirModalCuenta()}
+                  className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-xl bg-acento px-3 text-xs font-semibold text-acento-fg shadow-xs transition hover:brightness-110 active:scale-[0.98]"
+                >
+                  <IconoMas width={14} height={14} />
+                  <span>Nueva</span>
+                </button>
+              </div>
+
+              {cuentasAdaptadas.length === 0 ? (
+                <EstadoVacio onCrearCuenta={() => abrirModalCuenta()} />
+              ) : (
+                <ListaCuentas
+                  cuentas={cuentasAdaptadas}
+                  monedas={monedas}
+                  onSeleccionarCuenta={(id) => setCuentaActivaId(id)}
+                />
+              )}
+            </section>
+          </div>
+
+          {/* Panel Derecho: Detalle de Cuenta (8 cols) */}
+          <div className="min-w-0 lg:col-span-8">{bloqueDetalleCuenta}</div>
+        </div>
+      ) : vistaSubpantalla === 'mis-cuentas' ? (
         <div className="grid items-start gap-6 md:grid-cols-[17.5rem_1fr]">
           {/* Tarjetas laterales de saldo por moneda */}
           <aside className="min-w-0">
@@ -378,123 +551,7 @@ export function PantallaCuentas({
           </section>
         </div>
       ) : (
-        <div className="w-full space-y-6">
-          {/* Barra superior de acciones del detalle */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={() => setVistaSubpantalla('mis-cuentas')}
-              className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-borde bg-superficie px-4 text-xs font-semibold text-texto shadow-suave transition hover:border-acento hover:bg-superficie-2 focus-visible:outline-2 focus-visible:outline-acento sm:w-auto sm:text-sm"
-            >
-              <IconoFlechaAtras width={16} height={16} />
-              <span>Volver a Mis cuentas</span>
-            </button>
-
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-              {cuentas.length > 0 && (
-                <div className="flex w-full items-center justify-between gap-1.5 rounded-2xl border border-borde bg-superficie px-3 py-2 shadow-sm sm:w-auto sm:justify-start">
-                  <span className="text-xs text-suave">Cuenta:</span>
-                  <select
-                    value={cuentaActivaId}
-                    onChange={(e) => setCuentaActivaId(e.target.value)}
-                    className="max-w-[220px] cursor-pointer truncate bg-transparent text-xs font-semibold text-texto outline-none"
-                  >
-                    {cuentas.map((c) => (
-                      <option key={c.id} value={c.id} className="bg-superficie text-texto">
-                        {c.nombre} ({c.moneda})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => abrirModalMovimientoConTipo('gasto')}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-peligro px-4 text-xs font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[0.98] sm:text-sm"
-                >
-                  <IconoGasto width={14} height={14} />
-                  <span>Nuevo Gasto</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => abrirModalMovimientoConTipo('ingreso')}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-exito px-4 text-xs font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[0.98] sm:text-sm"
-                >
-                  <IconoIngreso width={14} height={14} />
-                  <span>Nuevo Ingreso</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Tarjeta de cabecera y composición de la cuenta */}
-          <div className="rounded-3xl border border-borde bg-superficie p-4 shadow-suave sm:p-6">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-borde pb-4">
-              <div className="flex items-center gap-3">
-                <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-acento-suave text-acento-texto shadow-sm sm:size-12">
-                  <IconoTipo tipo={tipoCuentaReal} width={22} height={22} />
-                </span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-lg font-bold tracking-tight text-texto sm:text-2xl">
-                      {nombreCuentaReal} ({monedaCuentaReal})
-                    </h2>
-                    <span className="rounded-full bg-acento-suave px-2.5 py-0.5 text-xs font-bold text-acento-texto">
-                      {monedaCuentaReal}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-suave">
-                    {nombreTipo(tipoCuentaReal)} · ID de la cuenta:{' '}
-                    <span className="font-mono text-[11px] opacity-80">{cuentaActivaId}</span>
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {detalleCuenta && (
-              <ComposicionSaldo
-                composicion={detalleCuenta.composicion}
-                simbolo={simboloCuentaReal}
-                saldoActual={detalleCuenta.cuenta.saldo_actual}
-              />
-            )}
-
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <div className="space-y-4 lg:col-span-2">
-                <div>
-                  <h3 className="text-base font-semibold tracking-tight text-texto">
-                    Historial de Movimientos
-                  </h3>
-                  <p className="mt-0.5 text-xs text-suave">
-                    Operaciones registradas en el libro local de eventos
-                  </p>
-                </div>
-                <ListaMovimientos
-                  movimientos={movimientosAdaptados}
-                  onCorregir={(m) => {
-                    setErrorCorreccion(null);
-                    setMovimientoAEditar(m);
-                  }}
-                  modoOscuro={modoOscuro}
-                />
-              </div>
-
-              <div className="h-fit rounded-2xl border border-borde bg-superficie-2/40 p-5">
-                <h3 className="mb-1 text-sm font-bold text-texto">Nueva Categoría</h3>
-                <p className="mb-3.5 text-xs text-suave">
-                  Crea categorías propias para clasificar tus ingresos y gastos.
-                </p>
-                <FormularioCategoria
-                  onAgregar={handleCrearCategoria}
-                  errores={erroresCat}
-                  modoOscuro={modoOscuro}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        bloqueDetalleCuenta
       )}
 
       <DialogoAdvertencia

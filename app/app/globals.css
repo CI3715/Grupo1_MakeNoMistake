@@ -252,6 +252,17 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ── Escala de accesibilidad de texto para pantallas grandes ── */
+html {
+  font-size: 16px;
+}
+html[data-escala="grande"] {
+  font-size: 18px;
+}
+html[data-escala="extra"] {
+  font-size: 20px;
+}
+
 body {
   background: var(--fondo);
   color: var(--texto);

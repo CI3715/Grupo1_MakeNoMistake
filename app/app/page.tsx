@@ -11,6 +11,8 @@ import { PantallaSincronizacionLibro } from './components/sincronizacionLibro/Pa
 import { BienvenidaPrimerAcceso } from './components/sesion/BienvenidaPrimerAcceso';
 import { AvisoSesionVencida } from './components/sesion/AvisoSesionVencida';
 import { SelectorApariencia } from './components/SelectorApariencia';
+import { ConmutadorDiseno } from './components/ConmutadorDiseno';
+import { Sidebar } from './components/Sidebar';
 import {
   IconoAmigos,
   IconoBilletera,
@@ -23,7 +25,12 @@ import {
   IconoTasasCambio,
   IconoUsuario,
 } from './components/Iconos';
-import { leerSnapshotOscuro, suscribirTema } from './utils/apariencia';
+import {
+  type DisenoEscritorio,
+  leerSnapshotDiseno,
+  leerSnapshotOscuro,
+  suscribirTema,
+} from './utils/apariencia';
 import { useSesion } from './utils/useSesion';
 import { useSincronizacion } from './utils/useSincronizacion';
 import { useSincronizacionLibro } from './utils/useSincronizacionLibro';
@@ -79,15 +86,18 @@ const ENCABEZADOS: Record<string, { titulo: string; subtitulo: string }> = {
 
 export default function Home() {
   const [pantallaActual, setPantallaActual] = useState<string>('mis-cuentas');
+  const diseno: DisenoEscritorio = useSyncExternalStore(
+    suscribirTema,
+    leerSnapshotDiseno,
+    () => 'barra-superior'
+  );
   const modoOscuro = useSyncExternalStore(suscribirTema, leerSnapshotOscuro, () => true);
   const control = useSesion();
   const sincronizacion = useSincronizacion({
     sesionEstado: control.sesion.estado,
     claveLibro: control.claveLibro,
   });
-  // Sincronización del libro entre dispositivos propios (Entrega 8). Es distinta de la
-  // anterior (gastos de grupo con el servidor). Cuando llegan eventos de otro dispositivo o se
-  // importa una copia, las pantallas personales vuelven a leer el libro.
+  // Sincronización del libro entre dispositivos propios (Entrega 8).
   const refrescarLibro = sincronizacion.refrescar;
   const sincronizacionLibro = useSincronizacionLibro({
     claveLibro: control.claveLibro,
@@ -156,9 +166,124 @@ export default function Home() {
     },
   ];
 
+  const contenidoPrincipal = (
+    <>
+      {control.avisoVencidaVisible && (
+        <AvisoSesionVencida
+          modoOscuro={modoOscuro}
+          mostrarBoton={pantallaActual !== 'inicio-sesion'}
+          onIniciarSesion={() => setPantallaActual('inicio-sesion')}
+          onCerrar={control.ocultarAviso}
+        />
+      )}
+
+      {/* Al iniciar o cerrar sesión cambia la clave: las pantallas se montan de nuevo y piden
+          sus datos al libro nuevo, sin dejar a la vista nada del usuario anterior. Las pantallas
+          de sesión quedan fuera para no desmontar el formulario que está iniciando sesión. */}
+      <Fragment key={control.claveLibro}>
+        {(pantallaActual === 'mis-cuentas' || pantallaActual === 'detalle-cuenta') && (
+          <PantallaCuentas
+            modoOscuro={modoOscuro}
+            vistaSubpantalla={vistaSubpantalla}
+            setVistaSubpantalla={handleCambiarSubpantalla}
+            versionDatos={sincronizacion.versionDatos}
+            diseno={diseno}
+          />
+        )}
+        {pantallaActual === 'tasas' && <PantallaTasas modoOscuro={modoOscuro} />}
+        {pantallaActual === 'patrimonio' && (
+          <PantallaPatrimonio
+            modoOscuro={modoOscuro}
+            versionDatos={sincronizacion.versionDatos}
+          />
+        )}
+        {(pantallaActual === 'amigos' || pantallaActual === 'grupos') && (
+          <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+            <PantallaSocial
+              modoOscuro={modoOscuro}
+              vista={pantallaActual}
+              setPantallaActual={setPantallaActual}
+              sincronizacion={sincronizacion}
+            />
+          </div>
+        )}
+        {pantallaActual === 'copia-seguridad' && (
+          <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+            <PantallaCopiaSeguridad
+              modoOscuro={modoOscuro}
+              alCambiarLibro={() => void refrescarLibro()}
+            />
+          </div>
+        )}
+        {pantallaActual === 'sincronizacion-libro' && (
+          <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+            <PantallaSincronizacionLibro
+              modoOscuro={modoOscuro}
+              control={sincronizacionLibro}
+            />
+          </div>
+        )}
+      </Fragment>
+
+      {(pantallaActual === 'inicio-sesion' ||
+        pantallaActual === 'registro' ||
+        pantallaActual === 'perfil') && (
+        <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
+          <PantallaSesion
+            modoOscuro={modoOscuro}
+            vista={pantallaActual}
+            setPantallaActual={setPantallaActual}
+            control={control}
+          />
+        </div>
+      )}
+    </>
+  );
+
+  // ── OPCIÓN 2: Layout con Barra Lateral Fija de Escritorio ──
+  if (diseno === 'barra-lateral') {
+    return (
+      <div className="flex h-screen overflow-hidden bg-fondo text-texto transition-colors duration-200">
+        <Sidebar
+          pantallaActual={pantallaActual}
+          setPantallaActual={setPantallaActual}
+          control={control}
+          modoOscuro={modoOscuro}
+        />
+
+        <div className="flex flex-1 flex-col overflow-y-auto">
+          {/* Barra superior de herramientas de escritorio */}
+          <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-borde bg-superficie/85 px-6 backdrop-blur-md sm:px-8">
+            <div className="min-w-0 pr-4">
+              <h1 className="truncate text-base sm:text-lg font-bold tracking-tight text-texto">
+                {infoEncabezado.titulo}
+              </h1>
+              <p className="hidden sm:block truncate text-xs text-suave">
+                {infoEncabezado.subtitulo}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <ConmutadorDiseno
+                disenoActual={diseno}
+                variante="superficie"
+              />
+            </div>
+          </header>
+
+          <main className="w-full max-w-7xl mx-auto p-6 sm:p-8">
+            {contenidoPrincipal}
+          </main>
+        </div>
+
+        <BienvenidaPrimerAcceso modoOscuro={modoOscuro} setPantallaActual={setPantallaActual} />
+      </div>
+    );
+  }
+
+  // ── OPCIONES 1 & 3: Layouts con Barra Superior Amplia o Dividida ──
   return (
     <div className="min-h-screen bg-fondo pb-16 text-texto transition-colors duration-200">
-      {/* Cabecera superior curva con degradado dinámico y sin barra lateral */}
+      {/* Cabecera superior curva con degradado dinámico ampliada para escritorio */}
       <div className="relative rounded-b-[2.5rem] bg-linear-to-br from-grad-a to-grad-b pb-28 text-white shadow-lg">
         {/* Esferas decorativas de luz y desenfoque ambiental */}
         <div
@@ -169,9 +294,9 @@ export default function Home() {
           <div className="absolute -bottom-44 left-1/3 size-96 rounded-full bg-white/5 blur-3xl" />
         </div>
 
-        <div className="relative mx-auto w-full max-w-5xl px-4 pt-5 sm:px-8 sm:pt-6">
-          {/* Fila 1: Marca + Sesión + Selector de Apariencia */}
-          <header className="flex flex-col gap-3.5">
+        <div className="relative mx-auto w-full max-w-7xl px-4 pt-5 sm:px-8 sm:pt-6">
+          {/* Fila 1: Marca + Selector de Disposición + Sesión + Selector de Apariencia */}
+          <header className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <button
                 type="button"
@@ -191,7 +316,13 @@ export default function Home() {
                 </div>
               </button>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5 flex-wrap justify-end">
+                {/* Conmutador rápido de diseño de escritorio */}
+                <ConmutadorDiseno
+                  disenoActual={diseno}
+                  variante="traslucido"
+                />
+
                 {sesionVigente ? (
                   <button
                     type="button"
@@ -238,7 +369,7 @@ export default function Home() {
                     key={item.id}
                     type="button"
                     onClick={() => setPantallaActual(item.id)}
-                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition sm:text-sm ${
                       activo
                         ? 'bg-white text-slate-950 shadow-sm'
                         : 'text-white/85 hover:bg-white/10 hover:text-white'
@@ -264,76 +395,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Contenido principal superpuesto a la cabecera con margen negativo */}
-      <main className="relative mx-auto -mt-14 w-full max-w-5xl px-4 sm:-mt-16 sm:px-8">
-        {control.avisoVencidaVisible && (
-          <AvisoSesionVencida
-            modoOscuro={modoOscuro}
-            mostrarBoton={pantallaActual !== 'inicio-sesion'}
-            onIniciarSesion={() => setPantallaActual('inicio-sesion')}
-            onCerrar={control.ocultarAviso}
-          />
-        )}
-
-        {/* Al iniciar o cerrar sesión cambia la clave: las pantallas se montan de nuevo y piden
-            sus datos al libro nuevo, sin dejar a la vista nada del usuario anterior. Las pantallas
-            de sesión quedan fuera para no desmontar el formulario que está iniciando sesión. */}
-        <Fragment key={control.claveLibro}>
-          {(pantallaActual === 'mis-cuentas' || pantallaActual === 'detalle-cuenta') && (
-            <PantallaCuentas
-              modoOscuro={modoOscuro}
-              vistaSubpantalla={vistaSubpantalla}
-              setVistaSubpantalla={handleCambiarSubpantalla}
-              versionDatos={sincronizacion.versionDatos}
-            />
-          )}
-          {pantallaActual === 'tasas' && <PantallaTasas modoOscuro={modoOscuro} />}
-          {pantallaActual === 'patrimonio' && (
-            <PantallaPatrimonio
-              modoOscuro={modoOscuro}
-              versionDatos={sincronizacion.versionDatos}
-            />
-          )}
-          {(pantallaActual === 'amigos' || pantallaActual === 'grupos') && (
-            <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
-              <PantallaSocial
-                modoOscuro={modoOscuro}
-                vista={pantallaActual}
-                setPantallaActual={setPantallaActual}
-                sincronizacion={sincronizacion}
-              />
-            </div>
-          )}
-          {pantallaActual === 'copia-seguridad' && (
-            <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
-              <PantallaCopiaSeguridad
-                modoOscuro={modoOscuro}
-                alCambiarLibro={() => void refrescarLibro()}
-              />
-            </div>
-          )}
-          {pantallaActual === 'sincronizacion-libro' && (
-            <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
-              <PantallaSincronizacionLibro
-                modoOscuro={modoOscuro}
-                control={sincronizacionLibro}
-              />
-            </div>
-          )}
-        </Fragment>
-
-        {(pantallaActual === 'inicio-sesion' ||
-          pantallaActual === 'registro' ||
-          pantallaActual === 'perfil') && (
-          <div className="rounded-3xl border border-borde bg-superficie p-5 shadow-suave sm:p-6">
-            <PantallaSesion
-              modoOscuro={modoOscuro}
-              vista={pantallaActual}
-              setPantallaActual={setPantallaActual}
-              control={control}
-            />
-          </div>
-        )}
+      {/* Contenido principal superpuesto a la cabecera con margen negativo y ancho amplio */}
+      <main className="relative mx-auto -mt-14 w-full max-w-7xl px-4 sm:-mt-16 sm:px-8">
+        {contenidoPrincipal}
       </main>
 
       <BienvenidaPrimerAcceso modoOscuro={modoOscuro} setPantallaActual={setPantallaActual} />

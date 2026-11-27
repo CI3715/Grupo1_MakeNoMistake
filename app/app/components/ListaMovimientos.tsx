@@ -65,23 +65,30 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir }) =
 
               <div className="flex items-center justify-between pt-1 text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-medium tabular-nums text-suave">{m.fecha}</span>
+                  <span className="text-xs font-medium tabular-nums text-suave">{m.fecha}</span>
                   {m.es_gasto_de_grupo ? (
                     <span
                       title="Parte de un gasto compartido en un grupo"
-                      className="inline-flex items-center rounded-full bg-acento-suave px-2 py-0.5 text-[10px] font-bold text-acento-texto"
+                      className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-acento-texto"
                     >
                       Gasto de grupo
+                    </span>
+                  ) : m.es_ajuste ? (
+                    <span
+                      title={ayuda}
+                      className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-info-texto"
+                    >
+                      Ajuste
                     </span>
                   ) : estaCorregido ? (
                     <span
                       title={ayuda}
-                      className="inline-flex items-center rounded-full border border-aviso-borde bg-aviso-suave px-2 py-0.5 text-[10px] font-semibold text-aviso-texto"
+                      className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-aviso"
                     >
                       Corregido
                     </span>
                   ) : (
-                    <span className="inline-flex items-center rounded-full border border-borde bg-superficie-2 px-2 py-0.5 text-[10px] font-medium text-suave">
+                    <span className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-suave">
                       Normal
                     </span>
                   )}
@@ -107,9 +114,9 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir }) =
 
       {/* Vista de tabla: pantallas medianas y grandes (>= 640px) */}
       <div className="hidden overflow-x-auto sm:block">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-borde bg-superficie-2/60 text-suave">
+            <tr className="border-b border-borde bg-superficie-2/60 text-xs text-suave uppercase tracking-wider">
               <th className="p-3.5 font-semibold">Fecha</th>
               <th className="p-3.5 font-semibold">Categoría</th>
               <th className="p-3.5 font-semibold">Nota</th>
@@ -158,19 +165,26 @@ export const ListaMovimientos: React.FC<Props> = ({ movimientos, onCorregir }) =
                     {m.es_gasto_de_grupo ? (
                       <span
                         title="Parte de un gasto compartido en un grupo"
-                        className="inline-flex items-center rounded-full bg-acento-suave px-2.5 py-0.5 text-[11px] font-bold text-acento-texto"
+                        className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-acento-texto"
                       >
                         Gasto de grupo
+                      </span>
+                    ) : m.es_ajuste ? (
+                      <span
+                        title={ayuda}
+                        className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-info-texto"
+                      >
+                        Ajuste
                       </span>
                     ) : estaCorregido ? (
                       <span
                         title={ayuda}
-                        className="inline-flex items-center rounded-full border border-aviso-borde bg-aviso-suave px-2.5 py-0.5 text-[11px] font-semibold text-aviso-texto"
+                        className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-aviso"
                       >
                         Corregido
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full border border-borde bg-superficie-2 px-2.5 py-0.5 text-[11px] font-medium text-suave">
+                      <span className="inline-flex items-center rounded-lg bg-superficie-2 px-2.5 py-1 text-xs font-semibold text-suave">
                         Normal
                       </span>
                     )}

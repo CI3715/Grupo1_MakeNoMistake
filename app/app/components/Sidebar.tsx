@@ -1,168 +1,188 @@
 'use client';
 
 import React from 'react';
-import { LogoCuentasClaras } from './LogoCuentasClaras';
-import { BloqueSesionSidebar } from './sesion/BloqueSesionSidebar';
 import type { ControlSesion } from '../utils/useSesion';
+import { SelectorApariencia } from './SelectorApariencia';
 import {
-  IconoBilletera,
-  IconoDetalleCuenta,
-  IconoIntercambio,
-  IconoPatrimonio,
   IconoAmigos,
-  IconoGrupos,
+  IconoBilletera,
   IconoCopiaSeguridad,
+  IconoDetalleCuenta,
+  IconoLogo,
+  IconoPatrimonio,
+  IconoRecibo,
   IconoSincronizacion,
-  IconoSol,
-  IconoLuna,
+  IconoTasasCambio,
+  IconoUsuario,
 } from './Iconos';
 
 export interface SidebarProps {
-  modoOscuro: boolean;
-  toggleModoOscuro: () => void;
   pantallaActual: string;
   setPantallaActual: (pantalla: string) => void;
   control: ControlSesion;
+  modoOscuro?: boolean;
+  toggleModoOscuro?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  modoOscuro,
-  toggleModoOscuro,
   pantallaActual,
   setPantallaActual,
   control,
 }) => {
+  const sesionVigente = control.sesion.estado === 'vigente';
+  const nombreVisible = control.sesion.nombreVisible ?? 'Mi perfil';
+  const inicialUsuario = nombreVisible.trim().charAt(0).toUpperCase() || 'U';
+
+  const secciones = [
+    {
+      titulo: 'Finanzas',
+      items: [
+        {
+          id: 'mis-cuentas',
+          etiqueta: 'Mis cuentas',
+          icono: <IconoBilletera className="h-4 w-4 shrink-0" />,
+        },
+        {
+          id: 'detalle-cuenta',
+          etiqueta: 'Detalle de cuenta',
+          icono: <IconoDetalleCuenta className="h-4 w-4 shrink-0" />,
+        },
+        {
+          id: 'tasas',
+          etiqueta: 'Tasas de cambio',
+          icono: <IconoTasasCambio className="h-4 w-4 shrink-0" />,
+        },
+        {
+          id: 'patrimonio',
+          etiqueta: 'Patrimonio',
+          icono: <IconoPatrimonio className="h-4 w-4 shrink-0" />,
+        },
+      ],
+    },
+    {
+      titulo: 'Social y Grupos',
+      items: [
+        {
+          id: 'amigos',
+          etiqueta: 'Amigos',
+          icono: <IconoAmigos className="h-4 w-4 shrink-0" />,
+        },
+        {
+          id: 'grupos',
+          etiqueta: 'Grupos',
+          icono: <IconoRecibo className="h-4 w-4 shrink-0" />,
+        },
+      ],
+    },
+    {
+      titulo: 'Herramientas',
+      items: [
+        {
+          id: 'copia-seguridad',
+          etiqueta: 'Copia de seguridad',
+          icono: <IconoCopiaSeguridad className="h-4 w-4 shrink-0" />,
+        },
+        {
+          id: 'sincronizacion-libro',
+          etiqueta: 'Sincronización',
+          icono: <IconoSincronizacion className="h-4 w-4 shrink-0" />,
+        },
+      ],
+    },
+  ];
+
   return (
-    <aside
-      className={`w-[224px] h-screen overflow-y-auto p-[28px_18px_24px] flex flex-col justify-between shrink-0 border-r transition-colors duration-200 ${
-        modoOscuro ? 'bg-[#180a29] text-white border-purple-900/40' : 'bg-[#211337] text-white border-purple-900/20'
-      }`}
-    >
-      <div>
-        <div className="flex items-center gap-2 border-b border-purple-800/60 pb-4 mb-6">
-          <LogoCuentasClaras tono="claro" />
+    <aside className="flex h-screen w-64 shrink-0 flex-col justify-between border-r border-borde bg-superficie p-5 text-texto transition-colors">
+      <div className="space-y-6 overflow-y-auto">
+        {/* Cabecera de la Barra Lateral */}
+        <div className="flex items-center gap-2.5 border-b border-borde pb-4">
+          <span className="grid size-9 place-items-center rounded-xl bg-acento text-acento-fg shadow-xs">
+            <IconoLogo width={20} height={20} />
+          </span>
+          <div>
+            <span className="text-sm font-bold tracking-tight text-texto">Cuentas Claras</span>
+            <span className="ml-1.5 rounded-md bg-superficie-2 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-suave">
+              LOCAL-FIRST
+            </span>
+          </div>
         </div>
 
-        <nav aria-label="Secciones" className="flex flex-col gap-2">
-          <button
-            onClick={() => setPantallaActual('mis-cuentas')}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
-              pantallaActual === 'mis-cuentas'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoBilletera className="w-4 h-4 shrink-0" />
-            <span>Mis cuentas</span>
-          </button>
-          
-          <button
-            onClick={() => setPantallaActual('detalle-cuenta')}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
-              pantallaActual === 'detalle-cuenta'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoDetalleCuenta className="w-4 h-4 shrink-0" />
-            <span>Detalle de Cuenta</span>
-          </button>
-
-          <button
-            onClick={() => setPantallaActual('tasas')}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
-              pantallaActual === 'tasas'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoIntercambio className="w-4 h-4 shrink-0" />
-            <span>Tasas de Cambio</span>
-          </button>
-
-          <button
-            onClick={() => setPantallaActual('patrimonio')}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer ${
-              pantallaActual === 'patrimonio'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoPatrimonio className="w-4 h-4 shrink-0" />
-            <span>Patrimonio</span>
-          </button>
-
-          <button
-            onClick={() => setPantallaActual('amigos')}
-            aria-current={pantallaActual === 'amigos' ? 'page' : undefined}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
-              pantallaActual === 'amigos'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoAmigos className="w-4 h-4 shrink-0" />
-            <span>Amigos</span>
-          </button>
-
-          <button
-            onClick={() => setPantallaActual('grupos')}
-            aria-current={pantallaActual === 'grupos' ? 'page' : undefined}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
-              pantallaActual === 'grupos'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoGrupos className="w-4 h-4 shrink-0" />
-            <span>Grupos</span>
-          </button>
-          <button
-            onClick={() => setPantallaActual('copia-seguridad')}
-            aria-current={pantallaActual === 'copia-seguridad' ? 'page' : undefined}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
-              pantallaActual === 'copia-seguridad'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoCopiaSeguridad className="w-4 h-4 shrink-0" />
-            <span>Copia de seguridad</span>
-          </button>
-
-          <button
-            onClick={() => setPantallaActual('sincronizacion-libro')}
-            aria-current={pantallaActual === 'sincronizacion-libro' ? 'page' : undefined}
-            className={`flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl font-medium text-sm transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
-              pantallaActual === 'sincronizacion-libro'
-                ? 'bg-[#9333EA] text-white shadow-md shadow-purple-900/50'
-                : 'hover:bg-white/10 text-purple-200'
-            }`}
-          >
-            <IconoSincronizacion className="w-4 h-4 shrink-0" />
-            <span>Sincronización</span>
-          </button>
+        {/* Grupos de navegación */}
+        <nav aria-label="Navegación principal" className="space-y-5">
+          {secciones.map((sec) => (
+            <div key={sec.titulo} className="space-y-1">
+              <p className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-suave">
+                {sec.titulo}
+              </p>
+              <div className="space-y-0.5">
+                {sec.items.map((item) => {
+                  const activo = pantallaActual === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setPantallaActual(item.id)}
+                      className={`flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
+                        activo
+                          ? 'bg-acento text-acento-fg shadow-xs'
+                          : 'text-suave hover:bg-superficie-2 hover:text-texto'
+                      }`}
+                    >
+                      {item.icono}
+                      <span>{item.etiqueta}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
       </div>
 
-      <div className="pt-4 border-t border-purple-800/60 flex flex-col gap-3">
-        <BloqueSesionSidebar
-          control={control}
-          pantallaActual={pantallaActual}
-          setPantallaActual={setPantallaActual}
-        />
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-purple-300">{modoOscuro ? 'Oscuro' : 'Claro'}</span>
+      {/* Pie de la Barra Lateral: Usuario y Apariencia */}
+      <div className="border-t border-borde pt-4 space-y-2.5">
+        <div className="flex items-center justify-between">
+          {sesionVigente ? (
+            <button
+              type="button"
+              onClick={() => setPantallaActual('perfil')}
+              className={`flex flex-1 cursor-pointer items-center gap-2 rounded-xl p-2 text-left text-xs font-semibold transition ${
+                pantallaActual === 'perfil'
+                  ? 'bg-superficie-2 text-texto'
+                  : 'text-suave hover:bg-superficie-2 hover:text-texto'
+              }`}
+            >
+              <span className="flex size-7 items-center justify-center rounded-full bg-acento text-xs font-bold text-acento-fg">
+                {inicialUsuario}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-bold text-texto">{nombreVisible}</p>
+                <p className="text-[10px] text-suave">Sesión activa</p>
+              </div>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setPantallaActual('inicio-sesion')}
+              className={`flex flex-1 cursor-pointer items-center gap-2 rounded-xl p-2 text-left text-xs font-semibold transition ${
+                pantallaActual === 'inicio-sesion' || pantallaActual === 'registro'
+                  ? 'bg-superficie-2 text-texto'
+                  : 'text-suave hover:bg-superficie-2 hover:text-texto'
+              }`}
+            >
+              <span className="grid size-7 place-items-center rounded-full bg-superficie-2 text-suave">
+                <IconoUsuario className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-texto">Iniciar sesión</p>
+                <p className="text-[10px] text-suave">Amigos y grupos</p>
+              </div>
+            </button>
+          )}
+
+          <div className="shrink-0 pl-1">
+            <SelectorApariencia />
           </div>
-          <button
-            onClick={toggleModoOscuro}
-            aria-label={modoOscuro ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#9333EA] hover:bg-purple-600 text-white rounded-full font-medium text-[11px] shadow transition cursor-pointer"
-          >
-            {modoOscuro ? <IconoLuna className="w-3.5 h-3.5" /> : <IconoSol className="w-3.5 h-3.5" />}
-            <span>{modoOscuro ? 'Oscuro' : 'Claro'}</span>
-          </button>
         </div>
       </div>
     </aside>
