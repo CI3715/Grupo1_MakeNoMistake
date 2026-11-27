@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Cuenta, Subtotal, Moneda } from '../types/cuentas';
 import { formatearMontoLocal } from '../utils/formato';
 
@@ -11,9 +11,14 @@ interface Props {
 
 /** Una tarjeta de saldo por moneda. Nunca hay un total consolidado (INV-02). */
 export const SubtotalesPorMoneda: React.FC<Props> = ({ subtotales, monedas, cuentas }) => {
+  const [expandido, setExpandido] = useState(false);
   const buscar = (codigo: string) => monedas.find((item) => item.codigo === codigo);
   const obtenerSimbolo = (codigo: string) => buscar(codigo)?.simbolo ?? codigo;
   const obtenerNombre = (codigo: string) => buscar(codigo)?.nombre ?? codigo;
+
+  const limite = 3;
+  const hayMas = subtotales.length > limite;
+  const tarjetasVisibles = expandido || !hayMas ? subtotales : subtotales.slice(0, limite);
 
   return (
     <section aria-labelledby="titulo-subtotales">
@@ -21,7 +26,7 @@ export const SubtotalesPorMoneda: React.FC<Props> = ({ subtotales, monedas, cuen
         Saldo por moneda
       </h2>
       <ul className="flex snap-x gap-4 overflow-x-auto px-1 pb-4 pt-1 md:flex-col md:overflow-visible md:p-0">
-        {subtotales.map((sub) => {
+        {tarjetasVisibles.map((sub) => {
           const n = cuentas.filter((c) => c.moneda === sub.moneda).length;
           return (
             <li
@@ -47,6 +52,25 @@ export const SubtotalesPorMoneda: React.FC<Props> = ({ subtotales, monedas, cuen
           );
         })}
       </ul>
+
+      {hayMas && (
+        <button
+          type="button"
+          onClick={() => setExpandido((v) => !v)}
+          className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-borde bg-superficie px-4 py-2.5 text-xs font-bold text-texto shadow-xs transition hover:bg-superficie-2 hover:border-borde-fuerte active:scale-[0.98]"
+        >
+          <span>{expandido ? 'Mostrar menos' : `Ver ${subtotales.length - limite} monedas más`}</span>
+          <svg
+            className={`size-3.5 transition-transform duration-200 ${expandido ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      )}
     </section>
   );
 };

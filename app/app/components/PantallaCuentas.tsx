@@ -371,13 +371,13 @@ export function PantallaCuentas({
       {/* Fila de 3 tarjetas métricas superiores inspiradas en Quixotic */}
       {detalleCuenta && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Tarjeta 1: Estilo Tarjeta Bancaria redondeada */}
-          <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-emerald-600 via-teal-700 to-emerald-950 p-6 text-white shadow-md flex flex-col justify-between min-h-[190px]">
+          {/* Tarjeta 1: Estilo Tarjeta Bancaria con gradiente del sistema */}
+          <div className="relative overflow-hidden rounded-[2rem] bg-linear-to-br from-grad-a via-grad-a to-grad-b p-6 text-white shadow-md flex flex-col justify-between min-h-[190px]">
             <div className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-white/10 blur-xl" />
             <div className="pointer-events-none absolute -left-10 -bottom-10 size-36 rounded-full bg-white/5 blur-xl" />
 
             <div className="relative flex items-center justify-between">
-              <span className="text-xs font-extrabold uppercase tracking-widest text-emerald-100 flex items-center gap-2">
+              <span className="text-xs font-extrabold uppercase tracking-widest text-white/90 flex items-center gap-2">
                 <IconoTipo tipo={tipoCuentaReal} width={18} height={18} />
                 {nombreTipo(tipoCuentaReal)}
               </span>
@@ -387,13 +387,13 @@ export function PantallaCuentas({
             </div>
 
             <div className="relative my-2">
-              <span className="text-xs text-emerald-200/80 font-medium block mb-0.5">Saldo en cuenta</span>
+              <span className="text-xs text-white/75 font-medium block mb-0.5">Saldo en cuenta</span>
               <span className="text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
                 {detalleCuenta.cuenta.saldo_actual} {monedaCuentaReal}
               </span>
             </div>
 
-            <div className="relative flex items-center justify-between text-xs text-emerald-100/90 pt-2 border-t border-white/10">
+            <div className="relative flex items-center justify-between text-xs text-white/90 pt-2 border-t border-white/15">
               <span className="font-semibold truncate max-w-[150px]">{nombreCuentaReal}</span>
               <span className="font-mono text-[11px] opacity-80">•••• {cuentaActivaId.slice(-6)}</span>
             </div>

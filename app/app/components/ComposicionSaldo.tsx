@@ -49,11 +49,11 @@ export const ComposicionSaldo: React.FC<Props> = ({ composicion, simbolo, saldoA
         </div>
 
         {/* Ajustes */}
-        <div className="rounded-2xl border border-info-borde bg-info-suave p-2.5 shadow-sm sm:p-3.5">
-          <span className="block text-[11px] font-bold text-info-texto sm:text-xs">Ajustes</span>
+        <div className="rounded-2xl border border-borde bg-superficie-2 p-2.5 shadow-sm sm:p-3.5">
+          <span className="block text-[11px] font-bold text-suave sm:text-xs">Ajustes</span>
           <span
             title={formatearMontoLocal(composicion.total_ajustes, simbolo)}
-            className="mt-1 block truncate text-xs font-extrabold tabular-nums text-info sm:mt-1.5 sm:text-base"
+            className="mt-1 block truncate text-xs font-semibold tabular-nums text-texto sm:mt-1.5 sm:text-base"
           >
             {formatearMontoLocal(composicion.total_ajustes, simbolo)}
           </span>
