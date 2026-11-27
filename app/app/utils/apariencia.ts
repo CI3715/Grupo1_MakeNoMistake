@@ -22,23 +22,18 @@ export const ESCALAS_TEXTO: { id: EscalaTexto; nombre: string; etiqueta: string 
   { id: 'extra', nombre: 'Muy grande', etiqueta: '130%' },
 ];
 
-export type DisenoEscritorio = 'barra-superior' | 'barra-lateral' | 'dividida';
+export type DisenoEscritorio = 'barra-superior' | 'barra-lateral';
 
 export const DISENOS_ESCRITORIO: { id: DisenoEscritorio; nombre: string; descripcion: string }[] = [
   {
     id: 'barra-superior',
     nombre: 'Barra superior',
-    descripcion: 'Cabecera amplia centrada con navegación en pestañas.',
+    descripcion: 'Barra superior flotante redondeada inspirada en Quixotic.',
   },
   {
     id: 'barra-lateral',
     nombre: 'Barra lateral',
-    descripcion: 'Menú lateral fijo de escritorio con área de trabajo expandida.',
-  },
-  {
-    id: 'dividida',
-    nombre: 'Vista dividida',
-    descripcion: 'Maestro-detalle: cuentas a la izquierda y movimientos a la derecha.',
+    descripcion: 'Dock lateral flotante compacto que se expande al pasar el mouse.',
   },
 ];
 
@@ -138,7 +133,7 @@ export function leerSnapshotOscuro(): boolean {
 export function leerSnapshotDiseno(): DisenoEscritorio {
   if (typeof document === 'undefined') return 'barra-superior';
   const val = document.documentElement.dataset.diseno;
-  return val === 'barra-lateral' || val === 'dividida' ? val : 'barra-superior';
+  return val === 'barra-lateral' ? 'barra-lateral' : 'barra-superior';
 }
 
 /** Misma lógica que `aplicarApariencia`, como texto, para ejecutarla en <head> antes de pintar. */

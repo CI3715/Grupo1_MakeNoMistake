@@ -45,7 +45,6 @@ import { ListaCuentas } from './ListaCuentas';
 import { ListaMovimientos } from './ListaMovimientos';
 import { SubtotalesPorMoneda } from './SubtotalesPorMoneda';
 import { SelectorCuentaMinimalista } from './SelectorCuentaMinimalista';
-import type { DisenoEscritorio } from '../utils/apariencia';
 
 /** Solo traduce el DTO del backend a lo que pinta la tabla; no calcula nada. */
 function adaptarMovimiento(dto: MovimientoDto, moneda: string): Movimiento {
@@ -90,7 +89,6 @@ interface PantallaCuentasProps {
   setVistaSubpantalla: (vista: 'mis-cuentas' | 'detalle-cuenta' | 'tasas' | 'patrimonio') => void;
   /** Sube tras cada sincronización: se vuelven a leer cuentas, saldos y movimientos. */
   versionDatos?: number;
-  diseno?: DisenoEscritorio;
 }
 
 export function PantallaCuentas({
@@ -98,7 +96,6 @@ export function PantallaCuentas({
   vistaSubpantalla,
   setVistaSubpantalla,
   versionDatos = 0,
-  diseno = 'barra-superior',
 }: PantallaCuentasProps) {
   const [cuentaActivaId, setCuentaActivaId] = useState<string>('');
   const [cuentas, setCuentas] = useState<CuentaDto[]>([]);
@@ -327,16 +324,14 @@ export function PantallaCuentas({
     <div className="w-full space-y-6">
       {/* Barra superior de acciones del detalle */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {diseno !== 'dividida' && (
-          <button
-            type="button"
-            onClick={() => setVistaSubpantalla('mis-cuentas')}
-            className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-borde bg-superficie px-4 text-xs font-semibold text-texto shadow-suave transition hover:border-acento hover:bg-superficie-2 focus-visible:outline-2 focus-visible:outline-acento sm:w-auto sm:text-sm"
-          >
-            <IconoFlechaAtras width={16} height={16} />
-            <span>Volver a Mis cuentas</span>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setVistaSubpantalla('mis-cuentas')}
+          className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-full border border-borde bg-superficie px-5 text-xs font-semibold text-texto shadow-xs transition hover:border-acento hover:bg-superficie-2 focus-visible:outline-2 focus-visible:outline-acento sm:w-auto sm:text-sm"
+        >
+          <IconoFlechaAtras width={16} height={16} />
+          <span>Volver a Mis cuentas</span>
+        </button>
 
         <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row sm:items-center">
           {cuentas.length > 0 && (
@@ -353,7 +348,7 @@ export function PantallaCuentas({
               type="button"
               onClick={() => abrirModalMovimientoConTipo('gasto')}
               title="Registrar nuevo gasto"
-              className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-texto px-4 text-xs font-semibold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98] sm:text-sm"
+              className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-full bg-texto px-5 text-xs font-semibold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98] sm:text-sm"
             >
               <IconoGasto width={15} height={15} />
               <span>Nuevo Gasto</span>
@@ -363,7 +358,7 @@ export function PantallaCuentas({
               type="button"
               onClick={() => abrirModalMovimientoConTipo('ingreso')}
               title="Registrar nuevo ingreso"
-              className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-borde-fuerte bg-transparent px-4 text-xs font-semibold text-texto transition hover:border-texto hover:bg-superficie-2 active:scale-[0.98] sm:text-sm"
+              className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-full border-2 border-borde-fuerte bg-transparent px-5 text-xs font-semibold text-texto transition hover:border-texto hover:bg-superficie-2 active:scale-[0.98] sm:text-sm"
             >
               <IconoIngreso width={15} height={15} />
               <span>Nuevo Ingreso</span>
@@ -372,30 +367,131 @@ export function PantallaCuentas({
         </div>
       </div>
 
-      {/* Tarjeta de cabecera y composición de la cuenta */}
-      <div className="rounded-3xl border border-borde bg-superficie p-4 shadow-suave sm:p-6">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-borde pb-4">
-          <div className="flex items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-acento-suave text-acento-texto shadow-sm sm:size-12">
-              <IconoTipo tipo={tipoCuentaReal} width={22} height={22} />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-lg font-bold tracking-tight text-texto sm:text-2xl">
-                  {nombreCuentaReal} ({monedaCuentaReal})
-                </h2>
-                <span className="rounded-full bg-acento-suave px-2.5 py-0.5 text-xs font-bold text-acento-texto">
-                  {monedaCuentaReal}
+      {/* Fila de 3 tarjetas métricas superiores inspiradas en Quixotic */}
+      {detalleCuenta && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Tarjeta 1: Estilo Tarjeta Bancaria redondeada */}
+          <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-emerald-600 via-teal-700 to-emerald-950 p-6 text-white shadow-md flex flex-col justify-between min-h-[190px]">
+            <div className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-white/10 blur-xl" />
+            <div className="pointer-events-none absolute -left-10 -bottom-10 size-36 rounded-full bg-white/5 blur-xl" />
+
+            <div className="relative flex items-center justify-between">
+              <span className="text-xs font-extrabold uppercase tracking-widest text-emerald-100 flex items-center gap-2">
+                <IconoTipo tipo={tipoCuentaReal} width={18} height={18} />
+                {nombreTipo(tipoCuentaReal)}
+              </span>
+              <svg className="size-6 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+              </svg>
+            </div>
+
+            <div className="relative my-2">
+              <span className="text-xs text-emerald-200/80 font-medium block mb-0.5">Saldo en cuenta</span>
+              <span className="text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
+                {detalleCuenta.cuenta.saldo_actual} {monedaCuentaReal}
+              </span>
+            </div>
+
+            <div className="relative flex items-center justify-between text-xs text-emerald-100/90 pt-2 border-t border-white/10">
+              <span className="font-semibold truncate max-w-[150px]">{nombreCuentaReal}</span>
+              <span className="font-mono text-[11px] opacity-80">•••• {cuentaActivaId.slice(-6)}</span>
+            </div>
+          </div>
+
+          {/* Tarjeta 2: Métricas de Flujo / Consumo con barras visuales */}
+          <div className="rounded-[2rem] border border-borde bg-superficie p-6 shadow-xs flex flex-col justify-between min-h-[190px]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="grid size-8 place-items-center rounded-xl bg-superficie-2 text-suave">
+                  📊
                 </span>
+                <span className="text-xs font-bold text-texto uppercase tracking-wider">Flujo de Actividad</span>
               </div>
-              <p className="mt-0.5 text-xs text-suave">
-                {nombreTipo(tipoCuentaReal)} · ID de la cuenta:{' '}
-                <span className="font-mono text-[11px] opacity-80">{cuentaActivaId}</span>
-              </p>
+              <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                {movimientosAdaptados.length} ops
+              </span>
+            </div>
+
+            {/* Barras verticales visuales proporcionales estilo imagen */}
+            <div className="flex items-end justify-between gap-3 h-20 px-2 my-2">
+              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                <div className="w-full bg-emerald-500/20 rounded-full h-[75%] relative overflow-hidden flex items-end">
+                  <div className="w-full bg-emerald-500 rounded-full h-[85%]" />
+                </div>
+                <span className="text-[10px] text-suave font-bold">Ingresos</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                <div className="w-full bg-rose-500/20 rounded-full h-[85%] relative overflow-hidden flex items-end">
+                  <div className="w-full bg-rose-500 rounded-full h-[70%]" />
+                </div>
+                <span className="text-[10px] text-suave font-bold">Gastos</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                <div className="w-full bg-acento/20 rounded-full h-[100%] relative overflow-hidden flex items-end">
+                  <div className="w-full bg-acento rounded-full h-[90%]" />
+                </div>
+                <span className="text-[10px] text-suave font-bold">Saldo</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                <div className="w-full bg-superficie-2 rounded-full h-[45%] relative overflow-hidden flex items-end">
+                  <div className="w-full bg-suave/40 rounded-full h-[50%]" />
+                </div>
+                <span className="text-[10px] text-suave font-bold">Inicial</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-suave pt-2 border-t border-borde">
+              <span>Ingresos: <strong className="text-emerald-500 font-bold">+{detalleCuenta.composicion.total_ingresos}</strong></span>
+              <span>Gastos: <strong className="text-rose-500 font-bold">-{detalleCuenta.composicion.total_gastos}</strong></span>
+            </div>
+          </div>
+
+          {/* Tarjeta 3: Curva de balance y Acciones Rápidas */}
+          <div className="rounded-[2rem] border border-borde bg-superficie p-6 shadow-xs flex flex-col justify-between min-h-[190px]">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-texto uppercase tracking-wider">Tendencia</span>
+              <span className="text-xs font-bold text-suave">{monedaCuentaReal}</span>
+            </div>
+
+            {/* Curva SVG estilizada suave inspirada en la imagen */}
+            <div className="relative h-14 w-full my-1 overflow-hidden">
+              <svg className="w-full h-full" viewBox="0 0 200 60" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="curvaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <path d="M 0 45 Q 35 15, 70 35 T 140 20 T 200 15 L 200 60 L 0 60 Z" fill="url(#curvaGrad)" />
+                <path d="M 0 45 Q 35 15, 70 35 T 140 20 T 200 15" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            </div>
+
+            {/* Botones de acción rápida estilo Quixotic */}
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-borde">
+              <button
+                type="button"
+                onClick={() => abrirModalMovimientoConTipo('gasto')}
+                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full bg-texto px-3 py-1.5 text-xs font-bold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98]"
+              >
+                <IconoGasto width={12} height={12} />
+                <span>Gasto ↗</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => abrirModalMovimientoConTipo('ingreso')}
+                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full border-2 border-borde-fuerte bg-transparent px-3 py-1.5 text-xs font-bold text-texto transition hover:border-texto hover:bg-superficie-2 active:scale-[0.98]"
+              >
+                <IconoIngreso width={12} height={12} />
+                <span>Ingreso ↙</span>
+              </button>
             </div>
           </div>
         </div>
+      )}
 
+      {/* Tarjeta de composición y desglose */}
+      <div className="rounded-[2rem] border border-borde bg-superficie p-5 shadow-xs sm:p-7">
         {detalleCuenta && (
           <ComposicionSaldo
             composicion={detalleCuenta.composicion}
@@ -404,10 +500,10 @@ export function PantallaCuentas({
           />
         )}
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 mt-6">
           <div className="space-y-4 lg:col-span-2">
             <div>
-              <h3 className="text-base font-semibold tracking-tight text-texto">
+              <h3 className="text-base font-bold tracking-tight text-texto">
                 Historial de Movimientos
               </h3>
               <p className="mt-0.5 text-xs text-suave">
@@ -424,7 +520,7 @@ export function PantallaCuentas({
             />
           </div>
 
-          <div className="h-fit rounded-2xl border border-borde bg-superficie-2/40 p-5">
+          <div className="h-fit rounded-[2rem] border border-borde bg-superficie-2/40 p-6">
             <h3 className="mb-1 text-sm font-bold text-texto">Nueva Categoría</h3>
             <p className="mb-3.5 text-xs text-suave">
               Crea categorías propias para clasificar tus ingresos y gastos.
@@ -442,60 +538,8 @@ export function PantallaCuentas({
 
   return (
     <>
-      {diseno === 'dividida' ? (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
-          {/* Panel Izquierdo: Subtotales y Cuentas (4 cols) */}
-          <div className="space-y-6 lg:col-span-4">
-            {subtotales.length > 0 && (
-              <aside className="min-w-0">
-                <SubtotalesPorMoneda
-                  subtotales={subtotales}
-                  monedas={monedas}
-                  cuentas={cuentasAdaptadas}
-                />
-              </aside>
-            )}
-            <section
-              aria-labelledby="titulo-panel-cuentas-dividida"
-              className="min-w-0 overflow-hidden rounded-3xl border border-borde bg-superficie shadow-suave"
-            >
-              <div className="flex items-center justify-between gap-4 border-b border-borde px-4 py-3.5 sm:px-5">
-                <div>
-                  <h2
-                    id="titulo-panel-cuentas-dividida"
-                    className="text-base font-semibold tracking-tight text-texto"
-                  >
-                    Mis Cuentas
-                  </h2>
-                  <p className="text-xs text-suave">{cuentas.length} registradas</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => abrirModalCuenta()}
-                  className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-xl bg-acento px-3 text-xs font-semibold text-acento-fg shadow-xs transition hover:brightness-110 active:scale-[0.98]"
-                >
-                  <IconoMas width={14} height={14} />
-                  <span>Nueva</span>
-                </button>
-              </div>
-
-              {cuentasAdaptadas.length === 0 ? (
-                <EstadoVacio onCrearCuenta={() => abrirModalCuenta()} />
-              ) : (
-                <ListaCuentas
-                  cuentas={cuentasAdaptadas}
-                  monedas={monedas}
-                  onSeleccionarCuenta={(id) => setCuentaActivaId(id)}
-                />
-              )}
-            </section>
-          </div>
-
-          {/* Panel Derecho: Detalle de Cuenta (8 cols) */}
-          <div className="min-w-0 lg:col-span-8">{bloqueDetalleCuenta}</div>
-        </div>
-      ) : vistaSubpantalla === 'mis-cuentas' ? (
-        <div className="grid items-start gap-6 md:grid-cols-[17.5rem_1fr]">
+      {vistaSubpantalla === 'mis-cuentas' ? (
+        <div className="grid items-start gap-6 md:grid-cols-[18.5rem_1fr]">
           {/* Tarjetas laterales de saldo por moneda */}
           <aside className="min-w-0">
             {subtotales.length > 0 ? (
@@ -505,7 +549,7 @@ export function PantallaCuentas({
                 cuentas={cuentasAdaptadas}
               />
             ) : (
-              <div className="rounded-3xl border border-dashed border-borde bg-superficie p-5 text-sm text-suave shadow-suave">
+              <div className="rounded-[2rem] border border-dashed border-borde bg-superficie p-6 text-sm text-suave shadow-xs">
                 Aquí verás el saldo de cada moneda en cuanto crees tu primera cuenta.
               </div>
             )}
@@ -514,13 +558,13 @@ export function PantallaCuentas({
           {/* Panel principal de cuentas */}
           <section
             aria-labelledby="titulo-panel-cuentas"
-            className="min-w-0 overflow-hidden rounded-3xl border border-borde bg-superficie shadow-suave"
+            className="min-w-0 overflow-hidden rounded-[2rem] border border-borde bg-superficie shadow-xs"
           >
-            <div className="flex items-center justify-between gap-4 border-b border-borde px-4 py-3.5 sm:px-6 sm:py-4">
+            <div className="flex items-center justify-between gap-4 border-b border-borde px-5 py-4 sm:px-7">
               <div>
                 <h2
                   id="titulo-panel-cuentas"
-                  className="text-lg font-semibold tracking-tight text-texto"
+                  className="text-lg font-bold tracking-tight text-texto"
                 >
                   Cuentas
                 </h2>
@@ -532,7 +576,7 @@ export function PantallaCuentas({
               <button
                 type="button"
                 onClick={() => abrirModalCuenta()}
-                className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl bg-acento px-4 text-xs font-semibold text-acento-fg shadow-sm transition hover:brightness-110 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento sm:text-sm"
+                className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full bg-acento px-5 text-xs font-semibold text-acento-fg shadow-xs transition hover:brightness-110 active:scale-[0.98] sm:text-sm"
               >
                 <IconoMas width={16} height={16} />
                 <span>Nueva Cuenta</span>

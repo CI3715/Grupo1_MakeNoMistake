@@ -86,7 +86,7 @@ export function SelectorApariencia() {
             <div
               role="group"
               aria-label="Disposición de escritorio"
-              className="grid grid-cols-3 gap-1 rounded-xl bg-superficie-2 p-1"
+              className="grid grid-cols-2 gap-1 rounded-xl bg-superficie-2 p-1"
             >
               {DISENOS_ESCRITORIO.map((d) => (
                 <button

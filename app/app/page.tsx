@@ -118,10 +118,6 @@ export default function Home() {
   const sesionVigente = control.sesion.estado === 'vigente';
   const nombreVisible = control.sesion.nombreVisible ?? 'Mi perfil';
   const inicialUsuario = nombreVisible.trim().charAt(0).toUpperCase() || 'U';
-  const enSesionOPerfil =
-    pantallaActual === 'inicio-sesion' ||
-    pantallaActual === 'registro' ||
-    pantallaActual === 'perfil';
 
   const itemsNav: { id: string; etiqueta: string; icono: React.ReactNode }[] = [
     {
@@ -187,7 +183,6 @@ export default function Home() {
             vistaSubpantalla={vistaSubpantalla}
             setVistaSubpantalla={handleCambiarSubpantalla}
             versionDatos={sincronizacion.versionDatos}
-            diseno={diseno}
           />
         )}
         {pantallaActual === 'tasas' && <PantallaTasas modoOscuro={modoOscuro} />}
@@ -240,10 +235,11 @@ export default function Home() {
     </>
   );
 
-  // ── OPCIÓN 2: Layout con Barra Lateral Fija de Escritorio ──
+  // ── OPCIÓN 2: Layout con Barra Lateral Flotante Expandible al Pasar el Mouse ──
   if (diseno === 'barra-lateral') {
     return (
       <div className="flex h-screen overflow-hidden bg-fondo text-texto transition-colors duration-200">
+        {/* Barra Lateral Flotante que se expande al hover */}
         <Sidebar
           pantallaActual={pantallaActual}
           setPantallaActual={setPantallaActual}
@@ -251,18 +247,19 @@ export default function Home() {
           modoOscuro={modoOscuro}
         />
 
+        {/* Área de trabajo de escritorio amplia con scroll suave */}
         <div className="flex flex-1 flex-col overflow-y-auto">
-          {/* Barra superior de herramientas de escritorio */}
-          <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-borde bg-superficie/85 px-6 backdrop-blur-md sm:px-8">
+          {/* Barra de herramientas superior flotante redondeada */}
+          <header className="sticky top-4 z-30 mx-4 sm:mx-8 flex h-14 shrink-0 items-center justify-between rounded-full border border-borde bg-superficie/95 px-6 backdrop-blur-md shadow-xs">
             <div className="min-w-0 pr-4">
-              <h1 className="truncate text-base sm:text-lg font-bold tracking-tight text-texto">
+              <h1 className="truncate text-base sm:text-lg font-extrabold tracking-tight text-texto">
                 {infoEncabezado.titulo}
               </h1>
-              <p className="hidden sm:block truncate text-xs text-suave">
-                {infoEncabezado.subtitulo}
-              </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
+              <span className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-borde bg-superficie-2 px-3.5 py-1 text-xs font-semibold text-suave">
+                📅 {new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </span>
               <ConmutadorDiseno
                 disenoActual={diseno}
                 variante="superficie"
@@ -270,7 +267,7 @@ export default function Home() {
             </div>
           </header>
 
-          <main className="w-full max-w-7xl mx-auto p-6 sm:p-8">
+          <main className="w-full max-w-7xl mx-auto p-4 sm:p-8 space-y-6">
             {contenidoPrincipal}
           </main>
         </div>
@@ -280,123 +277,102 @@ export default function Home() {
     );
   }
 
-  // ── OPCIONES 1 & 3: Layouts con Barra Superior Amplia o Dividida ──
+  // ── OPCIÓN 1: Layout con Barra Superior Redondeada Flotante (Inspirada en Quixotic) ──
   return (
     <div className="min-h-screen bg-fondo pb-16 text-texto transition-colors duration-200">
-      {/* Cabecera superior curva con degradado dinámico ampliada para escritorio */}
-      <div className="relative rounded-b-[2.5rem] bg-linear-to-br from-grad-a to-grad-b pb-28 text-white shadow-lg">
-        {/* Esferas decorativas de luz y desenfoque ambiental */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-b-[2.5rem]"
-        >
-          <div className="absolute -right-24 -top-32 size-96 rounded-full bg-white/10 blur-2xl" />
-          <div className="absolute -bottom-44 left-1/3 size-96 rounded-full bg-white/5 blur-3xl" />
-        </div>
+      {/* Barra superior redondeada flotante tipo Quixotic */}
+      <div className="sticky top-4 z-40 mx-auto w-full max-w-7xl px-4 sm:px-6">
+        <header className="flex items-center justify-between gap-4 rounded-full border border-borde bg-superficie/95 p-2 px-6 shadow-sm backdrop-blur-md">
+          {/* Logo y Marca */}
+          <button
+            type="button"
+            onClick={() => setPantallaActual('mis-cuentas')}
+            className="flex cursor-pointer items-center gap-2.5 text-left focus:outline-none shrink-0"
+          >
+            <span className="grid size-9 place-items-center rounded-full bg-acento text-acento-fg shadow-xs">
+              <IconoLogo width={20} height={20} />
+            </span>
+            <span className="text-sm font-extrabold tracking-tight text-texto hidden sm:inline">
+              Cuentas Claras
+            </span>
+          </button>
 
-        <div className="relative mx-auto w-full max-w-7xl px-4 pt-5 sm:px-8 sm:pt-6">
-          {/* Fila 1: Marca + Selector de Disposición + Sesión + Selector de Apariencia */}
-          <header className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-3">
+          {/* Navegación central en píldoras */}
+          <nav
+            aria-label="Vistas principales"
+            className="flex items-center gap-1 overflow-x-auto py-0.5"
+          >
+            {itemsNav.map((item) => {
+              const activo = pantallaActual === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setPantallaActual(item.id)}
+                  className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                    activo
+                      ? 'bg-acento text-acento-fg shadow-xs font-bold'
+                      : 'text-suave hover:bg-superficie-2 hover:text-texto'
+                  }`}
+                >
+                  {item.icono}
+                  <span>{item.etiqueta}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Acciones derechas: Conmutador de Diseño + Personalizar + Perfil */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <ConmutadorDiseno disenoActual={diseno} variante="superficie" />
+            <SelectorApariencia />
+
+            {sesionVigente ? (
               <button
                 type="button"
-                onClick={() => setPantallaActual('mis-cuentas')}
-                className="flex cursor-pointer items-center gap-2.5 text-left focus:outline-none"
+                onClick={() => setPantallaActual('perfil')}
+                title={`Perfil: ${nombreVisible}`}
+                className={`flex size-9 cursor-pointer items-center justify-center rounded-full bg-acento text-xs font-bold text-acento-fg shadow-xs transition hover:opacity-90 ${
+                  pantallaActual === 'perfil' ? 'ring-2 ring-acento ring-offset-2' : ''
+                }`}
               >
-                <span className="grid size-9 place-items-center rounded-2xl bg-white/15 shadow-sm ring-1 ring-white/25 backdrop-blur-xs sm:size-10">
-                  <IconoLogo width={20} height={20} />
-                </span>
-                <div>
-                  <span className="text-base font-bold tracking-tight sm:text-lg">
-                    Cuentas Claras
-                  </span>
-                  <span className="ml-2 hidden rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-white/90 sm:inline">
-                    LOCAL-FIRST
-                  </span>
-                </div>
+                {inicialUsuario}
               </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPantallaActual('inicio-sesion')}
+                title="Iniciar sesión"
+                className="grid size-9 cursor-pointer place-items-center rounded-full bg-superficie-2 text-suave hover:bg-superficie-hover hover:text-texto"
+              >
+                <IconoUsuario className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </header>
+      </div>
 
-              <div className="flex items-center gap-2.5 flex-wrap justify-end">
-                {/* Conmutador rápido de diseño de escritorio */}
-                <ConmutadorDiseno
-                  disenoActual={diseno}
-                  variante="traslucido"
-                />
-
-                {sesionVigente ? (
-                  <button
-                    type="button"
-                    onClick={() => setPantallaActual('perfil')}
-                    className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-xl px-3 text-xs font-semibold transition sm:h-10 sm:px-3.5 ${
-                      pantallaActual === 'perfil'
-                        ? 'bg-white text-slate-950 shadow-sm'
-                        : 'bg-white/15 text-white ring-1 ring-white/25 backdrop-blur hover:bg-white/25'
-                    }`}
-                  >
-                    <span className="flex size-5 items-center justify-center rounded-full bg-acento text-[11px] font-bold text-acento-fg">
-                      {inicialUsuario}
-                    </span>
-                    <span className="max-w-[120px] truncate">{nombreVisible}</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setPantallaActual('inicio-sesion')}
-                    className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-xs font-semibold transition sm:h-10 sm:px-3.5 ${
-                      enSesionOPerfil
-                        ? 'bg-white text-slate-950 shadow-sm'
-                        : 'bg-white/15 text-white ring-1 ring-white/25 backdrop-blur hover:bg-white/25'
-                    }`}
-                  >
-                    <IconoUsuario className="h-3.5 w-3.5 shrink-0" />
-                    <span>Iniciar sesión</span>
-                  </button>
-                )}
-
-                <SelectorApariencia />
-              </div>
-            </div>
-
-            {/* Fila 2: Píldora de navegación entre todas las vistas de la aplicación */}
-            <nav
-              aria-label="Vistas principales"
-              className="flex flex-wrap items-center gap-1 rounded-2xl bg-black/25 p-1.5 ring-1 ring-white/20 backdrop-blur-md"
-            >
-              {itemsNav.map((item) => {
-                const activo = pantallaActual === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setPantallaActual(item.id)}
-                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition sm:text-sm ${
-                      activo
-                        ? 'bg-white text-slate-950 shadow-sm'
-                        : 'text-white/85 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    {item.icono}
-                    <span>{item.etiqueta}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </header>
-
-          {/* Título dinámico en la cabecera */}
-          <div className="mt-6 sm:mt-7">
-            <h1 className="text-2xl font-bold tracking-tight sm:text-4xl">
+      {/* Fila de título y bienvenida */}
+      <div className="mx-auto w-full max-w-7xl px-4 pt-6 sm:px-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2">
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-texto sm:text-3xl">
               {infoEncabezado.titulo}
             </h1>
-            <p className="mt-1 text-xs text-white/80 sm:mt-1.5 sm:text-sm">
+            <p className="mt-0.5 text-xs text-suave sm:text-sm">
               {infoEncabezado.subtitulo}
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-borde bg-superficie px-4 py-1.5 text-xs font-semibold text-suave shadow-xs">
+              📅 {new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Contenido principal superpuesto a la cabecera con margen negativo y ancho amplio */}
-      <main className="relative mx-auto -mt-14 w-full max-w-7xl px-4 sm:-mt-16 sm:px-8">
+      {/* Contenido principal amplio */}
+      <main className="mx-auto w-full max-w-7xl px-4 pt-3 sm:px-6">
         {contenidoPrincipal}
       </main>
 
