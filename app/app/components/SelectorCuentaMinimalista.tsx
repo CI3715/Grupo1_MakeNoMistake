@@ -95,16 +95,14 @@ export function SelectorCuentaMinimalista({
                       : 'text-texto hover:bg-superficie-2 hover:text-texto'
                   }`}
                 >
-                  <div className="min-w-0 pr-2">
+                  <div className="min-w-0 flex-1 pr-2">
                     <p className="truncate font-medium">{c.nombre}</p>
                     <p className={`text-[11px] ${esActiva ? 'text-white/80' : 'text-suave'}`}>
                       {c.moneda} · Saldo actual
                     </p>
                   </div>
                   {esActiva && (
-                    <span className="shrink-0 text-current">
-                      <IconoCheckCirculo width={16} height={16} />
-                    </span>
+                    <IconoCheckCirculo size={16} width={16} height={16} className="size-4 shrink-0 text-current ml-2" />
                   )}
                 </button>
               );

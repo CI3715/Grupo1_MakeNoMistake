@@ -125,12 +125,12 @@ export function MenuDesplegable<T extends string = string>({
                       : 'text-texto hover:bg-superficie-2 hover:text-texto'
                   }`}
                 >
-                  <div className="flex items-center gap-2 truncate pr-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1 truncate pr-2">
                     {op.icono}
                     <span className="truncate">{op.etiqueta}</span>
                     {op.secundario && (
                       <span
-                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                        className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
                           activa
                             ? 'bg-white/20 text-white'
                             : 'bg-superficie-2 text-suave border border-borde/50'
@@ -142,9 +142,10 @@ export function MenuDesplegable<T extends string = string>({
                   </div>
                   {activa && (
                     <IconoCheckCirculo
+                      size={16}
                       width={16}
                       height={16}
-                      className="shrink-0 text-current"
+                      className="size-4 shrink-0 text-current ml-2"
                     />
                   )}
                 </button>

@@ -340,21 +340,23 @@ export const IconoAlerta: React.FC<IconoProps> = ({
 );
 
 export const IconoCheck: React.FC<IconoProps> = ({
-  className = 'w-4 h-4',
+  className = '',
   size,
+  width,
+  height,
   strokeWidth = 2,
   'aria-hidden': ariaHidden = true,
 }) => (
   <svg
-    width={size}
-    height={size}
+    width={width ?? size ?? 16}
+    height={height ?? size ?? 16}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
     strokeWidth={strokeWidth}
     strokeLinecap="round"
     strokeLinejoin="round"
-    className={className}
+    className={`size-4 shrink-0 ${className}`}
     aria-hidden={ariaHidden}
   >
     <polyline points="20 6 9 17 4 12" />
@@ -362,21 +364,23 @@ export const IconoCheck: React.FC<IconoProps> = ({
 );
 
 export const IconoCheckCirculo: React.FC<IconoProps> = ({
-  className = 'w-4 h-4',
+  className = '',
   size,
+  width,
+  height,
   strokeWidth = 1.75,
   'aria-hidden': ariaHidden = true,
 }) => (
   <svg
-    width={size}
-    height={size}
+    width={width ?? size ?? 16}
+    height={height ?? size ?? 16}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
     strokeWidth={strokeWidth}
     strokeLinecap="round"
     strokeLinejoin="round"
-    className={className}
+    className={`size-4 shrink-0 ${className}`}
     aria-hidden={ariaHidden}
   >
     <circle cx="12" cy="12" r="10" />
