@@ -18,11 +18,12 @@ use aplicacion::secretos::{
     validar_frase_de_paso,
 };
 use aplicacion::sincronizar_libro::{EstadoSincronizacion, sincronizar};
-use aplicacion::{CasosDeUso, Cifrador, Reloj};
+use aplicacion::{CasosDeUso, Cifrador, Reloj, TransporteSincronizacion};
 use infraestructura::cifrado::CifradorArgon2;
 use infraestructura::reloj::RelojSistema;
 use infraestructura::secretos::{AlmacenSecretosSistema, SERVICIO_SECRETOS_POR_DEFECTO};
 use infraestructura::transporte_carpeta::TransporteCarpeta;
+use infraestructura::transporte_git::TransporteGit;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -34,7 +35,6 @@ use crate::sesion::{Almacen, AlmacenSistema, sin_campo};
 
 const INTERNO: &str = "Ocurrió un problema interno. Intenta de nuevo.";
 const CONFIG_ILEGIBLE: &str = "No se pudo leer la configuración de la sincronización.";
-const GIT_NO_DISPONIBLE: &str = "El destino en un repositorio Git todavía no está disponible en esta versión. Usa una carpeta compartida.";
 const TIPO_CARPETA: &str = "carpeta";
 const TIPO_GIT: &str = "git";
 
@@ -57,7 +57,6 @@ pub struct EstadoDto {
 /// el token, que no deben acabar en un registro.
 #[derive(Deserialize)]
 #[serde(tag = "tipo", rename_all = "snake_case")]
-#[allow(dead_code)] // los campos de Git los usará el adaptador Git cuando exista
 pub enum ConfigurarDestinoDto {
     Carpeta {
         ubicacion: String,
@@ -142,6 +141,24 @@ fn secreto(e: ErrorSecretos) -> ErroresDto {
     sin_campo(&e.to_string())
 }
 
+/// Copia local del repositorio Git, junto al libro: `<libro>.sync.git/`. Solo tiene lotes
+/// cifrados y se puede borrar: se reconstruye desde el remoto.
+fn copia_git(ruta: &Path) -> PathBuf {
+    ruta.with_extension("git")
+}
+
+/// Borra la copia local del repositorio, si existe. Un destino nuevo no debe arrastrar
+/// lotes de otro repositorio.
+fn borrar_copia_git(ruta: &Path) -> Result<(), ErroresDto> {
+    match fs::remove_dir_all(copia_git(ruta)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(sin_campo(
+            "No se pudo borrar la copia local del repositorio anterior.",
+        )),
+    }
+}
+
 // ---------- Lógica (sin Tauri) ----------
 
 /// Destino configurado y fecha de la última sincronización exitosa. Sin red.
@@ -159,22 +176,54 @@ pub fn configurar_destino(
     secretos: &dyn AlmacenSecretos,
     datos: ConfigurarDestinoDto,
 ) -> Result<DestinoDto, ErroresDto> {
-    let (ubicacion, frase) = match datos {
-        ConfigurarDestinoDto::Git { .. } => return Err(sin_campo(GIT_NO_DISPONIBLE)),
-        ConfigurarDestinoDto::Carpeta { ubicacion, frase } => (ubicacion, frase),
+    let (destino, frase, credenciales) = match datos {
+        ConfigurarDestinoDto::Carpeta { ubicacion, frase } => {
+            validar_frase_de_paso(&frase).map_err(secreto)?;
+            let carpeta = Path::new(&ubicacion);
+            if !carpeta.is_absolute() || !carpeta.is_dir() {
+                return Err(sin_campo("La carpeta elegida no existe."));
+            }
+            let destino = DestinoGuardado {
+                tipo: TIPO_CARPETA.to_string(),
+                ubicacion,
+                usuario: None,
+            };
+            (destino, frase, None)
+        }
+        ConfigurarDestinoDto::Git {
+            ubicacion,
+            usuario,
+            token,
+            frase,
+        } => {
+            validar_frase_de_paso(&frase).map_err(secreto)?;
+            let ubicacion = ubicacion.trim().to_string();
+            if ubicacion.is_empty()
+                || ubicacion.starts_with('-')
+                || ubicacion.contains(char::is_whitespace)
+            {
+                return Err(sin_campo("Escribe la dirección del repositorio Git."));
+            }
+            let credenciales = CredencialesGit::nuevas(usuario.trim(), token);
+            validar_credenciales_git(&credenciales).map_err(secreto)?;
+            let destino = DestinoGuardado {
+                tipo: TIPO_GIT.to_string(),
+                ubicacion,
+                usuario: Some(credenciales.usuario.clone()),
+            };
+            (destino, frase, Some(credenciales))
+        }
     };
-    validar_frase_de_paso(&frase).map_err(secreto)?;
-    let carpeta = Path::new(&ubicacion);
-    if !carpeta.is_absolute() || !carpeta.is_dir() {
-        return Err(sin_campo("La carpeta elegida no existe."));
-    }
+    borrar_copia_git(ruta)?;
     secretos.guardar_frase_de_paso(&frase).map_err(secreto)?;
-    secretos.borrar_credenciales_git().map_err(secreto)?;
-    let destino = DestinoGuardado {
-        tipo: TIPO_CARPETA.to_string(),
-        ubicacion,
-        usuario: None,
+    let guardadas = match &credenciales {
+        Some(c) => secretos.guardar_credenciales_git(c),
+        None => secretos.borrar_credenciales_git(),
     };
+    if let Err(e) = guardadas {
+        let _ = secretos.borrar_todo();
+        return Err(secreto(e));
+    }
     let archivo = Archivo {
         destino: Some(destino.clone()),
         ..Archivo::default()
@@ -207,15 +256,46 @@ pub fn actualizar_credenciales(
     guardar(ruta, &archivo)
 }
 
-/// Quita el destino de este dispositivo y borra su frase y credenciales. No borra nada del
-/// destino ni cambia el libro.
+/// Quita el destino de este dispositivo y borra su frase, sus credenciales y la copia local
+/// del repositorio Git (si la hay). No borra nada del destino ni cambia el libro.
 pub fn quitar_destino(ruta: &Path, secretos: &dyn AlmacenSecretos) -> Result<(), ErroresDto> {
     secretos.borrar_todo().map_err(secreto)?;
+    borrar_copia_git(ruta)?;
     match fs::remove_file(ruta) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err(sin_campo("No se pudo quitar la configuración del destino.")),
     }
+}
+
+/// El transporte del destino configurado: una carpeta compartida o un repositorio Git con
+/// las credenciales del almacén de secretos.
+fn transporte_de(
+    destino: &DestinoGuardado,
+    ruta: &Path,
+    secretos: &dyn AlmacenSecretos,
+    dispositivo: &str,
+) -> Result<Box<dyn TransporteSincronizacion>, ErroresDto> {
+    let transporte: Box<dyn TransporteSincronizacion> = match destino.tipo.as_str() {
+        TIPO_CARPETA => Box::new(
+            TransporteCarpeta::nuevo(&destino.ubicacion, dispositivo)
+                .map_err(|e| sin_campo(&e.to_string()))?,
+        ),
+        TIPO_GIT => {
+            let credenciales = secretos.leer_credenciales_git().map_err(secreto)?;
+            Box::new(
+                TransporteGit::nuevo(
+                    &destino.ubicacion,
+                    copia_git(ruta),
+                    dispositivo,
+                    credenciales,
+                )
+                .map_err(|e| sin_campo(&e.to_string()))?,
+            )
+        }
+        _ => return Err(sin_campo(CONFIG_ILEGIBLE)),
+    };
+    Ok(transporte)
 }
 
 /// Trae, fusiona, envía y publica. El estado nuevo solo se guarda si todo salió bien: si
@@ -233,20 +313,16 @@ pub fn sincronizar_con_destino(
             "No hay un destino de sincronización configurado.",
         ));
     };
-    if destino.tipo != TIPO_CARPETA {
-        return Err(sin_campo(GIT_NO_DISPONIBLE));
-    }
     let frase = secretos
         .leer_frase_de_paso()
         .map_err(secreto)?
         .ok_or_else(|| {
             sin_campo("No se encontró la frase de paso de este destino. Configúralo de nuevo.")
         })?;
-    let mut transporte = TransporteCarpeta::nuevo(&destino.ubicacion, &casos.id_dispositivo())
-        .map_err(|e| sin_campo(&e.to_string()))?;
+    let mut transporte = transporte_de(&destino, ruta, secretos, &casos.id_dispositivo())?;
     let (informe, estado) = sincronizar(
         casos,
-        &mut transporte,
+        transporte.as_mut(),
         cifrador,
         &frase,
         ahora,
@@ -513,7 +589,7 @@ mod pruebas {
     }
 
     #[test]
-    fn frase_corta_carpeta_inexistente_y_git_se_rechazan_sin_dejar_destino() {
+    fn frase_corta_carpeta_inexistente_y_git_incompleto_se_rechazan_sin_dejar_destino() {
         let base = carpeta("rechazos");
         let i = instalacion(&base, "laptop", "lap");
         let existente = base.join("existe");
@@ -539,17 +615,28 @@ mod pruebas {
             ))
             .contains("no existe")
         );
-        let git = ConfigurarDestinoDto::Git {
-            ubicacion: "repo".to_string(),
-            usuario: "ana".to_string(),
-            token: "tok".to_string(),
-            frase: FRASE.to_string(),
-        };
-        assert!(
-            error(configurar_destino(&i.ruta_estado, &i.secretos, git))
-                .contains("todavía no está disponible")
-        );
+        let git =
+            |ubicacion: &str, usuario: &str, token: &str, frase: &str| ConfigurarDestinoDto::Git {
+                ubicacion: ubicacion.to_string(),
+                usuario: usuario.to_string(),
+                token: token.to_string(),
+                frase: frase.to_string(),
+            };
+        for (datos, mensaje) in [
+            (git("repo", "ana", "tok", "corta"), "al menos 12"),
+            (git("  ", "ana", "tok", FRASE), "dirección del repositorio"),
+            (
+                git("--upload-pack=x", "ana", "tok", FRASE),
+                "dirección del repositorio",
+            ),
+            (git("repo", " ", "tok", FRASE), "obligatorios"),
+            (git("repo", "ana", "", FRASE), "obligatorios"),
+        ] {
+            let obtenido = error(configurar_destino(&i.ruta_estado, &i.secretos, datos));
+            assert!(obtenido.contains(mensaje), "{obtenido}");
+        }
         assert!(ok(estado_del_destino(&i.ruta_estado)).destino.is_none());
+        assert_eq!(i.secretos.leer_credenciales_git().unwrap(), None);
         assert_eq!(i.secretos.leer_frase_de_paso().unwrap(), None);
     }
 
@@ -671,6 +758,141 @@ mod pruebas {
         archivos_de(&destino, &mut despues);
         assert_eq!(antes, despues);
         ok(quitar_destino(&laptop.ruta_estado, &laptop.secretos));
+    }
+
+    /// Repositorio Git desnudo que hace de remoto. Necesita el programa `git`.
+    fn repositorio_remoto(base: &Path) -> PathBuf {
+        let remoto = base.join("remoto.git");
+        let salida = std::process::Command::new("git")
+            .args(["init", "-q", "--bare"])
+            .arg(&remoto)
+            .output()
+            .expect("estas pruebas necesitan el programa git");
+        assert!(salida.status.success());
+        remoto
+    }
+
+    fn a_git(i: &Instalacion, remoto: &Path) -> DestinoDto {
+        ok(configurar_destino(
+            &i.ruta_estado,
+            &i.secretos,
+            ConfigurarDestinoDto::Git {
+                ubicacion: remoto.to_string_lossy().into_owned(),
+                usuario: " ana ".to_string(),
+                token: "tok-secreto".to_string(),
+                frase: FRASE.to_string(),
+            },
+        ))
+    }
+
+    #[test]
+    fn el_destino_git_guarda_frase_y_token_solo_en_el_almacen_de_secretos() {
+        let base = carpeta("git-secretos");
+        let remoto = repositorio_remoto(&base);
+        let i = instalacion(&base, "laptop", "lap");
+        let destino = a_git(&i, &remoto);
+
+        assert_eq!(destino.tipo, "git");
+        assert_eq!(destino.usuario.as_deref(), Some("ana"));
+        let guardadas = i.secretos.leer_credenciales_git().unwrap().unwrap();
+        assert_eq!(
+            (guardadas.usuario.as_str(), guardadas.token.as_str()),
+            ("ana", "tok-secreto")
+        );
+        assert_eq!(
+            i.secretos.leer_frase_de_paso().unwrap().as_deref(),
+            Some(FRASE)
+        );
+        let archivo = fs::read_to_string(&i.ruta_estado).unwrap();
+        assert!(!archivo.contains("tok-secreto") && !archivo.contains(FRASE));
+    }
+
+    #[test]
+    fn dos_instalaciones_convergen_con_un_repositorio_git() {
+        let base = carpeta("git-convergen");
+        let remoto = repositorio_remoto(&base);
+        let mut laptop = instalacion(&base, "laptop", "lap");
+        let mut telefono = instalacion(&base, "telefono", "tel");
+        a_git(&laptop, &remoto);
+        a_git(&telefono, &remoto);
+
+        cuenta(&mut laptop, "Efectivo");
+        cuenta(&mut telefono, "Banco");
+        let a = ok(sincronizar_i(&mut laptop));
+        assert_eq!((a.enviados, a.recibidos), (1, 0));
+        // El teléfono publica después: el remoto cambió y el adaptador lo resuelve solo.
+        let b = ok(sincronizar_i(&mut telefono));
+        assert_eq!((b.enviados, b.recibidos), (1, 1));
+        let c = ok(sincronizar_i(&mut laptop));
+        assert_eq!((c.enviados, c.recibidos), (0, 1));
+
+        assert_eq!(ids(&laptop).len(), 2);
+        assert_eq!(ids(&laptop), ids(&telefono));
+        for i in [&mut laptop, &mut telefono] {
+            let repetida = ok(sincronizar_i(i));
+            assert_eq!((repetida.enviados, repetida.recibidos), (0, 0));
+        }
+
+        // El repositorio solo tiene lotes cifrados, uno por carpeta de dispositivo.
+        let mut archivos = Vec::new();
+        archivos_de(&copia_git(&laptop.ruta_estado), &mut archivos);
+        let lotes: Vec<_> = archivos
+            .iter()
+            .filter(|r| r.extension().is_some_and(|x| x == "lote"))
+            .collect();
+        assert_eq!(lotes.len(), 2);
+        for ruta in lotes {
+            let texto = String::from_utf8_lossy(&fs::read(ruta).unwrap()).into_owned();
+            assert!(
+                !texto.contains("Efectivo") && !texto.contains("Banco"),
+                "{ruta:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn un_repositorio_inaccesible_no_pierde_nada_y_se_reintenta() {
+        let base = carpeta("git-inaccesible");
+        let remoto = repositorio_remoto(&base);
+        let mut laptop = instalacion(&base, "laptop", "lap");
+        a_git(&laptop, &remoto);
+        cuenta(&mut laptop, "Efectivo");
+        let oculto = base.join("oculto.git");
+        fs::rename(&remoto, &oculto).unwrap();
+
+        assert!(error(sincronizar_i(&mut laptop)).contains("No se pudo llegar"));
+        assert_eq!(
+            ok(estado_del_destino(&laptop.ruta_estado)).ultima_sincronizacion,
+            None
+        );
+
+        fs::rename(&oculto, &remoto).unwrap();
+        assert_eq!(ok(sincronizar_i(&mut laptop)).enviados, 1);
+    }
+
+    #[test]
+    fn cambiar_o_quitar_el_destino_borra_la_copia_local_del_repositorio() {
+        let base = carpeta("git-copia");
+        let remoto = repositorio_remoto(&base);
+        let mut laptop = instalacion(&base, "laptop", "lap");
+        a_git(&laptop, &remoto);
+        cuenta(&mut laptop, "Efectivo");
+        ok(sincronizar_i(&mut laptop));
+        let copia = copia_git(&laptop.ruta_estado);
+        assert!(copia.join(".git").is_dir());
+
+        // Otro repositorio: la copia del anterior no se arrastra.
+        let otro = base.join("otro");
+        fs::create_dir_all(&otro).unwrap();
+        a_git(&laptop, &repositorio_remoto(&otro));
+        assert!(!copia.exists());
+        ok(sincronizar_i(&mut laptop));
+        assert!(copia.exists());
+
+        ok(quitar_destino(&laptop.ruta_estado, &laptop.secretos));
+        assert!(!copia.exists());
+        assert_eq!(laptop.secretos.leer_credenciales_git().unwrap(), None);
+        assert_eq!(ids(&laptop).len(), 1);
     }
 
     #[test]

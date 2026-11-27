@@ -54,7 +54,7 @@ Elige **uno** de estos destinos.
 
 ### 3.1. Con un repositorio Git privado
 
-Necesitas una cuenta en un servicio de Git (GitHub, GitLab, etc.).
+Necesitas una cuenta en un servicio de Git (GitHub, GitLab, etc.) y el programa **Git instalado** en cada dispositivo (en Windows, [Git for Windows](https://git-scm.com/download/win)). La aplicación guarda una copia local del repositorio junto a tu libro; solo contiene lotes cifrados.
 
 1. **Crea un repositorio privado y vacío**, por ejemplo `mi-libro`. Debe ser privado: aunque todo va cifrado, no hay razón para exponerlo.
 2. **Crea un token de acceso personal** en tu servicio de Git con permiso para **leer y escribir** en ese repositorio. Cópialo: normalmente solo se muestra una vez.
