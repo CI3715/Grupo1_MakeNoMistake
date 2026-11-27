@@ -78,7 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       aria-label="Barra lateral de navegación"
-      className="group/sidebar relative my-4 ml-4 flex h-[calc(100vh-2rem)] w-20 flex-col justify-between rounded-[2.25rem] border border-borde bg-superficie p-3.5 text-texto shadow-lg transition-all duration-300 ease-in-out hover:w-64 hover:shadow-2xl z-40 shrink-0"
+      className="group/sidebar relative my-4 ml-4 flex h-[calc(100vh-2rem)] w-20 hover:w-64 flex-col justify-between rounded-[2.25rem] border border-borde bg-superficie p-3.5 text-texto shadow-lg hover:shadow-2xl z-40 shrink-0 transition-shadow duration-150"
     >
       {/* Zona Superior: Logo / Marca perfectamente centrado */}
       <div className="flex flex-col items-center w-full">
@@ -86,12 +86,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           type="button"
           onClick={() => setPantallaActual('mis-cuentas')}
           title="Cuentas Claras"
-          className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 transition hover:bg-superficie-2"
+          className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 transition-colors hover:bg-superficie-2"
         >
           <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-acento text-acento-fg shadow-xs">
             <IconoLogo width={22} height={22} />
           </span>
-          <div className="hidden min-w-0 pl-3 opacity-0 transition-opacity duration-200 group-hover/sidebar:block group-hover/sidebar:opacity-100 text-left">
+          <div className="hidden min-w-0 pl-3 group-hover/sidebar:block text-left">
             <p className="truncate text-sm font-bold tracking-tight text-texto">Cuentas Claras</p>
             <p className="text-[10px] font-bold tracking-wider text-acento-texto uppercase">
               LOCAL-FIRST
@@ -100,7 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
 
         {/* Separador fino */}
-        <div className="my-3 w-8 border-b border-borde transition-all group-hover/sidebar:w-full" />
+        <div className="my-3 w-8 border-b border-borde group-hover/sidebar:w-full" />
 
         {/* Lista de Iconos de Navegación */}
         <nav aria-label="Menú principal" className="w-full space-y-1.5">
@@ -112,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 onClick={() => setPantallaActual(item.id)}
                 title={item.etiqueta}
-                className={`relative flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 transition-all duration-200 ${
+                className={`relative flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 transition-colors ${
                   activo
                     ? 'bg-acento text-acento-fg shadow-xs'
                     : 'text-suave hover:bg-superficie-2 hover:text-texto'
@@ -121,7 +121,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="grid size-10 shrink-0 place-items-center">
                   {item.icono}
                 </span>
-                <span className="hidden whitespace-nowrap pl-3 text-sm font-semibold opacity-0 transition-opacity duration-200 group-hover/sidebar:inline-block group-hover/sidebar:opacity-100">
+                <span className="hidden whitespace-nowrap pl-3 text-sm font-semibold group-hover/sidebar:inline-block">
                   {item.etiqueta}
                 </span>
               </button>
@@ -139,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={() => setPantallaActual('perfil')}
             title={`Perfil: ${nombreVisible}`}
-            className={`flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 transition ${
+            className={`flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 transition-colors ${
               pantallaActual === 'perfil'
                 ? 'bg-acento-suave text-acento-texto'
                 : 'text-suave hover:bg-superficie-2 hover:text-texto'
@@ -148,7 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="grid size-10 shrink-0 place-items-center rounded-full bg-acento text-xs font-bold text-acento-fg shadow-xs">
               {inicialUsuario}
             </span>
-            <div className="hidden min-w-0 pl-3 opacity-0 transition-opacity duration-200 group-hover/sidebar:block group-hover/sidebar:opacity-100 text-left">
+            <div className="hidden min-w-0 pl-3 group-hover/sidebar:block text-left">
               <p className="truncate text-xs font-bold text-texto">{nombreVisible}</p>
               <p className="text-[10px] text-suave">Sesión activa</p>
             </div>
@@ -158,12 +158,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={() => setPantallaActual('inicio-sesion')}
             title="Iniciar sesión"
-            className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 text-suave transition hover:bg-superficie-2 hover:text-texto"
+            className="flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 text-suave transition-colors hover:bg-superficie-2 hover:text-texto"
           >
             <span className="grid size-10 shrink-0 place-items-center rounded-full bg-superficie-2 text-suave">
               <IconoUsuario className="h-4 w-4" />
             </span>
-            <div className="hidden min-w-0 pl-3 opacity-0 transition-opacity duration-200 group-hover/sidebar:block group-hover/sidebar:opacity-100 text-left">
+            <div className="hidden min-w-0 pl-3 group-hover/sidebar:block text-left">
               <p className="text-xs font-bold text-texto">Iniciar sesión</p>
               <p className="text-[10px] text-suave">Amigos y grupos</p>
             </div>

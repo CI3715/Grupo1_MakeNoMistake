@@ -1,7 +1,14 @@
 'use client';
 
 import React from 'react';
-import { LogoCuentasClaras } from '../LogoCuentasClaras';
+import {
+  IconoBilletera,
+  IconoCheckCirculo,
+  IconoFlechaDerecha,
+  IconoLogo,
+  IconoUsuario,
+} from '../Iconos';
+import { SelectorApariencia } from '../SelectorApariencia';
 
 interface Props {
   modoOscuro: boolean;
@@ -10,178 +17,197 @@ interface Props {
   onIniciarSesion: () => void;
 }
 
-const Icono: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-    {children}
-  </svg>
-);
-
-/**
- * Bienvenida de primer acceso (diseño de Figma «Escritorio · Bienvenida»).
- * Izquierda: presentación (#211337, 660px, padding 64, gap 48). Derecha: «Primer acceso»
- * (padding 64/88, gap 30). Por debajo de 1280px se apila para que no haya scroll horizontal.
- */
 export const PantallaBienvenida: React.FC<Props> = ({
-  modoOscuro,
   onContinuarSinRegistro,
   onCrearUsuario,
   onIniciarSesion,
 }) => {
-  const fondoDerecho = modoOscuro ? 'bg-[#0B0F17] text-white' : 'bg-white text-slate-900';
-  const textoSuave = modoOscuro ? 'text-gray-400' : 'text-gray-500';
-  const textoTitulo = modoOscuro ? 'text-white' : 'text-[#1a1030]';
-  const cajaCompartir = modoOscuro ? 'bg-[#151C28]' : 'bg-[#F6F5FA]';
-
   return (
-    <div className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-[#211337]">
-      <div className="flex min-h-full flex-col xl:flex-row">
-        {/* ---------- Presentación ---------- */}
-        <section className="flex flex-col items-start gap-8 xl:gap-12 bg-[#211337] p-8 xl:p-16 xl:w-[660px] xl:shrink-0 text-white">
-          <LogoCuentasClaras tono="claro" />
+    <div className="fixed inset-0 z-[70] overflow-y-auto bg-fondo text-texto p-4 sm:p-8 flex flex-col justify-between">
+      {/* Barra superior con marca y personalización inmediata */}
+      <header className="mx-auto w-full max-w-6xl flex items-center justify-between pb-6 sm:pb-8">
+        <div className="flex items-center gap-3">
+          <span className="grid size-11 place-items-center rounded-2xl bg-acento text-acento-fg shadow-xs">
+            <IconoLogo width={22} height={22} />
+          </span>
+          <div>
+            <span className="block text-base font-extrabold tracking-tight text-texto sm:text-lg">
+              Cuentas Claras
+            </span>
+            <span className="block text-[10px] font-bold tracking-widest text-acento-texto uppercase">
+              LOCAL-FIRST
+            </span>
+          </div>
+        </div>
 
-          <div className="flex flex-col items-start gap-6 xl:my-auto">
-            <span className="rounded-full bg-[#9333EA]/30 border border-purple-400/30 px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-purple-200 uppercase">
-              Personal · Multimoneda · Local
+        {/* Selector de apariencia y accesibilidad */}
+        <div className="flex items-center gap-2">
+          <SelectorApariencia variante="superficie" />
+        </div>
+      </header>
+
+      {/* Contenedor principal de dos columnas con estilo Quixotic / Cuentas Claras */}
+      <main className="mx-auto w-full max-w-6xl my-auto grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Panel Izquierdo: Presentación y Tarjeta Ilustrativa */}
+        <section className="lg:col-span-6 relative overflow-hidden rounded-[2.5rem] bg-linear-to-br from-grad-a to-grad-b p-8 sm:p-12 text-white shadow-xl flex flex-col justify-between min-h-[460px]">
+          {/* Destellos decorativos difusos */}
+          <div className="pointer-events-none absolute -right-16 -top-16 size-56 rounded-full bg-white/10 blur-3xl" />
+          <div className="pointer-events-none absolute -left-16 -bottom-16 size-56 rounded-full bg-white/10 blur-3xl" />
+
+          <div className="relative space-y-5">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-white ring-1 ring-white/25 backdrop-blur-md">
+              Personal · Multimoneda · Local-First
             </span>
 
-            <h1 className="text-4xl xl:text-[44px] font-semibold leading-[1.15] tracking-tight">
+            <h1 className="text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight text-white">
               Tu dinero, claro.
               <br />
               Tus datos, tuyos.
             </h1>
 
-            <p className="max-w-md text-sm text-purple-200/80">
-              Un lugar para organizar tus cuentas y compartir gastos, sin perder el control de tu información.
+            <p className="max-w-md text-sm text-white/85 leading-relaxed">
+              Un asistente financiero diseñado para organizar tus cuentas y compartir gastos, con total
+              privacidad y sin depender de servidores para tu libro personal.
             </p>
 
-            {/* Tarjeta ilustrativa: datos de ejemplo, no son del libro de nadie */}
-            <div className="w-full max-w-md rounded-2xl border border-purple-400/20 bg-white/5 p-6">
-              <div className="flex items-center justify-between text-[10px] font-semibold tracking-[0.12em] text-purple-200/70 uppercase">
-                <span>Mi libro personal</span>
-                <Icono>
-                  <rect x="5" y="11" width="14" height="10" rx="2" />
-                  <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-                </Icono>
+            {/* Tarjeta ilustrativa con el estilo de la app */}
+            <div className="w-full max-w-sm rounded-[2rem] border border-white/20 bg-white/10 p-6 backdrop-blur-md shadow-lg">
+              <div className="flex items-center justify-between text-xs font-bold uppercase tracking-widest text-white/80">
+                <span className="flex items-center gap-2">
+                  <IconoBilletera className="h-4 w-4" />
+                  Libro Personal
+                </span>
+                <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] text-white">
+                  Local
+                </span>
               </div>
-              <p className="mt-3 text-3xl font-semibold tracking-tight">1.980,00 USD</p>
-              <p className="mt-1 text-xs text-purple-200/70">Todo tu patrimonio, en una sola mirada.</p>
-              <div className="mt-4 flex h-1.5 w-full gap-1.5" aria-hidden="true">
-                <span className="h-full flex-[6] rounded-full bg-purple-200" />
-                <span className="h-full flex-[1.2] rounded-full bg-purple-400" />
-                <span className="h-full flex-[2.5] rounded-full bg-[#9333EA]" />
+
+              <div className="my-3">
+                <span className="text-[11px] text-white/70 font-medium block">Patrimonio consolidado</span>
+                <p className="text-3xl font-extrabold tracking-tight tabular-nums">
+                  1.980,00 USD
+                </p>
               </div>
-              <p className="mt-3 text-[10px] text-purple-200/60">USD · VES · USDT / Datos ilustrativos</p>
+
+              <div className="flex items-center justify-between pt-3 border-t border-white/15 text-[11px] text-white/80">
+                <span>USD · EUR · VES · BTC</span>
+                <span className="font-mono text-[10px] opacity-75">SQLite inmutable</span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-6 text-[11px] text-purple-200/70 xl:mt-auto">
-            <span className="flex items-center gap-2">
-              <Icono>
-                <rect x="3" y="4" width="18" height="12" rx="2" />
-                <path d="M8 20h8M12 16v4" />
-              </Icono>
-              Windows · Linux
-            </span>
-            <span className="flex items-center gap-2">
-              <Icono>
-                <rect x="7" y="2" width="10" height="20" rx="2" />
-                <path d="M11 18h2" />
-              </Icono>
-              Android
-            </span>
+          <div className="relative pt-6 flex items-center gap-6 text-xs text-white/75 border-t border-white/15 mt-6">
+            <span>Windows · Linux · Escritorio</span>
+            <span>Local-First</span>
           </div>
         </section>
 
-        {/* ---------- Primer acceso ---------- */}
-        <section
-          className={`flex flex-1 flex-col justify-center items-start gap-[30px] p-8 xl:px-[88px] xl:py-16 ${fondoDerecho}`}
-        >
-          <div className="w-full max-w-xl flex flex-col gap-[30px]">
+        {/* Panel Derecho: Primer Acceso y Acciones Clave */}
+        <section className="lg:col-span-6 rounded-[2.5rem] border border-borde bg-superficie p-8 sm:p-12 text-texto shadow-sm flex flex-col justify-between">
+          <div className="space-y-6">
             <div>
-              <p className={`text-[10px] font-semibold tracking-[0.14em] uppercase ${textoSuave}`}>
+              <span className="text-xs font-bold uppercase tracking-wider text-acento-texto">
                 Bienvenida a Cuentas Claras
-              </p>
-              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${textoTitulo}`}>Empieza por ti.</h2>
-              <p className={`mt-3 text-sm ${textoSuave}`}>
-                No necesitas una cuenta de usuario para llevar tus finanzas personales.
+              </span>
+              <h2 className="text-3xl font-extrabold tracking-tight text-texto mt-1">
+                Empieza por ti.
+              </h2>
+              <p className="text-sm text-suave mt-2">
+                No necesitas crear una cuenta de usuario para gestionar tus finanzas personales.
               </p>
             </div>
 
-            <ul className="flex flex-col gap-4">
-              <li className="flex items-start gap-3">
-                <span className="mt-0.5 text-[#9333EA]">
-                  <Icono>
-                    <path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01M3 3l18 18" />
-                  </Icono>
+            {/* Lista de garantías arquitectónicas del sistema */}
+            <ul className="space-y-4">
+              <li className="flex items-start gap-3.5">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-acento/10 text-acento-texto">
+                  <IconoCheckCirculo width={18} height={18} />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold">Funciona sin conexión</p>
-                  <p className={`text-xs ${textoSuave}`}>Registra tus movimientos, estés donde estés.</p>
+                  <p className="text-sm font-bold text-texto">Funciona 100% sin conexión</p>
+                  <p className="text-xs text-suave">
+                    Registra y consulta tus cuentas y movimientos sin requerir internet ni servidor.
+                  </p>
                 </div>
               </li>
-              <li className="flex items-start gap-3">
-                <span className="mt-0.5 text-[#9333EA]">
-                  <Icono>
-                    <path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6l8-3z" />
-                    <path d="M9 12l2 2 4-4" />
-                  </Icono>
+
+              <li className="flex items-start gap-3.5">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-acento/10 text-acento-texto">
+                  <IconoCheckCirculo width={18} height={18} />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold">Privacidad por diseño</p>
-                  <p className={`text-xs ${textoSuave}`}>Sin telemetría ni conexión a tus bancos.</p>
+                  <p className="text-sm font-bold text-texto">Privacidad por diseño (INV-16)</p>
+                  <p className="text-xs text-suave">
+                    Sin telemetría ni conexión a tus bancos. Tus finanzas nunca salen de este equipo.
+                  </p>
                 </div>
               </li>
-              <li className="flex items-start gap-3">
-                <span className="mt-0.5 text-[#9333EA]">
-                  <Icono>
-                    <rect x="3" y="4" width="18" height="12" rx="2" />
-                    <path d="M8 20h8M12 16v4" />
-                  </Icono>
+
+              <li className="flex items-start gap-3.5">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-acento/10 text-acento-texto">
+                  <IconoCheckCirculo width={18} height={18} />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold">En tu dispositivo</p>
-                  <p className={`text-xs ${textoSuave}`}>Tu libro personal permanece contigo.</p>
+                  <p className="text-sm font-bold text-texto">Libro inmutable de eventos</p>
+                  <p className="text-xs text-suave">
+                    Tu historial contable reside en tu base de datos SQLite local inmutable.
+                  </p>
                 </div>
               </li>
             </ul>
 
+            {/* Botón principal de acceso directo sin registro */}
             <button
               type="button"
               onClick={onContinuarSinRegistro}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#6D3FD0] hover:bg-[#5b32b5] px-5 py-3 text-sm font-semibold text-white shadow-md transition cursor-pointer"
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-full bg-acento px-6 py-4 text-sm font-bold text-acento-fg shadow-md transition hover:brightness-110 active:scale-[0.98]"
             >
-              <span aria-hidden="true">→</span> Continuar sin registro
+              <span>Continuar sin registro</span>
+              <IconoFlechaDerecha width={16} height={16} />
             </button>
 
-            <div className={`rounded-2xl p-5 ${cajaCompartir}`}>
-              <p className="text-sm font-semibold">¿Quieres compartir gastos?</p>
-              <p className={`mt-1 text-xs ${textoSuave}`}>
-                Crea una identidad solo para amigos, solicitudes y grupos. Tu libro seguirá siendo privado.
-              </p>
-              <div className="mt-4 flex items-center gap-4">
+            {/* Bloque de compartir gastos */}
+            <div className="rounded-2xl border border-borde bg-superficie-2 p-5 space-y-3">
+              <div>
+                <p className="text-xs font-bold text-texto uppercase tracking-wider flex items-center gap-1.5">
+                  <IconoUsuario className="h-3.5 w-3.5 text-acento-texto" />
+                  ¿Quieres compartir gastos?
+                </p>
+                <p className="text-xs text-suave mt-1 leading-relaxed">
+                  Crea una identidad solo para amigos y grupos cuando quieras. Tu libro personal seguirá
+                  siendo completamente privado.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
                 <button
                   type="button"
                   onClick={onCrearUsuario}
-                  className="rounded-lg bg-purple-100 px-4 py-2 text-xs font-semibold text-[#6D3FD0] hover:bg-purple-200 transition cursor-pointer"
+                  className="cursor-pointer rounded-full bg-superficie border border-borde px-4 py-2 text-xs font-bold text-texto shadow-xs transition hover:bg-superficie-hover active:scale-[0.98]"
                 >
                   Crear usuario
                 </button>
                 <button
                   type="button"
                   onClick={onIniciarSesion}
-                  className="text-xs font-semibold text-[#6D3FD0] hover:underline cursor-pointer"
+                  className="cursor-pointer text-xs font-bold text-acento-texto hover:underline transition"
                 >
                   Iniciar sesión
                 </button>
               </div>
             </div>
-
-            <p className={`text-[11px] ${textoSuave}`}>
-              Aplicación instalada · No mueve dinero ni procesa pagos.
-            </p>
           </div>
+
+          <p className="text-[11px] text-suave pt-4 border-t border-borde mt-6">
+            Cuentas Claras · Aplicación instalada de finanzas personales local-first.
+          </p>
         </section>
-      </div>
+      </main>
+
+      {/* Pie inferior discreto */}
+      <footer className="mx-auto w-full max-w-6xl pt-4 text-center text-[11px] text-suave">
+        Tus datos contables pertenecen exclusivamente a tu dispositivo.
+      </footer>
     </div>
   );
 };

@@ -92,7 +92,7 @@ export function SelectorApariencia({ variante = 'traslucido' }: SelectorAparienc
             <span className="grid size-10 shrink-0 place-items-center">
               <IconoPaleta width={20} height={20} />
             </span>
-            <span className="hidden whitespace-nowrap pl-3 text-sm font-semibold opacity-0 transition-opacity duration-200 group-hover/sidebar:inline-block group-hover/sidebar:opacity-100">
+            <span className="hidden whitespace-nowrap pl-3 text-sm font-semibold group-hover/sidebar:inline-block">
               Personalizar
             </span>
           </>

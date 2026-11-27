@@ -269,7 +269,6 @@ export default function Home() {
                 </span>
               </span>
               <ConmutadorDiseno disenoActual={diseno} variante="superficie" />
-              <SelectorApariencia variante="superficie" />
             </div>
           </header>
 
