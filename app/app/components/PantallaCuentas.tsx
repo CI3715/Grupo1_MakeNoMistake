@@ -34,6 +34,7 @@ import { EstadoVacio } from './EstadoVacio';
 import { FormularioCategoria } from './FormularioCategoria';
 import { FormularioCuenta } from './FormularioCuenta';
 import {
+  IconoDetalleCuenta,
   IconoFlechaAtras,
   IconoGasto,
   IconoIngreso,
@@ -398,92 +399,83 @@ export function PantallaCuentas({
             </div>
           </div>
 
-          {/* Tarjeta 2: Métricas de Flujo / Consumo con barras visuales */}
+          {/* Tarjeta 2: Resumen Contable Real del Libro (INV-05) */}
           <div className="rounded-[2rem] border border-borde bg-superficie p-6 shadow-xs flex flex-col justify-between min-h-[190px]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="grid size-8 place-items-center rounded-xl bg-superficie-2 text-suave">
-                  📊
+                <span className="grid size-8 place-items-center rounded-xl bg-superficie-2 text-texto">
+                  <IconoDetalleCuenta width={18} height={18} />
                 </span>
-                <span className="text-xs font-bold text-texto uppercase tracking-wider">Flujo de Actividad</span>
+                <span className="text-xs font-bold text-texto uppercase tracking-wider">
+                  Flujo del Libro
+                </span>
               </div>
-              <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                {movimientosAdaptados.length} ops
+              <span className="rounded-full bg-superficie-2 border border-borde px-2.5 py-0.5 text-[11px] font-bold text-suave">
+                {movimientosAdaptados.length} operaciones
               </span>
             </div>
 
-            {/* Barras verticales visuales proporcionales estilo imagen */}
-            <div className="flex items-end justify-between gap-3 h-20 px-2 my-2">
-              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                <div className="w-full bg-emerald-500/20 rounded-full h-[75%] relative overflow-hidden flex items-end">
-                  <div className="w-full bg-emerald-500 rounded-full h-[85%]" />
+            {/* Cifras contables reales del libro de eventos */}
+            <div className="grid grid-cols-2 gap-3 my-2">
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 mb-1">
+                  <IconoIngreso width={14} height={14} />
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Ingresos</span>
                 </div>
-                <span className="text-[10px] text-suave font-bold">Ingresos</span>
+                <p className="text-base sm:text-lg font-black tracking-tight text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  +{detalleCuenta.composicion.total_ingresos}
+                </p>
               </div>
-              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                <div className="w-full bg-rose-500/20 rounded-full h-[85%] relative overflow-hidden flex items-end">
-                  <div className="w-full bg-rose-500 rounded-full h-[70%]" />
+
+              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-3">
+                <div className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 mb-1">
+                  <IconoGasto width={14} height={14} />
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Gastos</span>
                 </div>
-                <span className="text-[10px] text-suave font-bold">Gastos</span>
-              </div>
-              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                <div className="w-full bg-acento/20 rounded-full h-[100%] relative overflow-hidden flex items-end">
-                  <div className="w-full bg-acento rounded-full h-[90%]" />
-                </div>
-                <span className="text-[10px] text-suave font-bold">Saldo</span>
-              </div>
-              <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                <div className="w-full bg-superficie-2 rounded-full h-[45%] relative overflow-hidden flex items-end">
-                  <div className="w-full bg-suave/40 rounded-full h-[50%]" />
-                </div>
-                <span className="text-[10px] text-suave font-bold">Inicial</span>
+                <p className="text-base sm:text-lg font-black tracking-tight text-rose-600 dark:text-rose-400 tabular-nums">
+                  -{detalleCuenta.composicion.total_gastos}
+                </p>
               </div>
             </div>
 
             <div className="flex items-center justify-between text-xs text-suave pt-2 border-t border-borde">
-              <span>Ingresos: <strong className="text-emerald-500 font-bold">+{detalleCuenta.composicion.total_ingresos}</strong></span>
-              <span>Gastos: <strong className="text-rose-500 font-bold">-{detalleCuenta.composicion.total_gastos}</strong></span>
+              <span>Inicial: <strong className="text-texto font-semibold">{detalleCuenta.composicion.saldo_inicial}</strong></span>
+              <span>Ajustes: <strong className="text-texto font-semibold">{detalleCuenta.composicion.total_ajustes}</strong></span>
             </div>
           </div>
 
-          {/* Tarjeta 3: Curva de balance y Acciones Rápidas */}
+          {/* Tarjeta 3: Acciones Rápidas y Verificación Local */}
           <div className="rounded-[2rem] border border-borde bg-superficie p-6 shadow-xs flex flex-col justify-between min-h-[190px]">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-texto uppercase tracking-wider">Tendencia</span>
-              <span className="text-xs font-bold text-suave">{monedaCuentaReal}</span>
+              <span className="text-xs font-bold text-texto uppercase tracking-wider">
+                Operaciones Rápidas
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-acento/10 px-2.5 py-0.5 text-[10px] font-bold text-acento-texto">
+                Libro inmutable
+              </span>
             </div>
 
-            {/* Curva SVG estilizada suave inspirada en la imagen */}
-            <div className="relative h-14 w-full my-1 overflow-hidden">
-              <svg className="w-full h-full" viewBox="0 0 200 60" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="curvaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <path d="M 0 45 Q 35 15, 70 35 T 140 20 T 200 15 L 200 60 L 0 60 Z" fill="url(#curvaGrad)" />
-                <path d="M 0 45 Q 35 15, 70 35 T 140 20 T 200 15" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" />
-              </svg>
-            </div>
+            <p className="text-xs text-suave my-2 leading-relaxed">
+              Registra movimientos de forma inmutable en el libro local de eventos de tu dispositivo.
+            </p>
 
-            {/* Botones de acción rápida estilo Quixotic */}
+            {/* Botones de acción rápida minimalistas (sólido y outline) */}
             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-borde">
               <button
                 type="button"
                 onClick={() => abrirModalMovimientoConTipo('gasto')}
-                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full bg-texto px-3 py-1.5 text-xs font-bold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98]"
+                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full bg-texto px-3 py-2 text-xs font-bold text-fondo shadow-xs transition hover:opacity-90 active:scale-[0.98]"
               >
-                <IconoGasto width={12} height={12} />
-                <span>Gasto ↗</span>
+                <IconoGasto width={14} height={14} />
+                <span>Nuevo Gasto</span>
               </button>
               <button
                 type="button"
                 onClick={() => abrirModalMovimientoConTipo('ingreso')}
-                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full border-2 border-borde-fuerte bg-transparent px-3 py-1.5 text-xs font-bold text-texto transition hover:border-texto hover:bg-superficie-2 active:scale-[0.98]"
+                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full border-2 border-borde-fuerte bg-transparent px-3 py-2 text-xs font-bold text-texto transition hover:border-texto hover:bg-superficie-2 active:scale-[0.98]"
               >
-                <IconoIngreso width={12} height={12} />
-                <span>Ingreso ↙</span>
+                <IconoIngreso width={14} height={14} />
+                <span>Nuevo Ingreso</span>
               </button>
             </div>
           </div>

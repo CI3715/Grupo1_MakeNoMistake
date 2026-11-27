@@ -13,11 +13,15 @@ import {
   type Apariencia,
 } from '../utils/apariencia';
 
+export interface SelectorAparienciaProps {
+  variante?: 'traslucido' | 'superficie' | 'sidebar';
+}
+
 /**
  * Botón con un panel flotante para elegir modo (claro/oscuro/sistema), paleta de color,
  * tamaño de texto (accesibilidad) y disposición de escritorio.
  */
-export function SelectorApariencia() {
+export function SelectorApariencia({ variante = 'traslucido' }: SelectorAparienciaProps) {
   const [abierto, setAbierto] = useState(false);
   const [apariencia, setApariencia] = useState<Apariencia>(leerApariencia);
   const contenedor = useRef<HTMLDivElement>(null);
@@ -57,25 +61,54 @@ export function SelectorApariencia() {
 
   const nombrePaleta = PALETAS.find((p) => p.id === paleta)?.nombre ?? '';
 
+  let estiloBoton =
+    'inline-flex h-9 items-center gap-2 rounded-xl bg-white/15 px-3 text-xs font-semibold text-white ring-1 ring-white/25 backdrop-blur transition hover:bg-white/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:h-10 sm:px-3.5 sm:text-sm cursor-pointer';
+
+  if (variante === 'superficie') {
+    estiloBoton =
+      'inline-flex h-9 items-center gap-2 rounded-xl bg-superficie-2 border border-borde px-3 text-xs font-semibold text-texto hover:bg-superficie-hover cursor-pointer transition sm:h-10 sm:px-3.5 sm:text-sm';
+  } else if (variante === 'sidebar') {
+    estiloBoton =
+      'relative flex h-11 w-full cursor-pointer items-center overflow-hidden rounded-2xl px-1.5 transition-all duration-200 text-suave hover:bg-superficie-2 hover:text-texto';
+  }
+
+  const claseDialogo =
+    variante === 'sidebar'
+      ? 'absolute left-full bottom-0 z-50 ml-3 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-borde bg-superficie p-4 text-texto shadow-2xl'
+      : 'absolute right-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-borde bg-superficie p-4 text-texto shadow-2xl';
+
   return (
-    <div ref={contenedor} className="relative">
+    <div ref={contenedor} className={variante === 'sidebar' ? 'relative w-full' : 'relative'}>
       <button
         type="button"
         onClick={() => setAbierto((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={abierto}
         title="Personalizar interfaz y accesibilidad"
-        className="inline-flex h-9 items-center gap-2 rounded-xl bg-white/15 px-3 text-xs font-semibold text-white ring-1 ring-white/25 backdrop-blur transition hover:bg-white/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:h-10 sm:px-3.5 sm:text-sm cursor-pointer"
+        className={estiloBoton}
       >
-        <IconoPaleta width={16} height={16} />
-        <span>Personalizar</span>
+        {variante === 'sidebar' ? (
+          <>
+            <span className="grid size-10 shrink-0 place-items-center">
+              <IconoPaleta width={20} height={20} />
+            </span>
+            <span className="hidden whitespace-nowrap pl-3 text-sm font-semibold opacity-0 transition-opacity duration-200 group-hover/sidebar:inline-block group-hover/sidebar:opacity-100">
+              Personalizar
+            </span>
+          </>
+        ) : (
+          <>
+            <IconoPaleta width={16} height={16} />
+            <span>Personalizar</span>
+          </>
+        )}
       </button>
 
       {abierto && (
         <div
           role="dialog"
           aria-label="Apariencia y Accesibilidad"
-          className="absolute right-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-borde bg-superficie p-4 text-texto shadow-2xl"
+          className={claseDialogo}
         >
           {/* Disposición de escritorio */}
           <div className="mb-4">

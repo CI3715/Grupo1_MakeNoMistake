@@ -16,6 +16,7 @@ import { Sidebar } from './components/Sidebar';
 import {
   IconoAmigos,
   IconoBilletera,
+  IconoCalendario,
   IconoCopiaSeguridad,
   IconoDetalleCuenta,
   IconoLogo,
@@ -122,43 +123,43 @@ export default function Home() {
   const itemsNav: { id: string; etiqueta: string; icono: React.ReactNode }[] = [
     {
       id: 'mis-cuentas',
-      etiqueta: 'Mis cuentas',
-      icono: <IconoBilletera className="h-3.5 w-3.5 shrink-0" />,
+      etiqueta: 'Cuentas',
+      icono: <IconoBilletera className="h-4 w-4 shrink-0" />,
     },
     {
       id: 'detalle-cuenta',
       etiqueta: 'Detalle',
-      icono: <IconoDetalleCuenta className="h-3.5 w-3.5 shrink-0" />,
+      icono: <IconoDetalleCuenta className="h-4 w-4 shrink-0" />,
     },
     {
       id: 'tasas',
       etiqueta: 'Tasas',
-      icono: <IconoTasasCambio className="h-3.5 w-3.5 shrink-0" />,
+      icono: <IconoTasasCambio className="h-4 w-4 shrink-0" />,
     },
     {
       id: 'patrimonio',
       etiqueta: 'Patrimonio',
-      icono: <IconoPatrimonio className="h-3.5 w-3.5 shrink-0" />,
+      icono: <IconoPatrimonio className="h-4 w-4 shrink-0" />,
     },
     {
       id: 'amigos',
       etiqueta: 'Amigos',
-      icono: <IconoAmigos className="h-3.5 w-3.5 shrink-0" />,
+      icono: <IconoAmigos className="h-4 w-4 shrink-0" />,
     },
     {
       id: 'grupos',
       etiqueta: 'Grupos',
-      icono: <IconoRecibo className="h-3.5 w-3.5 shrink-0" />,
+      icono: <IconoRecibo className="h-4 w-4 shrink-0" />,
     },
     {
       id: 'copia-seguridad',
-      etiqueta: 'Copia de seguridad',
-      icono: <IconoCopiaSeguridad className="h-3.5 w-3.5 shrink-0" />,
+      etiqueta: 'Copia',
+      icono: <IconoCopiaSeguridad className="h-4 w-4 shrink-0" />,
     },
     {
       id: 'sincronizacion-libro',
-      etiqueta: 'Sincronización',
-      icono: <IconoSincronizacion className="h-3.5 w-3.5 shrink-0" />,
+      etiqueta: 'Sincro',
+      icono: <IconoSincronizacion className="h-4 w-4 shrink-0" />,
     },
   ];
 
@@ -257,13 +258,18 @@ export default function Home() {
               </h1>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <span className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-borde bg-superficie-2 px-3.5 py-1 text-xs font-semibold text-suave">
-                📅 {new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+              <span className="hidden md:inline-flex items-center gap-2 rounded-full border border-borde bg-superficie-2 px-3.5 py-1 text-xs font-semibold text-suave">
+                <IconoCalendario className="h-3.5 w-3.5" />
+                <span>
+                  {new Date().toLocaleDateString('es-ES', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </span>
               </span>
-              <ConmutadorDiseno
-                disenoActual={diseno}
-                variante="superficie"
-              />
+              <ConmutadorDiseno disenoActual={diseno} variante="superficie" />
+              <SelectorApariencia variante="superficie" />
             </div>
           </header>
 
@@ -277,102 +283,113 @@ export default function Home() {
     );
   }
 
-  // ── OPCIÓN 1: Layout con Barra Superior Redondeada Flotante (Inspirada en Quixotic) ──
+  // ── OPCIÓN 1: Layout con Bloque Curvado Superior y Degradado Distintivo ──
   return (
     <div className="min-h-screen bg-fondo pb-16 text-texto transition-colors duration-200">
-      {/* Barra superior redondeada flotante tipo Quixotic */}
-      <div className="sticky top-4 z-40 mx-auto w-full max-w-7xl px-4 sm:px-6">
-        <header className="flex items-center justify-between gap-4 rounded-full border border-borde bg-superficie/95 p-2 px-6 shadow-sm backdrop-blur-md">
-          {/* Logo y Marca */}
-          <button
-            type="button"
-            onClick={() => setPantallaActual('mis-cuentas')}
-            className="flex cursor-pointer items-center gap-2.5 text-left focus:outline-none shrink-0"
-          >
-            <span className="grid size-9 place-items-center rounded-full bg-acento text-acento-fg shadow-xs">
-              <IconoLogo width={20} height={20} />
-            </span>
-            <span className="text-sm font-extrabold tracking-tight text-texto hidden sm:inline">
-              Cuentas Claras
-            </span>
-          </button>
+      {/* Cabecera curvada distintiva con degradado */}
+      <header className="relative rounded-b-[2.5rem] bg-linear-to-br from-grad-a to-grad-b pb-24 text-white shadow-lg transition-all duration-300">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pt-5 sm:px-8">
+          {/* Fila superior: Logo y Controles */}
+          <div className="flex items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={() => setPantallaActual('mis-cuentas')}
+              className="flex cursor-pointer items-center gap-3 text-left focus:outline-none"
+            >
+              <span className="grid size-11 place-items-center rounded-2xl bg-white/20 text-white shadow-xs backdrop-blur-md">
+                <IconoLogo width={22} height={22} />
+              </span>
+              <div>
+                <span className="block text-base font-extrabold tracking-tight text-white sm:text-lg">
+                  Cuentas Claras
+                </span>
+                <span className="block text-[10px] font-bold tracking-widest text-white/80 uppercase">
+                  LOCAL-FIRST
+                </span>
+              </div>
+            </button>
 
-          {/* Navegación central en píldoras */}
-          <nav
-            aria-label="Vistas principales"
-            className="flex items-center gap-1 overflow-x-auto py-0.5"
-          >
-            {itemsNav.map((item) => {
-              const activo = pantallaActual === item.id;
-              return (
+            <div className="flex items-center gap-3">
+              <ConmutadorDiseno disenoActual={diseno} variante="traslucido" />
+              <SelectorApariencia variante="traslucido" />
+
+              {sesionVigente ? (
                 <button
-                  key={item.id}
                   type="button"
-                  onClick={() => setPantallaActual(item.id)}
-                  className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition ${
-                    activo
-                      ? 'bg-acento text-acento-fg shadow-xs font-bold'
-                      : 'text-suave hover:bg-superficie-2 hover:text-texto'
-                  }`}
+                  onClick={() => setPantallaActual('perfil')}
+                  title={`Perfil: ${nombreVisible}`}
+                  className="flex size-10 cursor-pointer items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white shadow-xs ring-1 ring-white/30 backdrop-blur-md transition hover:bg-white/30"
                 >
-                  {item.icono}
-                  <span>{item.etiqueta}</span>
+                  {inicialUsuario}
                 </button>
-              );
-            })}
-          </nav>
-
-          {/* Acciones derechas: Conmutador de Diseño + Personalizar + Perfil */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <ConmutadorDiseno disenoActual={diseno} variante="superficie" />
-            <SelectorApariencia />
-
-            {sesionVigente ? (
-              <button
-                type="button"
-                onClick={() => setPantallaActual('perfil')}
-                title={`Perfil: ${nombreVisible}`}
-                className={`flex size-9 cursor-pointer items-center justify-center rounded-full bg-acento text-xs font-bold text-acento-fg shadow-xs transition hover:opacity-90 ${
-                  pantallaActual === 'perfil' ? 'ring-2 ring-acento ring-offset-2' : ''
-                }`}
-              >
-                {inicialUsuario}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setPantallaActual('inicio-sesion')}
-                title="Iniciar sesión"
-                className="grid size-9 cursor-pointer place-items-center rounded-full bg-superficie-2 text-suave hover:bg-superficie-hover hover:text-texto"
-              >
-                <IconoUsuario className="h-4 w-4" />
-              </button>
-            )}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPantallaActual('inicio-sesion')}
+                  title="Iniciar sesión"
+                  className="grid size-10 cursor-pointer place-items-center rounded-full bg-white/20 text-white shadow-xs ring-1 ring-white/30 backdrop-blur-md transition hover:bg-white/30"
+                >
+                  <IconoUsuario className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
-        </header>
-      </div>
 
-      {/* Fila de título y bienvenida */}
-      <div className="mx-auto w-full max-w-7xl px-4 pt-6 sm:px-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-texto sm:text-3xl">
-              {infoEncabezado.titulo}
-            </h1>
-            <p className="mt-0.5 text-xs text-suave sm:text-sm">
-              {infoEncabezado.subtitulo}
-            </p>
+          {/* Fila intermedia: Título de la vista y fecha */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+            <div>
+              <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                {infoEncabezado.titulo}
+              </h1>
+              <p className="mt-0.5 text-xs text-white/80 sm:text-sm">
+                {infoEncabezado.subtitulo}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-1.5 text-xs font-semibold text-white ring-1 ring-white/20 backdrop-blur-md shadow-xs">
+                <IconoCalendario className="h-3.5 w-3.5" />
+                <span>
+                  {new Date().toLocaleDateString('es-ES', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </span>
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-borde bg-superficie px-4 py-1.5 text-xs font-semibold text-suave shadow-xs">
-              📅 {new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
-            </span>
+
+          {/* Fila de navegación en píldoras (caben todas sin scroll lateral) */}
+          <div className="flex justify-center pt-1">
+            <nav
+              aria-label="Vistas principales"
+              className="flex items-center justify-center flex-wrap gap-1 rounded-full bg-black/25 p-1.5 ring-1 ring-white/20 backdrop-blur-md max-w-full"
+            >
+              {itemsNav.map((item) => {
+                const activo = pantallaActual === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setPantallaActual(item.id)}
+                    className={`inline-flex cursor-pointer items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition ${
+                      activo
+                        ? 'bg-white text-slate-950 shadow-md font-bold'
+                        : 'text-white/80 hover:bg-white/15 hover:text-white'
+                    }`}
+                  >
+                    {item.icono}
+                    <span>{item.etiqueta}</span>
+                  </button>
+                );
+              })}
+            </nav>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Contenido principal amplio */}
-      <main className="mx-auto w-full max-w-7xl px-4 pt-3 sm:px-6">
+      {/* Contenido principal amplio superpuesto a la curva */}
+      <main className="relative -mt-12 mx-auto w-full max-w-7xl px-4 sm:px-8">
         {contenidoPrincipal}
       </main>
 

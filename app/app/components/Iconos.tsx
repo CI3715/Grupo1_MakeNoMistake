@@ -17,6 +17,31 @@ export interface IconoProps {
  * y se adaptan automáticamente a modo claro y oscuro con Tailwind CSS.
  */
 
+export const IconoCalendario: React.FC<IconoProps> = ({
+  className = 'w-5 h-5',
+  size,
+  strokeWidth = 1.75,
+  'aria-hidden': ariaHidden = true,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={strokeWidth}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden={ariaHidden}
+  >
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+
 export const IconoBilletera: React.FC<IconoProps> = ({
   className = 'w-5 h-5',
   size,
