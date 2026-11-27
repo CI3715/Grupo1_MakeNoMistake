@@ -13,6 +13,7 @@ import {
 } from '../utils/tauriCommands';
 import { fechaHoyLocal, formatearMontoTexto, formatearFechaDDMMYYYY } from '../utils/formato';
 import { IconoCheckCirculo, IconoMas } from './Iconos';
+import { MenuDesplegable } from './MenuDesplegable';
 
 interface PantallaPatrimonioProps {
   modoOscuro?: boolean;
@@ -137,18 +138,18 @@ export const PantallaPatrimonio: React.FC<PantallaPatrimonioProps> = ({ versionD
             <label htmlFor="moneda-base" className="text-xs font-semibold text-suave">
               Moneda Base:
             </label>
-            <select
+            <MenuDesplegable
               id="moneda-base"
-              value={monedaBase}
-              onChange={(e) => handleCambiarMonedaBase(e.target.value)}
-              className={`${CAMPO} cursor-pointer`}
-            >
-              {monedas.map((m) => (
-                <option key={m.codigo} value={m.codigo} className="bg-superficie text-texto">
-                  {m.codigo} - {m.nombre}
-                </option>
-              ))}
-            </select>
+              valor={monedaBase}
+              alCambiar={handleCambiarMonedaBase}
+              variante="boton"
+              anchoPopup="w-64"
+              opciones={monedas.map((m) => ({
+                valor: m.codigo,
+                etiqueta: `${m.codigo} - ${m.nombre}`,
+                secundario: m.simbolo,
+              }))}
+            />
           </div>
 
           <div className="flex items-center gap-2.5">

@@ -5,6 +5,7 @@ import { ErrorCampo, MonedaDto, NuevaCuentaPayload } from '../utils/tauriCommand
 import { normalizarDecimal } from '../utils/formato';
 import { TIPOS } from '../utils/tipos';
 import { IconoTipo } from './Iconos';
+import { MenuDesplegable } from './MenuDesplegable';
 
 const CAMPOS_DEL_FORMULARIO = ['nombre', 'tipo', 'moneda', 'saldo_inicial'];
 
@@ -134,18 +135,16 @@ export const FormularioCuenta: React.FC<FormularioCuentaProps> = ({
           >
             Moneda
           </label>
-          <select
+          <MenuDesplegable
             id={`${id}-moneda`}
-            value={moneda}
-            onChange={(e) => setMoneda(e.target.value)}
-            className={`${CAMPO} cursor-pointer ${errorMap.moneda ? CAMPO_ERROR : CAMPO_OK}`}
-          >
-            {monedas.map((m) => (
-              <option key={m.codigo} value={m.codigo} className="bg-superficie text-texto">
-                {m.nombre} ({m.simbolo})
-              </option>
-            ))}
-          </select>
+            valor={moneda}
+            alCambiar={setMoneda}
+            opciones={monedas.map((m) => ({
+              valor: m.codigo,
+              etiqueta: `${m.nombre}`,
+              secundario: m.simbolo,
+            }))}
+          />
           {errorMap.moneda && (
             <p className="mt-1.5 text-xs font-medium text-peligro">{errorMap.moneda}</p>
           )}

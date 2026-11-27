@@ -71,7 +71,7 @@ export function SelectorCuentaMinimalista({
       {abierto && (
         <div
           role="listbox"
-          className="absolute left-0 sm:left-auto sm:right-0 top-full z-50 mt-1.5 max-h-60 w-full sm:w-72 overflow-y-auto rounded-2xl border border-borde bg-superficie p-1.5 text-texto shadow-xl"
+          className="absolute left-0 sm:left-auto sm:right-0 top-full z-50 mt-1.5 max-h-60 w-full sm:w-72 overflow-y-auto rounded-2xl border border-borde bg-superficie p-1.5 text-texto shadow-2xl backdrop-blur-md"
         >
           <div className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-suave">
             Seleccionar cuenta
@@ -91,16 +91,18 @@ export function SelectorCuentaMinimalista({
                   }}
                   className={`flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2 text-left text-xs sm:text-sm transition ${
                     esActiva
-                      ? 'bg-acento-suave font-semibold text-acento-texto'
-                      : 'text-texto hover:bg-superficie-2'
+                      ? 'bg-acento text-acento-fg font-bold shadow-xs'
+                      : 'text-texto hover:bg-superficie-2 hover:text-texto'
                   }`}
                 >
                   <div className="min-w-0 pr-2">
                     <p className="truncate font-medium">{c.nombre}</p>
-                    <p className="text-[11px] text-suave">{c.moneda} · Saldo actual</p>
+                    <p className={`text-[11px] ${esActiva ? 'text-white/80' : 'text-suave'}`}>
+                      {c.moneda} · Saldo actual
+                    </p>
                   </div>
                   {esActiva && (
-                    <span className="shrink-0 text-acento-texto">
+                    <span className="shrink-0 text-current">
                       <IconoCheckCirculo width={16} height={16} />
                     </span>
                   )}

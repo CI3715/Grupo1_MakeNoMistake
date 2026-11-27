@@ -33,6 +33,7 @@ import { DialogoCorregir } from './DialogoCorregir';
 import { EstadoVacio } from './EstadoVacio';
 import { FormularioCategoria } from './FormularioCategoria';
 import { FormularioCuenta } from './FormularioCuenta';
+import { MenuDesplegable } from './MenuDesplegable';
 import {
   IconoDetalleCuenta,
   IconoFlechaAtras,
@@ -719,22 +720,16 @@ export function PantallaCuentas({
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-suave">
                   Categoría
                 </label>
-                <select
-                  value={catMovId}
-                  onChange={(e) => setCatMovId(e.target.value)}
-                  className="w-full cursor-pointer rounded-xl border border-borde bg-superficie-2 px-3.5 py-2.5 text-xs text-texto outline-none transition focus:border-acento focus:ring-4 focus:ring-acento/15"
-                >
-                  {categoriasFiltradasModal.length === 0 ? (
-                    <option value="">No hay categorías disponibles...</option>
-                  ) : (
-                    <option value="">Seleccione categoría...</option>
-                  )}
-                  {categoriasFiltradasModal.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-superficie text-texto">
-                      {c.nombre}
-                    </option>
-                  ))}
-                </select>
+                <MenuDesplegable
+                  valor={catMovId}
+                  alCambiar={setCatMovId}
+                  placeholder="Seleccione categoría..."
+                  opciones={categoriasFiltradasModal.map((c) => ({
+                    valor: c.id,
+                    etiqueta: c.nombre,
+                    secundario: c.tipo === 'ingreso' ? 'Ingreso' : 'Gasto',
+                  }))}
+                />
                 {erroresMov.categoria && (
                   <p className="mt-1 text-[11px] font-medium text-peligro">
                     {erroresMov.categoria}

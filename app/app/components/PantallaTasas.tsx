@@ -13,6 +13,7 @@ import {
 } from '../utils/tauriCommands';
 import { fechaHoyLocal, formatearFechaDDMMYYYY, normalizarDecimal } from '../utils/formato';
 import { IconoCheckCirculo, IconoPapelera } from './Iconos';
+import { MenuDesplegable } from './MenuDesplegable';
 
 interface PantallaTasasProps {
   modoOscuro?: boolean;
@@ -150,18 +151,16 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = () => {
               >
                 Moneda Origen
               </label>
-              <select
+              <MenuDesplegable
                 id="moneda-origen"
-                value={origen}
-                onChange={(e) => setOrigen(e.target.value)}
-                className={`${CAMPO} cursor-pointer`}
-              >
-                {monedas.map((m) => (
-                  <option key={m.codigo} value={m.codigo} className="bg-superficie text-texto">
-                    {m.codigo} - {m.nombre}
-                  </option>
-                ))}
-              </select>
+                valor={origen}
+                alCambiar={setOrigen}
+                opciones={monedas.map((m) => ({
+                  valor: m.codigo,
+                  etiqueta: `${m.codigo} - ${m.nombre}`,
+                  secundario: m.simbolo,
+                }))}
+              />
               {erroresForm.moneda_origen && (
                 <span className="mt-1 block text-[11px] font-medium text-peligro">
                   {erroresForm.moneda_origen}
@@ -176,18 +175,16 @@ export const PantallaTasas: React.FC<PantallaTasasProps> = () => {
               >
                 Moneda Destino
               </label>
-              <select
+              <MenuDesplegable
                 id="moneda-destino"
-                value={destino}
-                onChange={(e) => setDestino(e.target.value)}
-                className={`${CAMPO} cursor-pointer`}
-              >
-                {monedas.map((m) => (
-                  <option key={m.codigo} value={m.codigo} className="bg-superficie text-texto">
-                    {m.codigo} - {m.nombre}
-                  </option>
-                ))}
-              </select>
+                valor={destino}
+                alCambiar={setDestino}
+                opciones={monedas.map((m) => ({
+                  valor: m.codigo,
+                  etiqueta: `${m.codigo} - ${m.nombre}`,
+                  secundario: m.simbolo,
+                }))}
+              />
               {erroresForm.moneda_destino && (
                 <span className="mt-1 block text-[11px] font-medium text-peligro">
                   {erroresForm.moneda_destino}
